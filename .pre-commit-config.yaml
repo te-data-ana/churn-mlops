@@ -1,0 +1,49 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    # hooks version
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+      # ensure tests follow naming convention test_.*\.py
+      - id: name-tests-test
+        args: [--pytest-test-first]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # ruff version
+    rev: v0.16.6
+    hooks:
+      # run linter
+      - id: ruff-check
+        types_or: [ python, pyi, pyproject ]
+        args: [--fix]
+      # run formatter
+      - id: ruff-format
+        types_or: [ python, pyi, markdown ]
+
+  - repo: https://github.com/Yelp/detect-secrets
+    # detect-secrets version
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+
+  - repo: https://github.com/kynan/nbstripout
+    # nbstripout version
+    rev: 0.9.1
+    hooks:
+      # strip output of jupyter notebooks for git only
+      - id: nbstripout
+
+  - repo: local
+    hooks:
+      # run tests pre-push
+      - id: pytest
+        name: pytest
+        entry: uv run pytest
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
