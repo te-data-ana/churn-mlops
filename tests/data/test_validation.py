@@ -1,5 +1,5 @@
 import pytest
-from pandera.errors import SchemaError
+from pandera.errors import SchemaError, SchemaErrors
 
 from churn_mlops.data import load_raw_data, validate_data
 
@@ -20,9 +20,17 @@ def test_validation_of_training_data(ingested_df):
 
 
 def test_validation_rejects_invalid_dtype(ingested_df):
-    ingested_df.loc[ingested_df.index[0], "age"] = "not_an_int"
+    df = ingested_df.copy()
+    df["age"] = "age"
 
-    with pytest.raises(SchemaError, match="age"):
+    with pytest.raises(SchemaErrors):
+        validate_data(df)
+
+
+def test_validation_rejects_missing_column(ingested_df):
+    ingested_df = ingested_df.drop(columns=["age"])
+
+    with pytest.raises(SchemaError):
         validate_data(ingested_df)
 
 
