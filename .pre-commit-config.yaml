@@ -25,18 +25,18 @@ repos:
       - id: ruff-format
         types_or: [ python, pyi, markdown ]
 
-  - repo: https://github.com/Yelp/detect-secrets
-    # detect-secrets version
-    rev: v1.5.0
-    hooks:
-      - id: detect-secrets
-
   - repo: https://github.com/kynan/nbstripout
     # nbstripout version
     rev: 0.9.1
     hooks:
       # strip output of jupyter notebooks for git only
       - id: nbstripout
+
+  - repo: https://github.com/Yelp/detect-secrets
+    # detect-secrets version
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
 
   - repo: local
     hooks:
