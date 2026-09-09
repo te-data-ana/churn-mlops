@@ -10,9 +10,8 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 
-# Testing
-.coverage
-htmlcov/
+# Testing/Local/Experimentation
+scratch/
 
 # Jupyter
 .ipynb_checkpoints/
