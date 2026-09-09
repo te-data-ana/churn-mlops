@@ -3,6 +3,16 @@ from sklearn.base import BaseEstimator, TransformerMixin
 
 
 class FeatureBuilder(BaseEstimator, TransformerMixin):
+    def __init__(
+        self,
+        engagement_window: int = 30,
+        late_payer_threshold: int = 15,
+        inactive_threshold: int = 15,
+    ):
+        self.engagement_window = engagement_window
+        self.late_payer_threshold = late_payer_threshold
+        self.inactive_threshold = inactive_threshold
+
     def fit(self, X, y=None):
         return self
 
@@ -10,10 +20,12 @@ class FeatureBuilder(BaseEstimator, TransformerMixin):
         X = X.copy()
 
         tenure = X["tenure"].replace(0, np.nan)
+        tenure_years = tenure / 12
 
         contract_map = {
             "Monthly": 1,
             "Quarterly": 4,
+            "Biannual": 6,
             "Annual": 12,
         }
 
@@ -24,16 +36,20 @@ class FeatureBuilder(BaseEstimator, TransformerMixin):
         X["tenure_rel2_commitment"] = (tenure / commitment).fillna(0)
 
         X["engagement"] = (
-            X["usage_frequency"] / 30 * (30 - X["last_interaction"])
+            X["usage_frequency"]
+            / self.engagement_window
+            * (self.engagement_window - X["last_interaction"])
         ).fillna(0)
 
-        X["avg_spend_per_year"] = (X["total_spend"] / (tenure / 12)).fillna(0)
+        X["avg_spend_per_year"] = (X["total_spend"] / tenure_years).fillna(0)
 
-        X["avg_s_calls_per_year"] = (X["support_calls"] / (tenure / 12)).fillna(0)
+        X["avg_s_calls_per_year"] = (X["support_calls"] / tenure_years).fillna(0)
 
-        X["late_payer"] = (X["payment_delay"] > 20).astype(int)
+        X["late_payer"] = (X["payment_delay"] > self.late_payer_threshold).astype(int)
 
-        X["inactive_customer"] = (X["last_interaction"] > 15).astype(int)
+        X["inactive_customer"] = (
+            X["last_interaction"] > self.inactive_threshold
+        ).astype(int)
 
         return X
 
