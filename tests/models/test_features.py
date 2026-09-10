@@ -1,23 +1,7 @@
 import numpy as np
 import pandas as pd
-import pytest
 
-from churn_mlops.data import FeatureBuilder
-
-
-@pytest.fixture
-def sample_df():
-    return pd.DataFrame(
-        {
-            "tenure": [0, 12, 24],
-            "contract_length": ["Monthly", "Quarterly", "Annual"],
-            "usage_frequency": [10, 20, 30],
-            "last_interaction": [5, 15, 20],
-            "total_spend": [0, 400, 1000],
-            "support_calls": [10, 6, 1],
-            "payment_delay": [25, 10, 0],
-        }
-    )
+from churn_mlops.models import FeatureBuilder
 
 
 def test_engineered_features_exist_and_finite(sample_df):

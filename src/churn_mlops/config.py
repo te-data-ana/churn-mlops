@@ -1,11 +1,14 @@
 from pathlib import Path
 
-# globally accessible direcory names
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+
+# direcory names
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
 
-# globally accessible definition of data types
+# definition of data types
 DTYPES = {
     "CustomerID": "Int64",
     "Age": "Int64",
@@ -19,4 +22,25 @@ DTYPES = {
     "Total Spend": "Float64",
     "Last Interaction": "Int64",
     "Churn": "Int64",
+}
+
+# preprocessing parameters
+NUMERIC_IMPUTE_STRATEGY = "median"
+CATEGORICAL_IMPUTE_STRATEGY = "most_frequent"
+
+# default model parameters
+DEFAULT_RANDOM_STATE = 26
+BASELINE_CLASSIFIERS = {
+    "lr": {
+        "clf": LogisticRegression,
+        "default_params": {"random_state": DEFAULT_RANDOM_STATE, "max_iter": 1000},
+    },
+    "rf": {
+        "clf": RandomForestClassifier,
+        "default_params": {"random_state": DEFAULT_RANDOM_STATE},
+    },
+    "hgb": {
+        "clf": HistGradientBoostingClassifier,
+        "default_params": {"random_state": DEFAULT_RANDOM_STATE},
+    },
 }
