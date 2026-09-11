@@ -11,7 +11,7 @@ from .preprocessing import create_preprocessor
 
 
 def build_classifier_pipeline(
-    classifier: Literal["lr", "rf", "hgb"] = "lr",
+    classifier: Literal["dc", "nb", "lr", "dt", "et", "rf", "hgb"] = "lr",
     classifier_params: dict[str, any] | None = None,
 ) -> Pipeline:
     """Build tabular classification pipeline, combining feature engineering with different preprocessing steps, depending on specified classifier."""
