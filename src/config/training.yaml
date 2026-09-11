@@ -1,0 +1,23 @@
+data:
+  target_column: churn
+  test_size: 0.3
+  random_state: 26
+
+feature_builder:
+  feature_params:
+    engagement_window: 30
+    inactive_threshold: 15
+    late_payer_threshold: 15
+
+preprocessing:
+  numeric_impute_strategy: median
+  categorical_impute_strategy: most_frequent
+
+model:
+  classifier: lr
+  classifier_params:
+    random_state: 26
+    max_iter: 200
+
+evaluation:
+  threshold: 0.5

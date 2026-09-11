@@ -1,6 +1,6 @@
 import pandas as pd
 
-from churn_mlops.config import RAW_DATA_DIR
+from churn_mlops.config.settings import RAW_DATA_DIR
 
 
 def load_raw_data(file_name: str, index_col=None) -> pd.DataFrame:

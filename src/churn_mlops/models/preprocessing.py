@@ -12,14 +12,14 @@ from sklearn.preprocessing import (
     StandardScaler,
 )
 
-from churn_mlops.config import CATEGORICAL_IMPUTE_STRATEGY, NUMERIC_IMPUTE_STRATEGY
 
-
-def _create_numerical_pipeline(scale: bool = False) -> Pipeline:
+def _create_numerical_pipeline(
+    scale: bool = False, impute_strategy: str = "median"
+) -> Pipeline:
     """Create preprocessing pipeline for numerical features with optional scaling."""
 
     steps = [
-        ("imputer", SimpleImputer(strategy=NUMERIC_IMPUTE_STRATEGY)),
+        ("imputer", SimpleImputer(strategy=impute_strategy)),
     ]
 
     if scale:
@@ -28,28 +28,34 @@ def _create_numerical_pipeline(scale: bool = False) -> Pipeline:
     return Pipeline(steps)
 
 
-def _create_categorical_pipeline() -> Pipeline:
+def _create_categorical_pipeline(impute_strategy: str = "most_frequent") -> Pipeline:
     """Create preprocessing pipeline for categorical features."""
     return Pipeline(
         steps=[
-            ("imputer", SimpleImputer(strategy=CATEGORICAL_IMPUTE_STRATEGY)),
+            ("imputer", SimpleImputer(strategy=impute_strategy)),
             ("encoder", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
         ]
     )
 
 
-def create_preprocessor(scale: bool = False) -> ColumnTransformer:
+def create_preprocessor(
+    scale: bool = False,
+    num_impute_strategy: str = "median",
+    cat_impute_strategy: str = "most_frequent",
+) -> ColumnTransformer:
     """Create preprocessing for numerical and categorical features."""
     return ColumnTransformer(
         transformers=[
             (
                 "num",
-                _create_numerical_pipeline(scale=scale),
+                _create_numerical_pipeline(
+                    scale=scale, impute_strategy=num_impute_strategy
+                ),
                 make_column_selector(dtype_include=np.number),
             ),
             (
                 "cat",
-                _create_categorical_pipeline(),
+                _create_categorical_pipeline(impute_strategy=cat_impute_strategy),
                 make_column_selector(dtype_exclude=np.number),
             ),
         ],
