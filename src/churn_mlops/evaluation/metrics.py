@@ -26,7 +26,6 @@ class Timer:
 
 @dataclass
 class ModelEvaluation:
-    model: str
     roc_auc: float
     pr_auc: float
     accuracy: float
@@ -39,7 +38,6 @@ class ModelEvaluation:
 
 
 def evaluate_model(
-    model_name: str,
     y_true,
     y_prob,
     fit_time_sec: float | None = None,
@@ -51,14 +49,17 @@ def evaluate_model(
 
     Parameters
     ----------
-    model_name : str
-        Name of the model.
-
     y_true : array-like
         Ground truth labels.
 
     y_prob : array-like
         Predicted positive class probabilities.
+
+    fit_time_sec : float
+        Time required to fit model to training data.
+
+    pred_time_sec : float
+        Time required for model inference (predict_proba) on test data.
 
     threshold : float
         Probability threshold for positive class.
@@ -72,7 +73,6 @@ def evaluate_model(
     y_pred = (y_prob >= threshold).astype(int)
 
     return ModelEvaluation(
-        model=model_name,
         roc_auc=roc_auc_score(y_true, y_prob),
         pr_auc=average_precision_score(y_true, y_prob),
         accuracy=accuracy_score(y_true, y_pred),

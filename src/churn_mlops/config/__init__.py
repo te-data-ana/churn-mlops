@@ -4,6 +4,14 @@ from .settings import (
     DATA_DIR,
     PROJECT_ROOT,
     RAW_DATA_DIR,
+    TRACKING_DIR,
 )
 
-__all__ = ["ARTIFACT_DIR", "DATA_DIR", "PROJECT_ROOT", "RAW_DATA_DIR", "load_config"]
+__all__ = [
+    "ARTIFACT_DIR",
+    "DATA_DIR",
+    "PROJECT_ROOT",
+    "RAW_DATA_DIR",
+    "TRACKING_DIR",
+    "load_config",
+]
