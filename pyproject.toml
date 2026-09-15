@@ -8,6 +8,7 @@ dependencies = [
     "jupyter>=1.1.1",
     "jupyterlab>=4.6.3",
     "matplotlib>=3.11.1",
+    "mlflow>=3.16.0",
     "pandas>=3.0.5",
     "pandera>=0.33.1",
     "pytest>=9.1.1",
@@ -38,4 +39,8 @@ addopts = [
     "--cov=src/churn_mlops",
     "--cov-report=term-missing",
     "--cov-report=html",
+]
+markers = [
+    "unit: fast isolated tests",
+    "integration: end-to-end workflow tests",
 ]

@@ -3,7 +3,7 @@ from datetime import datetime
 import pytest
 from sklearn.pipeline import Pipeline
 
-from churn_mlops.training import TrainingResult, train, train_from_files
+from churn_mlops.training import TrainingResult, run_training_job, train
 
 
 def assert_training_result(result):
@@ -21,18 +21,20 @@ def assert_training_result(result):
 
     metadata = result.metadata
     assert datetime.fromisoformat(metadata["timestamp"])
-    assert metadata["training_rows"] > 0
+    assert metadata["train_rows"] > 0
+    assert metadata["test_rows"] > 0
     assert len(metadata["feature_names_in"]) > 0
     assert len(metadata["feature_names_out"]) > 0
 
 
 @pytest.mark.integration
 def test_training_integration():
-    result = train_from_files()
+    result = run_training_job()
 
     assert_training_result(result)
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize("classifier", ["lr", "dt", "rf", "hgb"])
 def test_training_returns_results(classifier, config_factory, sample_training_df):
     cfg = config_factory(classifier=classifier)
@@ -46,6 +48,7 @@ def test_training_returns_results(classifier, config_factory, sample_training_df
     )
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize("classifier", ["lr", "dt", "rf", "hgb"])
 def test_training_pipeline_can_predict(classifier, config_factory, sample_training_df):
     cfg = config_factory(classifier=classifier)
@@ -63,6 +66,7 @@ def test_training_pipeline_can_predict(classifier, config_factory, sample_traini
     assert ((probas >= 0) & (probas <= 1)).all()
 
 
+@pytest.mark.unit
 def test_unknown_classifier_error(config_factory, sample_training_df):
 
     cfg = config_factory(classifier="invalid")
@@ -71,6 +75,7 @@ def test_unknown_classifier_error(config_factory, sample_training_df):
         train(cfg, sample_training_df)
 
 
+@pytest.mark.unit
 def test_training_reproducible(config_factory, sample_training_df):
     cfg = config_factory(classifier="dt")
 
@@ -79,4 +84,4 @@ def test_training_reproducible(config_factory, sample_training_df):
 
     assert result1.metrics["roc_auc"] == result2.metrics["roc_auc"]
     assert result1.metrics["accuracy"] == result2.metrics["accuracy"]
-    assert result1.metadata["training_rows"] == result2.metadata["training_rows"]
+    assert result1.metadata["train_rows"] == result2.metadata["train_rows"]

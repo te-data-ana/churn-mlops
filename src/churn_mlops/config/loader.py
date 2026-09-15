@@ -12,7 +12,8 @@ from churn_mlops.config.settings import CONFIG_DIR
 
 
 def load_config(file: str = "training.yaml", path: str = CONFIG_DIR) -> TrainingConfig:
-    with open(path / file) as f:
+    config_file_path = path / file
+    with open(config_file_path) as f:
         raw = yaml.safe_load(f)
 
     return TrainingConfig(
@@ -21,4 +22,4 @@ def load_config(file: str = "training.yaml", path: str = CONFIG_DIR) -> Training
         preprocessing=PreprocessingConfig(**raw["preprocessing"]),
         model=ClassifierConfig(**raw["model"]),
         evaluation=EvaluationConfig(**raw["evaluation"]),
-    )
+    ), config_file_path
