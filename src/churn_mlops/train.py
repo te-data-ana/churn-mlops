@@ -1,7 +1,8 @@
 import argparse
 import logging
 
-from churn_mlops import configure_logging, run_training_job
+from churn_mlops import run_training_job
+from churn_mlops.config import configure_logging
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +16,8 @@ def main() -> None:
     result = run_training_job(config_file=args.config)
 
     logger.info(
-        "Successfully trained %s model: AUC=%.3f",
-        result.classifier_config["classifier_name"],
+        "Successfully trained %s model: AUC=%.4f",
+        result.classifier_config["model_name"],
         result.metrics["roc_auc"],
     )
 

@@ -3,6 +3,7 @@ import json
 import mlflow
 import mlflow.sklearn
 from mlflow.exceptions import MlflowException
+from mlflow.models.model import ModelInfo
 
 from churn_mlops.config.settings import ARTIFACT_DIR, TRACKING_DIR
 
@@ -27,7 +28,7 @@ def setup_local_experiment(experiment_name: str):
     return experiment_id
 
 
-def log_experiment_result(result, config, config_file_path):
+def log_experiment_result(result, config, config_file_path) -> ModelInfo:
 
     # log all parameters required for reproducibility
     # log data parameters
@@ -73,7 +74,7 @@ def log_experiment_result(result, config, config_file_path):
     mlflow.log_metrics(result.metrics)
 
     # log trained model pipeline artifact
-    mlflow.sklearn.log_model(
+    model_info = mlflow.sklearn.log_model(
         result.trained_pipeline,
         name="model",
         skops_trusted_types=[
@@ -97,3 +98,5 @@ def log_experiment_result(result, config, config_file_path):
 
     # log full config file as artifact
     mlflow.log_artifact(config_file_path, artifact_path="config")
+
+    return model_info

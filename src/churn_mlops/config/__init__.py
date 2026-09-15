@@ -1,4 +1,5 @@
 from .loader import load_config
+from .logging import configure_logging
 from .settings import (
     ARTIFACT_DIR,
     CONFIG_DIR,
@@ -17,5 +18,6 @@ __all__ = [
     "RAW_DATA_DIR",
     "TMP_DIR",
     "TRACKING_DIR",
+    "configure_logging",
     "load_config",
 ]

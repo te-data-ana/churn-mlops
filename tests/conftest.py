@@ -9,6 +9,7 @@ from churn_mlops.config.schemas import (
     EvaluationConfig,
     FeatureBuilderConfig,
     PreprocessingConfig,
+    RegistryConfig,
     TrainingConfig,
 )
 from churn_mlops.models.features import FeatureBuilder
@@ -60,6 +61,7 @@ def config_factory():
             evaluation=EvaluationConfig(
                 threshold=0.5,
             ),
+            registry=RegistryConfig(register_model=False, registry_params={}),
         )
 
         for key, value in overrides.items():
