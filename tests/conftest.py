@@ -1,6 +1,8 @@
 import pandas as pd
 import pytest
+from sklearn.pipeline import Pipeline
 
+from churn_mlops import TrainingResult
 from churn_mlops.config.schemas import (
     ClassifierConfig,
     DataConfig,
@@ -9,6 +11,23 @@ from churn_mlops.config.schemas import (
     PreprocessingConfig,
     TrainingConfig,
 )
+from churn_mlops.models.features import FeatureBuilder
+
+
+@pytest.fixture
+def mock_taining_result():
+    return TrainingResult(
+        trained_pipeline=Pipeline(steps=[("features", FeatureBuilder())]),
+        metrics={},
+        classifier_config={},
+        metadata={
+            "train_rows": 10,
+            "test_rows": 5,
+            "feature_count": 3,
+            "feature_names_in": ["a", "b"],
+            "feature_names_out": ["a", "b", "c"],
+        },
+    )
 
 
 @pytest.fixture

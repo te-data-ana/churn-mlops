@@ -23,10 +23,10 @@ class TrainingResult:
 
 
 def run_training_job(
-    config_file: str = "training.yaml",
+    config_file: str = "sample_training_config.yaml",
     training_file: str = "customer_churn_dataset-training.csv",
     index_col: str = "customerid",
-    experiment_name: str = "churn-baseline",
+    experiment_name: str = "test",
 ) -> TrainingResult:
     """
     Wrapper around actual model training:

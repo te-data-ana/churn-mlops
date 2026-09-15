@@ -1,12 +1,12 @@
 import argparse
 import logging
 
-from churn_mlops import TrainingResult, configure_logging, run_training_job
+from churn_mlops import configure_logging, run_training_job
 
 logger = logging.getLogger(__name__)
 
 
-def main() -> TrainingResult:
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
 

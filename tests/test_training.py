@@ -34,6 +34,7 @@ def test_training_integration():
     assert_training_result(result)
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize("classifier", ["lr", "dt", "rf", "hgb"])
 def test_training_returns_results(classifier, config_factory, sample_training_df):
     cfg = config_factory(classifier=classifier)
@@ -47,6 +48,7 @@ def test_training_returns_results(classifier, config_factory, sample_training_df
     )
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize("classifier", ["lr", "dt", "rf", "hgb"])
 def test_training_pipeline_can_predict(classifier, config_factory, sample_training_df):
     cfg = config_factory(classifier=classifier)
@@ -64,6 +66,7 @@ def test_training_pipeline_can_predict(classifier, config_factory, sample_traini
     assert ((probas >= 0) & (probas <= 1)).all()
 
 
+@pytest.mark.unit
 def test_unknown_classifier_error(config_factory, sample_training_df):
 
     cfg = config_factory(classifier="invalid")
@@ -72,6 +75,7 @@ def test_unknown_classifier_error(config_factory, sample_training_df):
         train(cfg, sample_training_df)
 
 
+@pytest.mark.unit
 def test_training_reproducible(config_factory, sample_training_df):
     cfg = config_factory(classifier="dt")
 

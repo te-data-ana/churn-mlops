@@ -40,3 +40,7 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-report=html",
 ]
+markers = [
+    "unit: fast isolated tests",
+    "integration: end-to-end workflow tests",
+]
