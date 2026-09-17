@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -6,12 +7,17 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 
-from churn_mlops.config import load_config
+from churn_mlops.config import configure_logging, load_config
 from churn_mlops.config.schemas import TrainingConfig
 from churn_mlops.data import load_raw_data, validate_data
 from churn_mlops.evaluation import Timer, evaluate_model
-from churn_mlops.models import MODEL_REGISTRY, build_classifier_pipeline
-from churn_mlops.tracking import log_experiment_result, setup_local_experiment
+from churn_mlops.models import build_classifier_pipeline, create_model
+from churn_mlops.tracking import (
+    ModelRegistry,
+    PromotionService,
+    log_experiment_result,
+    setup_local_experiment,
+)
 
 
 @dataclass
@@ -34,6 +40,8 @@ def run_training_job(
     * validating the loaded `pandas` DataFrame `df` fulfills the data contract defined with `pandera`,
     * executing training pipeline based on loaded `config` and `df`.
     """
+    configure_logging()
+    logger = logging.getLogger(__name__)
 
     # load training configuration from yaml file
     config, config_file_path = load_config(config_file)
@@ -50,13 +58,84 @@ def run_training_job(
 
     # execute training, using MLflow for experiment tracking
     experiment_id = setup_local_experiment(experiment_name)
-    print(f"Tracking URI: {mlflow.get_tracking_uri()}")
+    logger.info(f"Tracking URI: {mlflow.get_tracking_uri()}")
     experiment = mlflow.get_experiment(experiment_id)
-    print(f"Experiment: {experiment}")
+    logger.info(str(experiment))
 
     with mlflow.start_run(experiment_id=experiment_id, run_name=run_name):
         result = train(config, df)
-        log_experiment_result(result, config, config_file_path)
+        model_info = log_experiment_result(result, config, config_file_path)
+
+    # if specified in config: register as candidate model
+    if config.registry.register_model:
+        # load config details
+        model_name = config.registry.registry_params["model_name"]
+        model_alias = config.registry.registry_params["alias"]
+
+        logger.info(
+            "Starting registration of '%s' model with alias '%s':",
+            model_name,
+            model_alias,
+        )
+        # initialize model registry
+        registry = ModelRegistry()
+
+        # register candidate and set alias
+        candidate = registry.register_model(
+            model_uri=model_info.model_uri,
+            model_name=model_name,
+        )
+        registry.set_alias(
+            model_name=model_name,
+            alias=model_alias,
+            version=candidate.version,
+        )
+
+        # retrieve current champion model
+        champion = registry.get_champion_version(model_name=model_name)
+
+        # retrieve model metric of candidate and champion (used for comparison)
+        candidate_metric = result.metrics["roc_auc"]
+        if champion:
+            logger.info("Retrieving metric for current champion model.")
+            champion_metric = registry.get_metric_by_alias(
+                model_name=model_name,
+                alias="champion",
+                metric_name="roc_auc",
+            )
+        else:
+            logger.info(
+                "No champion model exists in registry for '%s'.",
+                model_name,
+            )
+            champion_metric = None
+
+        # decide if candidate model should be promoted to champion
+        promotion_delta = config.registry.registry_params["promotion_delta"]
+        promotion_service = PromotionService()
+        promotion_decision = promotion_service.evaluate_candidate(
+            candidate_metric=candidate_metric,
+            champion_metric=champion_metric,
+            promotion_delta=promotion_delta,
+        )
+
+        # promote depending on decision of promotion service
+        if promotion_decision.promote:
+            logger.info("Decision to promote candidate model to champion:")
+            logger.info(promotion_decision.reason)
+            if promotion_decision.metric_delta:
+                logger.info(
+                    "The AUC delta was '%.4f'.", promotion_decision.metric_delta
+                )
+            promotion_service.promote_candidate(
+                decision=promotion_decision,
+                registry=registry,
+                model_name=model_name,
+                candidate_version=candidate.version,
+            )
+        else:
+            logger.info("No promotion of candidate model:")
+            logger.info(promotion_decision.reason)
 
     return result
 
@@ -88,24 +167,9 @@ def train(config: TrainingConfig, df: pd.DataFrame) -> TrainingResult:
     )
 
     # retrieve classifier from model registry
-    clf_name = config.model.classifier
-    if clf_name not in MODEL_REGISTRY:
-        raise ValueError(
-            f"Unknown classifier '{clf_name}'. "
-            f"Must be one of {list(MODEL_REGISTRY.keys())}."
-        )
-    registry = MODEL_REGISTRY[clf_name]
-    merged_params = registry["default_params"] | (config.model.classifier_params or {})
-    classifier = registry["clf"](**merged_params)
-    classifier_name = registry["clf"].__name__
-
-    # combine classifier components into effective classifier config
-    classifier_config = {
-        "classifier_alias": clf_name,
-        "classifier_name": classifier_name,
-        # "classifier_type": type(classifier),
-        **merged_params,
-    }
+    classifier, classifier_config = create_model(
+        model_alias=config.model.classifier, model_params=config.model.classifier_params
+    )
 
     # build model pipeline artifact: df_X -> features -> preprocessor -> classifier
     model_pipeline = build_classifier_pipeline(

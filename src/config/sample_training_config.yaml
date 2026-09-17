@@ -20,3 +20,10 @@ model:
 
 evaluation:
   threshold: 0.5
+
+registry:
+  register_model: true
+  registry_params:
+    model_name: churn-propensity
+    alias: candidate
+    promotion_delta: 0.005

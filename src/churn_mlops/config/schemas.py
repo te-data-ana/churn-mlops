@@ -31,6 +31,12 @@ class EvaluationConfig:
     threshold: float
 
 
+@dataclass
+class RegistryConfig:
+    register_model: bool
+    registry_params: dict[str, Any]
+
+
 @dataclass(frozen=True)
 class TrainingConfig:
     data: DataConfig
@@ -38,3 +44,4 @@ class TrainingConfig:
     preprocessing: PreprocessingConfig
     model: ClassifierConfig
     evaluation: EvaluationConfig
+    registry: RegistryConfig

@@ -10,7 +10,7 @@ from sklearn.tree import DecisionTreeClassifier
 
 # default model parameters
 DEFAULT_RANDOM_STATE = 26
-MODEL_REGISTRY = {
+MODEL_CATALOG = {
     "dc": {
         "clf": DummyClassifier,
         "default_params": {"strategy": "most_frequent"},

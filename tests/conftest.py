@@ -1,3 +1,5 @@
+from unittest.mock import Mock
+
 import pandas as pd
 import pytest
 from sklearn.pipeline import Pipeline
@@ -9,9 +11,18 @@ from churn_mlops.config.schemas import (
     EvaluationConfig,
     FeatureBuilderConfig,
     PreprocessingConfig,
+    RegistryConfig,
     TrainingConfig,
 )
 from churn_mlops.models.features import FeatureBuilder
+from churn_mlops.tracking.registry import ModelRegistry
+
+
+@pytest.fixture
+def registry():
+    registry = ModelRegistry()
+    registry.client = Mock()
+    return registry
 
 
 @pytest.fixture
@@ -60,6 +71,7 @@ def config_factory():
             evaluation=EvaluationConfig(
                 threshold=0.5,
             ),
+            registry=RegistryConfig(register_model=False, registry_params={}),
         )
 
         for key, value in overrides.items():
