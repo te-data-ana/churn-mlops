@@ -1,3 +1,5 @@
+from unittest.mock import Mock
+
 import pandas as pd
 import pytest
 from sklearn.pipeline import Pipeline
@@ -13,6 +15,14 @@ from churn_mlops.config.schemas import (
     TrainingConfig,
 )
 from churn_mlops.models.features import FeatureBuilder
+from churn_mlops.tracking.registry import ModelRegistry
+
+
+@pytest.fixture
+def registry():
+    registry = ModelRegistry()
+    registry.client = Mock()
+    return registry
 
 
 @pytest.fixture

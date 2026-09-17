@@ -1,7 +1,5 @@
-# promote_model()
-
 import mlflow
-from mlflow import MlflowClient
+from mlflow import MlflowClient, MlflowException
 from mlflow.entities.model_registry import ModelVersion
 from mlflow.pyfunc import PyFuncModel
 
@@ -36,22 +34,6 @@ class ModelRegistry:
             alias=alias,
         )
 
-    def load_model(self, model_name: str, alias: str) -> PyFuncModel:
-        """Load model from registry using model name and alias."""
-        return mlflow.pyfunc.load_model(f"models:/{model_name}@{alias}")
-
-    def load_champion(self, model_name: str) -> PyFuncModel:
-        """Load current champion model from registry."""
-        return self.load_model(model_name=model_name, alias="champion")
-
-    def promote_model(self, model_name: str, version: int) -> None:
-        """Promote model to champion."""
-        self.set_alias(
-            model_name=model_name,
-            alias="champion",
-            version=version,
-        )
-
     def get_metric_by_alias(
         self, model_name: str, alias: str, metric_name: str
     ) -> float:
@@ -60,14 +42,18 @@ class ModelRegistry:
             model_name=model_name,
             alias=alias,
         )
-
         run = self.client.get_run(version.run_id)
-
         return run.data.metrics[metric_name]
 
-    def get_champion_auc(self, model_name: str) -> float:
-        return self.get_metric_by_alias(
-            model_name=model_name,
-            alias="champion",
-            metric_name="roc_auc",
-        )
+    def load_model(self, model_name: str, alias: str) -> PyFuncModel:
+        """Load model from registry using model name and alias."""
+        return mlflow.pyfunc.load_model(f"models:/{model_name}@{alias}")
+
+    def get_champion_version(self, model_name: str) -> ModelVersion | None:
+        try:
+            return self.get_model_version_by_alias(
+                model_name=model_name,
+                alias="champion",
+            )
+        except MlflowException:
+            return None

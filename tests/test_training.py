@@ -29,7 +29,7 @@ def assert_training_result(result):
 
 @pytest.mark.integration
 def test_training_integration():
-    result = run_training_job()
+    result = run_training_job(experiment_name="pytest")
 
     assert_training_result(result)
 

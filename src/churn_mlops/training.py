@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 
 import mlflow
 import pandas as pd
-from mlflow import MlflowException
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 
@@ -15,6 +14,7 @@ from churn_mlops.evaluation import Timer, evaluate_model
 from churn_mlops.models import build_classifier_pipeline, create_model
 from churn_mlops.tracking import (
     ModelRegistry,
+    PromotionService,
     log_experiment_result,
     setup_local_experiment,
 )
@@ -68,71 +68,74 @@ def run_training_job(
 
     # if specified in config: register as candidate model
     if config.registry.register_model:
+        # load config details
+        model_name = config.registry.registry_params["model_name"]
+        model_alias = config.registry.registry_params["alias"]
+
         logger.info(
             "Starting registration of '%s' model with alias '%s':",
-            config.registry.registry_params["model_name"],
-            config.registry.registry_params["alias"],
+            model_name,
+            model_alias,
         )
+        # initialize model registry
         registry = ModelRegistry()
 
+        # register candidate and set alias
         candidate = registry.register_model(
             model_uri=model_info.model_uri,
-            model_name=config.registry.registry_params["model_name"],
+            model_name=model_name,
         )
-
         registry.set_alias(
-            model_name=config.registry.registry_params["model_name"],
-            alias=config.registry.registry_params["alias"],
+            model_name=model_name,
+            alias=model_alias,
             version=candidate.version,
         )
 
-        # decide on model promotion (compare candidate against champion)
-        try:
-            # if exists, retrieve AUC of champion model
-            champion_auc = registry.get_champion_auc(
-                model_name=config.registry.registry_params["model_name"]
+        # retrieve current champion model
+        champion = registry.get_champion_version(model_name=model_name)
+
+        # retrieve model metric of candidate and champion (used for comparison)
+        candidate_metric = result.metrics["roc_auc"]
+        if champion:
+            logger.info("Retrieving metric for current champion model.")
+            champion_metric = registry.get_metric_by_alias(
+                model_name=model_name,
+                alias="champion",
+                metric_name="roc_auc",
             )
-        except MlflowException:
-            # if not: promote the new candidate model as first champion
-            registry.promote_model(
-                model_name=config.registry.registry_params["model_name"],
-                version=candidate.version,
-            )
-            logger.info("Initialized first champion model.")
         else:
-            # verify if candidate has substantially higher AUC
-            candidate_auc = result.metrics["roc_auc"]
-            if (
-                candidate_auc
-                > champion_auc + config.registry.registry_params["promotion_delta"]
-            ):
-                # if so: promote the candidate model to new champion
-                champion = registry.get_model_version_by_alias(
-                    model_name=config.registry.registry_params["model_name"],
-                    alias="champion",
-                )
-                registry.set_alias(
-                    model_name=config.registry.registry_params["model_name"],
-                    alias="former_champion",
-                    version=champion.version,
-                )
-                registry.promote_model(
-                    model_name=config.registry.registry_params["model_name"],
-                    version=candidate.version,
-                )
+            logger.info(
+                "No champion model exists in registry for '%s'.",
+                model_name,
+            )
+            champion_metric = None
+
+        # decide if candidate model should be promoted to champion
+        promotion_delta = config.registry.registry_params["promotion_delta"]
+        promotion_service = PromotionService()
+        promotion_decision = promotion_service.evaluate_candidate(
+            candidate_metric=candidate_metric,
+            champion_metric=champion_metric,
+            promotion_delta=promotion_delta,
+        )
+
+        # promote depending on decision of promotion service
+        if promotion_decision.promote:
+            logger.info("Decision to promote candidate model to champion:")
+            logger.info(promotion_decision.reason)
+            if promotion_decision.metric_delta:
                 logger.info(
-                    "Candidate promoted to champion, as AUC %.4f exceeded AUC %.4f of former champion.",
-                    candidate_auc,
-                    champion_auc,
+                    "The AUC delta was '%.4f'.", promotion_decision.metric_delta
                 )
-            else:
-                # if not: keep the old champion
-                logger.info(
-                    "Candidate AUC %.4f did not exceed champion AUC %.4f by at least %.4f.",
-                    candidate_auc,
-                    champion_auc,
-                    config.registry.registry_params["promotion_delta"],
-                )
+            promotion_service.promote_candidate(
+                decision=promotion_decision,
+                registry=registry,
+                model_name=model_name,
+                candidate_version=candidate.version,
+            )
+        else:
+            logger.info("No promotion of candidate model:")
+            logger.info(promotion_decision.reason)
 
     return result
 
