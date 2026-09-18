@@ -1,7 +1,7 @@
 import pytest
 from pandera.errors import SchemaError, SchemaErrors
 
-from churn_mlops.data import load_raw_data, validate_data
+from churn_mlops.data import load_raw_data, validate_training_data
 
 
 @pytest.fixture
@@ -14,7 +14,7 @@ def ingested_df():
 
 def test_validation_of_training_data(ingested_df):
 
-    validated_df = validate_data(ingested_df)
+    validated_df = validate_training_data(ingested_df)
 
     assert validated_df.shape == ingested_df.shape
 
@@ -24,32 +24,32 @@ def test_validation_rejects_invalid_dtype(ingested_df):
     df["age"] = "age"
 
     with pytest.raises(SchemaErrors):
-        validate_data(df)
+        validate_training_data(df)
 
 
 def test_validation_rejects_missing_column(ingested_df):
     ingested_df = ingested_df.drop(columns=["age"])
 
     with pytest.raises(SchemaError):
-        validate_data(ingested_df)
+        validate_training_data(ingested_df)
 
 
 def test_validation_rejects_invalid_churn_value(ingested_df):
     ingested_df.loc[ingested_df.index[0], "churn"] = 2
 
     with pytest.raises(SchemaError, match="churn"):
-        validate_data(ingested_df)
+        validate_training_data(ingested_df)
 
 
 def test_validation_rejects_negative_total_spend(ingested_df):
     ingested_df.loc[ingested_df.index[0], "total_spend"] = -100
 
     with pytest.raises(SchemaError, match="total_spend"):
-        validate_data(ingested_df)
+        validate_training_data(ingested_df)
 
 
 def test_validation_rejects_age_10(ingested_df):
     ingested_df.loc[ingested_df.index[0], "age"] = 10
 
     with pytest.raises(SchemaError, match="age"):
-        validate_data(ingested_df)
+        validate_training_data(ingested_df)

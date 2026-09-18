@@ -15,20 +15,36 @@ class PredictionResult:
 
 class Predictor:
     def __init__(self, loaded_model: LoadedModel):
-        self.loaded_model = loaded_model
+        self.model = loaded_model.model
+        self.metadata = loaded_model.metadata
 
     def predict(self, payload: InputFeatures) -> PredictionResult:
+        """Prediction of one single record of input features."""
         df = pd.DataFrame([payload.model_dump()])
 
-        model = self.loaded_model.model
-        threshold = self.loaded_model.metadata.threshold
+        predicted_probability = float(self.model.predict_proba(df)[0, 1])
 
-        predicted_probability = float(model.predict_proba(df)[0, 1])
-
-        predicted_class = int(predicted_probability >= threshold)
+        predicted_class = int(predicted_probability >= self.metadata.threshold)
 
         return PredictionResult(
             predicted_class=predicted_class,
             predicted_probability=predicted_probability,
-            metadata=self.loaded_model.metadata,
+            metadata=self.metadata,
         )
+
+    def predict_batch(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Batch prediction for a pandas dataframe containing multiple records."""
+        predicted_probabilities = self.model.predict_proba(df)[:, 1]
+
+        predicted_classes = (predicted_probabilities >= self.metadata.threshold).astype(
+            int
+        )
+
+        result = pd.DataFrame(index=df.index.copy())
+
+        result["predicted_probability"] = predicted_probabilities
+        result["predicted_class"] = predicted_classes
+        result["threshold"] = self.metadata.threshold
+        result["model_version"] = self.metadata.model_version
+
+        return result

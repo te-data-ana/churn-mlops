@@ -3,16 +3,18 @@ from pandera import Float64, Int64
 from pandera.typing import Index, Series
 
 
-class ChurnDataSchema(pa.DataFrameModel):
+class InferenceDataSchema(pa.DataFrameModel):
     customerid: Index[Int64]
+
     age: Series[Int64]
     tenure: Series[Int64]
     usage_frequency: Series[Int64]
     support_calls: Series[Int64]
     payment_delay: Series[Int64]
     last_interaction: Series[Int64]
-    churn: Series[Int64]
+
     total_spend: Series[Float64]
+
     gender: Series[str]
     subscription_type: Series[str]
     contract_length: Series[str]
@@ -69,6 +71,10 @@ class ChurnDataSchema(pa.DataFrameModel):
     @classmethod
     def valid_contract_length(cls, s):
         return s.isin(["Annual", "Monthly", "Quarterly"])
+
+
+class TrainingDataSchema(InferenceDataSchema):
+    churn: Series[Int64]
 
     @pa.check("churn")
     @classmethod

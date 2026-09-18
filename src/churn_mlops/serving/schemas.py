@@ -1,16 +1,16 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class InputFeatures(BaseModel):
-    age: int
-    tenure: int
-    usage_frequency: int
-    support_calls: int
-    payment_delay: int
-    last_interaction: int
-    total_spend: float
+    age: int = Field(ge=18, le=115)
+    tenure: int = Field(ge=0)
+    usage_frequency: int = Field(ge=0)
+    support_calls: int = Field(ge=0)
+    payment_delay: int = Field(ge=0)
+    last_interaction: int = Field(ge=0)
+    total_spend: float = Field(ge=0)
 
     gender: Literal["Female", "Male"]
 
