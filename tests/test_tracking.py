@@ -134,6 +134,26 @@ def test_registry_get_metric_by_alias(registry):
 
 
 @pytest.mark.unit
+def test_registry_get_threshold_by_alias(registry):
+    version = Mock()
+    version.run_id = "abc"
+
+    run = Mock()
+    run.data.params = {"threshold": 0.4}
+
+    registry.get_model_version_by_alias = Mock(return_value=version)
+
+    registry.client.get_run.return_value = run
+
+    threshold = registry.get_threshold_by_alias(
+        model_name="my_model",
+        alias="champion",
+    )
+
+    assert threshold == 0.4
+
+
+@pytest.mark.unit
 def test_registry_get_champion_version_none(registry):
     registry.get_model_version_by_alias = Mock(
         side_effect=MlflowException("no model registered with alias='champion'")
