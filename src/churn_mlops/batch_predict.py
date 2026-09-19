@@ -22,35 +22,40 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # load raw data
-    df = load_raw_data(file_name=args.input_csv, index_col=args.index_col)
-    # validate data contract/schema
-    df = validate_inference_data(df)
+    try:
+        logger.info(
+            "Starting batch prediction with input file '%s' and index column '%s'.",
+            args.input_csv,
+            args.index_col,
+        )
 
-    predictor = Predictor(load_model())
+        df = load_raw_data(file_name=args.input_csv, index_col=args.index_col)
+        df = validate_inference_data(df)
 
-    logger.info(
-        "Starting batch prediction with input file '%s' and index colum '%s':",
-        args.input_csv,
-        args.index_col,
-    )
+        predictor = Predictor(load_model())
+        df_pred = predictor.predict_batch(df=df)
 
-    df_pred = predictor.predict_batch(df=df)
+        df_pred.to_csv(TMP_DIR / args.output_csv)
 
-    df_pred.to_csv(TMP_DIR / args.output_csv)
+        logger.info(
+            "Batch prediction completed: Output written to file '%s' in directory '%s'.",
+            args.output_csv,
+            TMP_DIR,
+        )
 
-    logger.info(
-        "Batch prediction completed: Output written to file '%s' in directory '%s'.",
-        args.output_csv,
-        TMP_DIR,
-    )
+        logger.info("Generated %d predictions.", len(df_pred))
 
-    logger.info("Generated %d predictions.", len(df_pred))
-
-    logger.info(
-        "Average churn probability: %.4f",
-        df_pred["predicted_probability"].mean(),
-    )
+        logger.info(
+            "Average churn probability: %.4f",
+            df_pred["predicted_probability"].mean(),
+        )
+    except Exception:
+        logger.exception(
+            "Batch prediction failed for input file '%s' and output file '%s'.",
+            args.input_csv,
+            args.output_csv,
+        )
+        raise
 
 
 if __name__ == "__main__":

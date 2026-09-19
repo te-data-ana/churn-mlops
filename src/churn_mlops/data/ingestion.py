@@ -1,6 +1,10 @@
+import logging
+
 import pandas as pd
 
 from churn_mlops.config.settings import RAW_DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 
 def load_raw_data(file_name: str, index_col: str | None = None) -> pd.DataFrame:
@@ -17,10 +21,32 @@ def load_raw_data(file_name: str, index_col: str | None = None) -> pd.DataFrame:
     Raises:
         FileNotFoundError: If the requested CSV file does not exist.
     """
-    df = pd.read_csv(RAW_DATA_DIR / file_name)
-    df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_", regex=False)
-    df = df.convert_dtypes()
-    if index_col:
-        df.set_index(index_col, inplace=True)
-    df.dropna(how="all", inplace=True)
-    return df
+    try:
+        logger.info("Loading raw dataset '%s' from '%s'.", file_name, RAW_DATA_DIR)
+        df = pd.read_csv(RAW_DATA_DIR / file_name)
+        df.columns = (
+            df.columns.str.strip().str.lower().str.replace(" ", "_", regex=False)
+        )
+        df = df.convert_dtypes()
+        if index_col:
+            df.set_index(index_col, inplace=True)
+            logger.info("Set index column '%s' on dataset '%s'.", index_col, file_name)
+        prior_rows = len(df)
+        df.dropna(how="all", inplace=True)
+        dropped_rows = prior_rows - len(df)
+        if dropped_rows:
+            logger.warning(
+                "Dropped %d all-missing rows from dataset '%s'.",
+                dropped_rows,
+                file_name,
+            )
+        logger.info(
+            "Loaded dataset '%s' with %d rows and %d columns.",
+            file_name,
+            len(df),
+            len(df.columns),
+        )
+        return df
+    except Exception:
+        logger.exception("Failed to load raw dataset '%s'.", file_name)
+        raise

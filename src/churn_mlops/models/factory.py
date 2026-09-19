@@ -1,9 +1,12 @@
+import logging
 from collections.abc import Mapping
 from typing import Any
 
 from sklearn.base import BaseEstimator
 
 from churn_mlops.models import MODEL_CATALOG
+
+logger = logging.getLogger(__name__)
 
 
 def create_model(
@@ -23,21 +26,30 @@ def create_model(
         ValueError: If ``model_alias`` is not present in ``MODEL_CATALOG``.
     """
 
-    if model_alias not in MODEL_CATALOG:
-        raise ValueError(
-            f"Unknown classifier '{model_alias}'. "
-            f"Must be one of {list(MODEL_CATALOG.keys())}."
+    try:
+        if model_alias not in MODEL_CATALOG:
+            raise ValueError(
+                f"Unknown classifier '{model_alias}'. "
+                f"Must be one of {list(MODEL_CATALOG.keys())}."
+            )
+
+        catalog_entry = MODEL_CATALOG[model_alias]
+        merged_params = catalog_entry["default_params"] | (model_params or {})
+        logger.info(
+            "Creating model '%s' with effective params: %s",
+            model_alias,
+            merged_params,
         )
+        model = catalog_entry["clf"](**merged_params)
+        model_name = catalog_entry["clf"].__name__
 
-    catalog_entry = MODEL_CATALOG[model_alias]
-    merged_params = catalog_entry["default_params"] | (model_params or {})
-    model = catalog_entry["clf"](**merged_params)
-    model_name = catalog_entry["clf"].__name__
+        model_config = {
+            "model_alias": model_alias,
+            "model_name": model_name,
+            **merged_params,
+        }
 
-    model_config = {
-        "model_alias": model_alias,
-        "model_name": model_name,
-        **merged_params,
-    }
-
-    return model, model_config
+        return model, model_config
+    except Exception:
+        logger.exception("Failed to create model for alias '%s'.", model_alias)
+        raise
