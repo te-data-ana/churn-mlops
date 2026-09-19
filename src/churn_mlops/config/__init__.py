@@ -8,6 +8,7 @@ from .settings import (
     RAW_DATA_DIR,
     TMP_DIR,
     TRACKING_DIR,
+    ServingSettings,
 )
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     "RAW_DATA_DIR",
     "TMP_DIR",
     "TRACKING_DIR",
+    "ServingSettings",
     "configure_logging",
     "load_config",
 ]

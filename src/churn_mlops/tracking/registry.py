@@ -1,7 +1,7 @@
 import mlflow
 from mlflow import MlflowClient, MlflowException
 from mlflow.entities.model_registry import ModelVersion
-from mlflow.pyfunc import PyFuncModel
+from sklearn.pipeline import Pipeline
 
 
 class ModelRegistry:
@@ -45,9 +45,18 @@ class ModelRegistry:
         run = self.client.get_run(version.run_id)
         return run.data.metrics[metric_name]
 
-    def load_model(self, model_name: str, alias: str) -> PyFuncModel:
+    def get_threshold_by_alias(self, model_name: str, alias: str) -> float:
+        """Retrieve logged threshold from model based on alias."""
+        version = self.get_model_version_by_alias(
+            model_name=model_name,
+            alias=alias,
+        )
+        run = self.client.get_run(version.run_id)
+        return float(run.data.params["threshold"])
+
+    def load_model(self, model_name: str, alias: str) -> Pipeline:
         """Load model from registry using model name and alias."""
-        return mlflow.pyfunc.load_model(f"models:/{model_name}@{alias}")
+        return mlflow.sklearn.load_model(f"models:/{model_name}@{alias}")
 
     def get_champion_version(self, model_name: str) -> ModelVersion | None:
         try:

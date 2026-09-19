@@ -9,7 +9,7 @@ from sklearn.pipeline import Pipeline
 
 from churn_mlops.config import configure_logging, load_config
 from churn_mlops.config.schemas import TrainingConfig
-from churn_mlops.data import load_raw_data, validate_data
+from churn_mlops.data import load_raw_data, validate_training_data
 from churn_mlops.evaluation import Timer, evaluate_model
 from churn_mlops.models import build_classifier_pipeline, create_model
 from churn_mlops.tracking import (
@@ -48,7 +48,7 @@ def run_training_job(
     # load raw data
     df = load_raw_data(training_file, index_col)
     # validate data contract/schema
-    df = validate_data(df)
+    df = validate_training_data(df)
 
     # extract basic run details from config
     classifier_alias = config.model.classifier
