@@ -1,10 +1,10 @@
-from unittest.mock import Mock
+"""Fixtures shared by configuration, model, and training tests."""
+
+from collections.abc import Callable
 
 import pandas as pd
 import pytest
-from sklearn.pipeline import Pipeline
 
-from churn_mlops import TrainingResult
 from churn_mlops.config.schemas import (
     ClassifierConfig,
     DataConfig,
@@ -14,36 +14,11 @@ from churn_mlops.config.schemas import (
     RegistryConfig,
     TrainingConfig,
 )
-from churn_mlops.models.features import FeatureBuilder
-from churn_mlops.tracking.registry import ModelRegistry
 
 
 @pytest.fixture
-def registry():
-    registry = ModelRegistry()
-    registry.client = Mock()
-    return registry
-
-
-@pytest.fixture
-def mock_taining_result():
-    return TrainingResult(
-        trained_pipeline=Pipeline(steps=[("features", FeatureBuilder())]),
-        metrics={},
-        classifier_config={},
-        metadata={
-            "train_rows": 10,
-            "test_rows": 5,
-            "feature_count": 3,
-            "feature_names_in": ["a", "b"],
-            "feature_names_out": ["a", "b", "c"],
-        },
-    )
-
-
-@pytest.fixture
-def config_factory():
-    def _create(**overrides):
+def config_factory() -> Callable[..., TrainingConfig]:
+    def _create(**overrides) -> TrainingConfig:
 
         config = TrainingConfig(
             data=DataConfig(
@@ -82,8 +57,9 @@ def config_factory():
     return _create
 
 
-@pytest.fixture(scope="session")
-def sample_training_df():
+@pytest.fixture
+def sample_training_df() -> pd.DataFrame:
+    # Includes the churn target for training and end-to-end pipeline tests.
     df = pd.DataFrame(
         {
             "tenure": [0, 12, 24, 60, None, 50, 42, 14, 6, None],
@@ -111,8 +87,9 @@ def sample_training_df():
     return df
 
 
-@pytest.fixture(scope="session")
-def sample_df():
+@pytest.fixture
+def sample_features_df() -> pd.DataFrame:
+    # Feature and preprocessing tests use this frame without the churn target.
     df = pd.DataFrame(
         {
             "tenure": [0, 12, 24, 60, None],
@@ -128,9 +105,11 @@ def sample_df():
     return df
 
 
-@pytest.fixture(scope="session")
-def sample_training_data(sample_df):
-    X = sample_df.copy()
+@pytest.fixture
+def sample_training_data(
+    sample_features_df: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.Series]:
+    X = sample_features_df.copy()
     y = pd.Series([1, 0, 0, 1, 0], name="churn")
 
     return X, y

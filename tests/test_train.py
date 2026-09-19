@@ -6,7 +6,10 @@ from churn_mlops import train
 
 
 @pytest.mark.unit
-def test_main(monkeypatch):
+def test_train_main_passes_cli_config_to_training_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Mock the training boundary so this test covers CLI argument forwarding only.
 
     mock_run_training_job = MagicMock()
 

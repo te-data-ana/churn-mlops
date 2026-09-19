@@ -4,7 +4,7 @@ from churn_mlops.config import CONFIG_DIR, load_config
 
 
 @pytest.mark.unit
-def test_load_config():
+def test_load_config_returns_config_and_resolved_path() -> None:
     config_file_name = "sample_training_config.yaml"
     config_file_dir = CONFIG_DIR
     config_file = config_file_dir / config_file_name

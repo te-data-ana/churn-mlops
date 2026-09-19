@@ -6,7 +6,9 @@ from churn_mlops.serving.schemas import InputFeatures
 
 app = FastAPI()
 
-predictor = Predictor(load_model())
+
+def get_predictor() -> Predictor:
+    return Predictor(load_model())
 
 
 @app.get("/health")
@@ -16,4 +18,5 @@ def health():
 
 @app.post("/predict")
 def predict(features: InputFeatures):
+    predictor = get_predictor()
     return predictor.predict(features)
