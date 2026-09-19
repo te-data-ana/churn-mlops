@@ -9,6 +9,12 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
+    """Run validated batch inference and write predictions to the temp folder.
+
+    The input and output paths are supplied as command-line arguments. The
+    registered serving model is loaded, predictions are generated, and summary
+    statistics are logged.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_csv", required=True)
     parser.add_argument("--output_csv", required=True)

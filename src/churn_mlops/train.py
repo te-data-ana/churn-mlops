@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
+    """Parse CLI arguments, run training, and log the resulting ROC AUC."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
 

@@ -3,24 +3,24 @@ import pandas as pd
 from churn_mlops.config.settings import RAW_DATA_DIR
 
 
-def load_raw_data(file_name: str, index_col=None) -> pd.DataFrame:
+def load_raw_data(file_name: str, index_col: str | None = None) -> pd.DataFrame:
+    """Load and normalize a raw CSV file from the configured data directory.
+
+    Args:
+        file_name: Name of the CSV file in ``RAW_DATA_DIR``.
+        index_col: Optional column name to use as the DataFrame index.
+
+    Returns:
+        DataFrame with normalized column names, nullable dtypes, the optional
+        index applied, and rows containing only missing values removed.
+
+    Raises:
+        FileNotFoundError: If the requested CSV file does not exist.
     """
-    Using pandas, load raw data from standard csv-file stored in raw data directory.
-    Column names are converted to snake_case.
-    An index column is set based on user input.
-    Records with missing values only are dropped.
-    """
-    df = pd.read_csv(
-        # retrieve raw data from specified file
-        RAW_DATA_DIR / file_name,
-    )
-    # convert column names to snake_case
+    df = pd.read_csv(RAW_DATA_DIR / file_name)
     df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_", regex=False)
-    # convert columns to nullable data types
     df = df.convert_dtypes()
-    # set index column
     if index_col:
         df.set_index(index_col, inplace=True)
-    # drop rows containing only missing values
     df.dropna(how="all", inplace=True)
     return df

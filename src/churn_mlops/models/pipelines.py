@@ -2,13 +2,23 @@
 
 from typing import Any
 
+from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.pipeline import Pipeline
 
 from .features import FeatureBuilder
 from .preprocessing import create_preprocessor
 
 
-def _requires_scaling(estimator) -> bool:
+def _requires_scaling(estimator: BaseEstimator) -> bool:
+    """Determine whether an estimator belongs to a scaling-sensitive family.
+
+    Args:
+        estimator: Scikit-learn estimator whose module is inspected.
+
+    Returns:
+        ``True`` for linear-model, SVM, and neighbor estimators; otherwise
+        ``False``.
+    """
     module = estimator.__class__.__module__
 
     return module.startswith(
@@ -21,12 +31,23 @@ def _requires_scaling(estimator) -> bool:
 
 
 def build_classifier_pipeline(
-    classifier,
+    classifier: ClassifierMixin,
     feature_params: dict[str, Any] | None = None,
     num_impute_strategy: str = "median",
     cat_impute_strategy: str = "most_frequent",
 ) -> Pipeline:
-    """Build tabular classification pipeline, combining feature engineering with different preprocessing steps, depending on provided classifier."""
+    """Build a feature-engineering, preprocessing, and classifier pipeline.
+
+    Args:
+        classifier: Scikit-learn classifier to use as the final pipeline step.
+        feature_params: Optional thresholds for ``FeatureBuilder``.
+        num_impute_strategy: Imputation strategy for numeric columns.
+        cat_impute_strategy: Imputation strategy for categorical columns.
+
+    Returns:
+        Pipeline containing feature engineering, preprocessing, and the
+        supplied classifier. Scaling is enabled for scaling-sensitive models.
+    """
 
     scale = _requires_scaling(classifier)
 
