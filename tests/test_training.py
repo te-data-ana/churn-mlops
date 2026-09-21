@@ -1,12 +1,16 @@
+from collections.abc import Callable
 from datetime import datetime
+from typing import Literal
 
+import pandas as pd
 import pytest
 from sklearn.pipeline import Pipeline
 
+from churn_mlops.config.schemas import TrainingConfig
 from churn_mlops.training import TrainingResult, run_training_job, train
 
 
-def assert_training_result(result):
+def assert_training_result(result) -> None:
     assert isinstance(result, TrainingResult)
     assert isinstance(result.trained_pipeline, Pipeline)
 
@@ -28,7 +32,7 @@ def assert_training_result(result):
 
 
 @pytest.mark.integration
-def test_training_integration():
+def test_run_training_job_returns_valid_training_result() -> None:
     result = run_training_job(experiment_name="pytest")
 
     assert_training_result(result)
@@ -36,7 +40,11 @@ def test_training_integration():
 
 @pytest.mark.unit
 @pytest.mark.parametrize("classifier", ["lr", "dt", "rf", "hgb"])
-def test_training_returns_results(classifier, config_factory, sample_training_df):
+def test_train_returns_valid_result_for_supported_classifier(
+    classifier: Literal["lr", "dt", "rf", "hgb"],
+    config_factory: Callable[..., TrainingConfig],
+    sample_training_df: pd.DataFrame,
+):
     cfg = config_factory(classifier=classifier)
 
     result = train(cfg, sample_training_df)
@@ -50,7 +58,11 @@ def test_training_returns_results(classifier, config_factory, sample_training_df
 
 @pytest.mark.unit
 @pytest.mark.parametrize("classifier", ["lr", "dt", "rf", "hgb"])
-def test_training_pipeline_can_predict(classifier, config_factory, sample_training_df):
+def test_trained_pipeline_predicts_classes_and_probabilities(
+    classifier: Literal["lr", "dt", "rf", "hgb"],
+    config_factory: Callable[..., TrainingConfig],
+    sample_training_df: pd.DataFrame,
+) -> None:
     cfg = config_factory(classifier=classifier)
     result = train(cfg, sample_training_df)
 
@@ -67,7 +79,10 @@ def test_training_pipeline_can_predict(classifier, config_factory, sample_traini
 
 
 @pytest.mark.unit
-def test_unknown_classifier_error(config_factory, sample_training_df):
+def test_train_rejects_unknown_classifier(
+    config_factory: Callable[..., TrainingConfig],
+    sample_training_df: pd.DataFrame,
+) -> None:
 
     cfg = config_factory(classifier="invalid")
 
@@ -76,9 +91,13 @@ def test_unknown_classifier_error(config_factory, sample_training_df):
 
 
 @pytest.mark.unit
-def test_training_reproducible(config_factory, sample_training_df):
+def test_train_returns_reproducible_metrics_for_same_input(
+    config_factory: Callable[..., TrainingConfig],
+    sample_training_df: pd.DataFrame,
+) -> None:
     cfg = config_factory(classifier="dt")
 
+    # Train twice with identical inputs to verify deterministic results.
     result1 = train(cfg, sample_training_df)
     result2 = train(cfg, sample_training_df)
 

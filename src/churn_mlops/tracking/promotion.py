@@ -13,6 +13,12 @@ class PromotionDecision:
 
     @property
     def promote(self) -> bool:
+        """Whether the candidate satisfies the promotion requirement.
+
+        Returns:
+            ``True`` when there is no champion or the metric improvement is
+            strictly greater than ``required_delta``; otherwise ``False``.
+        """
         if self.champion_metric is None:
             return True
 
@@ -28,6 +34,17 @@ class PromotionService:
         champion_metric: float | None,
         promotion_delta: float,
     ) -> PromotionDecision:
+        """Evaluate a candidate metric against the current champion.
+
+        Args:
+            candidate_metric: Quality metric produced by the candidate model.
+            champion_metric: Quality metric of the current champion, or
+                ``None`` when no champion exists.
+            promotion_delta: Minimum strict improvement required for promotion.
+
+        Returns:
+            Promotion decision containing the metric delta and explanation.
+        """
 
         if champion_metric is None:
             metric_delta = None
@@ -54,7 +71,17 @@ class PromotionService:
         model_name: str,
         candidate_version: int,
     ) -> None:
-        """Demote current champion model and promote model candidate to champion."""
+        """Promote an approved candidate and preserve the former champion.
+
+        Args:
+            decision: Previously evaluated promotion decision.
+            registry: Model registry used to update aliases.
+            model_name: Registered model name.
+            candidate_version: Version to assign the ``champion`` alias.
+
+        Raises:
+            ValueError: If the decision does not approve promotion.
+        """
 
         if not decision.promote:
             raise ValueError(
@@ -62,7 +89,7 @@ class PromotionService:
             )
 
         if decision.champion_metric is not None:
-            # demote current champion if it existed
+            # Preserve the previous champion for rollback before replacing it.
             current_champion = registry.get_champion_version(model_name=model_name)
             registry.set_alias(
                 model_name=model_name,

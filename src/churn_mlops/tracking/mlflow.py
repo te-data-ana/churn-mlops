@@ -1,4 +1,8 @@
+from __future__ import annotations
+
 import json
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import mlflow
 import mlflow.sklearn
@@ -7,8 +11,23 @@ from mlflow.models.model import ModelInfo
 
 from churn_mlops.config.settings import ARTIFACT_DIR, TRACKING_DIR
 
+if TYPE_CHECKING:
+    from churn_mlops.config.schemas import TrainingConfig
+    from churn_mlops.training import TrainingResult
 
-def setup_local_experiment(experiment_name: str):
+
+def setup_local_experiment(experiment_name: str) -> str:
+    """Configure local MLflow tracking and select an experiment.
+
+    Args:
+        experiment_name: Name of the experiment to create or activate.
+
+    Returns:
+        MLflow experiment identifier.
+
+    Raises:
+        MlflowException: If the experiment cannot be created or retrieved.
+    """
 
     # local tracking SQLite DB
     mlflow.set_tracking_uri(f"sqlite:///{TRACKING_DIR}/mlflow.db")
@@ -28,7 +47,22 @@ def setup_local_experiment(experiment_name: str):
     return experiment_id
 
 
-def log_experiment_result(result, config, config_file_path) -> ModelInfo:
+def log_experiment_result(
+    result: TrainingResult,
+    config: TrainingConfig,
+    config_file_path: Path,
+) -> ModelInfo:
+    """Log training parameters, metrics, artifacts, and the fitted pipeline.
+
+    Args:
+        result: Training result containing the fitted pipeline, metrics,
+            classifier configuration, and feature metadata.
+        config: Training configuration whose settings are logged as parameters.
+        config_file_path: Path to the full configuration file artifact.
+
+    Returns:
+        MLflow model metadata for the logged scikit-learn model.
+    """
 
     # log all parameters required for reproducibility
     # log data parameters

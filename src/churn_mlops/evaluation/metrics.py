@@ -1,6 +1,10 @@
 from dataclasses import dataclass
 from time import perf_counter
+from types import TracebackType
+from typing import Self
 
+import numpy as np
+from numpy.typing import ArrayLike
 from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
@@ -16,11 +20,18 @@ from sklearn.metrics import (
 class Timer:
     duration: float | None = None
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
+        """Start timing and return this context manager."""
         self._start = perf_counter()
         return self
 
-    def __exit__(self, *args):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Store elapsed monotonic time when leaving the context."""
         self.duration = perf_counter() - self._start
 
 
@@ -33,43 +44,36 @@ class ModelEvaluation:
     recall: float
     f1: float
     brier_score: float
-    fit_time_sec: float
-    pred_time_sec: float
+    fit_time_sec: float | None
+    pred_time_sec: float | None
 
 
 def evaluate_model(
-    y_true,
-    y_prob,
+    y_true: ArrayLike,
+    y_prob: ArrayLike,
     fit_time_sec: float | None = None,
     pred_time_sec: float | None = None,
     threshold: float = 0.5,
 ) -> ModelEvaluation:
-    """
-    Evaluate binary classification model.
+    """Evaluate a binary classifier from labels and positive probabilities.
 
-    Parameters
-    ----------
-    y_true : array-like
-        Ground truth labels.
+    Args:
+        y_true: Ground-truth binary labels.
+        y_prob: Predicted probabilities for the positive class.
+        fit_time_sec: Optional time spent fitting the model, in seconds.
+        pred_time_sec: Optional time spent generating predictions, in seconds.
+        threshold: Probability threshold used to derive predicted classes.
 
-    y_prob : array-like
-        Predicted positive class probabilities.
+    Returns:
+        ModelEvaluation containing ROC AUC, PR AUC, classification metrics,
+        Brier score, and the supplied timing values.
 
-    fit_time_sec : float
-        Time required to fit model to training data.
-
-    pred_time_sec : float
-        Time required for model inference (predict_proba) on test data.
-
-    threshold : float
-        Probability threshold for positive class.
-
-    Returns
-    -------
-    ModelEvaluation
-        Evaluation metrics.
+    Raises:
+        ValueError: If the supplied labels or probabilities are invalid for a
+            scikit-learn metric.
     """
 
+    y_prob = np.asarray(y_prob)
     y_pred = (y_prob >= threshold).astype(int)
 
     return ModelEvaluation(

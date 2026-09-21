@@ -1,9 +1,20 @@
+from collections.abc import Mapping
+from typing import Self
+
 import numpy as np
+import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 
 
 class FeatureBuilder(BaseEstimator, TransformerMixin):
-    def __init__(self, feature_params: dict | None = None):
+    def __init__(self, feature_params: Mapping[str, int] | None = None):
+        """Initialize feature-engineering thresholds.
+
+        Args:
+            feature_params: Optional mapping containing ``engagement_window``,
+                ``late_payer_threshold``, and ``inactive_threshold`` values.
+                Defaults are used when omitted.
+        """
         if feature_params is None:
             feature_params = {
                 "engagement_window": 30,
@@ -12,15 +23,28 @@ class FeatureBuilder(BaseEstimator, TransformerMixin):
             }
         self.feature_params = feature_params
 
-    def fit(self, X, y=None):
+    def fit(self, X: pd.DataFrame, y: pd.Series | None = None) -> Self:
+        """Fit a sklearn-compatible transformer without learning state."""
         return self
 
-    def transform(self, X):
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Add engineered customer engagement and spending features.
+
+        Args:
+            X: DataFrame containing the raw customer feature columns.
+
+        Returns:
+            A copied DataFrame with seven engineered feature columns appended.
+            Missing derived values and divisions by zero are represented as 0.
+        """
         X = X.copy()
 
+        # Zero tenure cannot produce a meaningful per-year rate, so treat it
+        # as missing and normalize the resulting ratios to zero below.
         tenure = X["tenure"].replace(0, np.nan)
         tenure_years = tenure / 12
 
+        # Convert contract labels to months for commitment comparisons.
         contract_map = {
             "Monthly": 1,
             "Quarterly": 4,
@@ -34,6 +58,7 @@ class FeatureBuilder(BaseEstimator, TransformerMixin):
 
         X["tenure_rel2_commitment"] = (tenure / commitment).fillna(0)
 
+        # Weight recent, frequent usage more heavily within the configured window.
         X["engagement"] = (
             (X["usage_frequency"] / self.feature_params["engagement_window"])
             * (self.feature_params["engagement_window"] - X["last_interaction"])
@@ -53,7 +78,18 @@ class FeatureBuilder(BaseEstimator, TransformerMixin):
 
         return X
 
-    def get_feature_names_out(self, input_features=None):
+    def get_feature_names_out(
+        self, input_features: list[str] | np.ndarray | None = None
+    ) -> np.ndarray | None:
+        """Return input feature names followed by engineered feature names.
+
+        Args:
+            input_features: Optional iterable of names for the input features.
+
+        Returns:
+            NumPy array containing all feature names, or ``None`` when input
+            feature names are not provided.
+        """
         if input_features is None:
             return None
 

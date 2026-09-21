@@ -1,11 +1,15 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from churn_mlops.models import FeatureBuilder
 
 
-def test_engineered_features_exist_and_finite(sample_df):
-    transformed_df = FeatureBuilder().transform(sample_df)
+@pytest.mark.unit
+def test_feature_builder_returns_finite_engineered_features(
+    sample_features_df: pd.DataFrame,
+) -> None:
+    transformed_df = FeatureBuilder().transform(sample_features_df)
 
     engineered_cols = [
         "contract_commitment",
@@ -22,13 +26,16 @@ def test_engineered_features_exist_and_finite(sample_df):
     assert np.isfinite(transformed_df[engineered_cols]).values.all()
 
 
-def test_input_df_not_modified(sample_df):
-    original_df = sample_df.copy(deep=True)
+@pytest.mark.unit
+def test_feature_builder_does_not_modify_input_dataframe(
+    sample_features_df: pd.DataFrame,
+) -> None:
+    original_df = sample_features_df.copy(deep=True)
 
-    transformed_df = FeatureBuilder().transform(sample_df)
+    transformed_df = FeatureBuilder().transform(sample_features_df)
 
     pd.testing.assert_frame_equal(
-        sample_df,
+        sample_features_df,
         original_df,
     )
 
@@ -38,69 +45,98 @@ def test_input_df_not_modified(sample_df):
     )
 
 
-def test_handles_zero_tenure(sample_df):
-    transformed_df = FeatureBuilder().transform(sample_df)
+@pytest.mark.unit
+def test_feature_builder_handles_zero_tenure_without_division_error(
+    sample_features_df: pd.DataFrame,
+) -> None:
+    # The first row of the sample_features_df fixture has zero tenure and exercises the division guard.
+    transformed_df = FeatureBuilder().transform(sample_features_df)
 
     assert transformed_df["avg_spend_per_year"].iloc[0] == 0
     assert transformed_df["avg_s_calls_per_year"].iloc[0] == 0
 
 
-def test_contract_mapping(sample_df):
-    transformed_df = FeatureBuilder().transform(sample_df)
+@pytest.mark.unit
+def test_feature_builder_maps_contract_length_to_months(
+    sample_features_df: pd.DataFrame,
+) -> None:
+    # The first three rows of the sample_features_df fixture represent Monthly, Quarterly, and Annual plans.
+    transformed_df = FeatureBuilder().transform(sample_features_df)
 
     assert transformed_df["contract_commitment"].iloc[0] == 1
     assert transformed_df["contract_commitment"].iloc[1] == 4
     assert transformed_df["contract_commitment"].iloc[2] == 12
 
 
-def test_tenure_rel2_commitment(sample_df):
-    transformed_df = FeatureBuilder().transform(sample_df)
+@pytest.mark.unit
+def test_feature_builder_calculates_relative_tenure(
+    sample_features_df: pd.DataFrame,
+) -> None:
+    transformed_df = FeatureBuilder().transform(sample_features_df)
 
     assert transformed_df["tenure_rel2_commitment"].iloc[1] == 3
     assert transformed_df["tenure_rel2_commitment"].iloc[2] == 2
 
 
-def test_engagement(sample_df):
-    transformed_df = FeatureBuilder().transform(sample_df)
+@pytest.mark.unit
+def test_feature_builder_calculates_engagement(
+    sample_features_df: pd.DataFrame,
+) -> None:
+    transformed_df = FeatureBuilder().transform(sample_features_df)
 
     assert transformed_df["engagement"].iloc[1] == 10
     assert transformed_df["engagement"].iloc[2] == 10
 
 
-def test_avg_spend_per_year(sample_df):
-    transformed_df = FeatureBuilder().transform(sample_df)
+@pytest.mark.unit
+def test_feature_builder_calculates_average_spend_per_year(
+    sample_features_df: pd.DataFrame,
+) -> None:
+    transformed_df = FeatureBuilder().transform(sample_features_df)
 
     assert transformed_df["avg_spend_per_year"].iloc[1] == 400
     assert transformed_df["avg_spend_per_year"].iloc[2] == 500
 
 
-def test_avg_s_calls_per_year(sample_df):
-    transformed_df = FeatureBuilder().transform(sample_df)
+@pytest.mark.unit
+def test_feature_builder_calculates_average_support_calls_per_year(
+    sample_features_df: pd.DataFrame,
+) -> None:
+    transformed_df = FeatureBuilder().transform(sample_features_df)
 
     assert transformed_df["avg_s_calls_per_year"].iloc[1] == 6
     assert transformed_df["avg_s_calls_per_year"].iloc[2] == 1 / 2
 
 
-def test_late_payer_flag(sample_df):
-    transformed_df = FeatureBuilder().transform(sample_df)
+@pytest.mark.unit
+def test_feature_builder_sets_late_payer_flag(
+    sample_features_df: pd.DataFrame,
+) -> None:
+    transformed_df = FeatureBuilder().transform(sample_features_df)
 
     assert transformed_df["late_payer"].iloc[0] == 1
     assert transformed_df["late_payer"].iloc[1] == 0
     assert transformed_df["late_payer"].iloc[2] == 0
 
 
-def test_inactive_customer(sample_df):
-    transformed_df = FeatureBuilder().transform(sample_df)
+@pytest.mark.unit
+def test_feature_builder_sets_inactive_customer_flag(
+    sample_features_df: pd.DataFrame,
+) -> None:
+    transformed_df = FeatureBuilder().transform(sample_features_df)
 
     assert transformed_df["inactive_customer"].iloc[0] == 0
     assert transformed_df["inactive_customer"].iloc[1] == 0
     assert transformed_df["inactive_customer"].iloc[2] == 1
 
 
-def test_get_feature_names_out(sample_df):
+@pytest.mark.unit
+def test_feature_builder_returns_original_and_engineered_feature_names(
+    sample_features_df: pd.DataFrame,
+) -> None:
     transformer = FeatureBuilder()
 
-    features = transformer.get_feature_names_out(sample_df.columns)
+    features = transformer.get_feature_names_out(sample_features_df.columns)
 
     expected_features = {
         "tenure",

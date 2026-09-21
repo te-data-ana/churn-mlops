@@ -1,9 +1,14 @@
+import logging
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
+from numpy.typing import ArrayLike
 
 from churn_mlops.serving.model_loader import LoadedModel, ModelMetadata
 from churn_mlops.serving.schemas import InputFeatures
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -14,37 +19,116 @@ class PredictionResult:
 
 
 class Predictor:
-    def __init__(self, loaded_model: LoadedModel):
+    def __init__(self, loaded_model: LoadedModel) -> None:
+        """Initialize a predictor from a loaded model and its metadata.
+
+        Args:
+            loaded_model: Model object and serving metadata returned by
+                ``load_model``.
+        """
         self.model = loaded_model.model
         self.metadata = loaded_model.metadata
+        logger.info(
+            "Initialized predictor for model version '%s' with threshold %.4f.",
+            self.metadata.model_version,
+            self.metadata.threshold,
+        )
+
+    @staticmethod
+    def _to_probability_array(probabilities: ArrayLike) -> np.ndarray:
+        """Normalize model probabilities to a two-column NumPy array.
+
+        Args:
+            probabilities: One-dimensional positive-class probabilities or a
+                two-dimensional class-probability array.
+
+        Returns:
+            Two-dimensional array with negative-class probabilities in column
+            zero and positive-class probabilities in column one.
+
+        Raises:
+            ValueError: If the array is not two-dimensional with at least two
+                columns after normalization.
+        """
+        try:
+            array = np.asarray(probabilities)
+            if array.ndim == 1:
+                # A one-dimensional output contains positive-class probabilities;
+                # complement them to construct the negative-class column.
+                array = np.column_stack([1.0 - array, array])
+            if array.ndim != 2 or array.shape[1] < 2:
+                raise ValueError(
+                    "Model probability output must be 2D with at least two columns."
+                )
+            return array
+        except Exception:
+            logger.exception("Failed to normalize model probability output.")
+            raise
 
     def predict(self, payload: InputFeatures) -> PredictionResult:
-        """Prediction of one single record of input features."""
-        df = pd.DataFrame([payload.model_dump()])
+        """Predict churn for a single validated feature payload.
 
-        predicted_probability = float(self.model.predict_proba(df)[0, 1])
+        Args:
+            payload: Validated customer feature values.
 
-        predicted_class = int(predicted_probability >= self.metadata.threshold)
+        Returns:
+            Prediction result containing the positive-class probability,
+            thresholded class, and model metadata.
+        """
+        try:
+            df = pd.DataFrame([payload.model_dump()])
+            probabilities = self._to_probability_array(self.model.predict_proba(df))
 
-        return PredictionResult(
-            predicted_class=predicted_class,
-            predicted_probability=predicted_probability,
-            metadata=self.metadata,
-        )
+            predicted_probability = float(probabilities[0, 1])
+            predicted_class = int(predicted_probability >= self.metadata.threshold)
+
+            logger.info(
+                "Single-record prediction generated probability %.4f and class %d.",
+                predicted_probability,
+                predicted_class,
+            )
+
+            return PredictionResult(
+                predicted_class=predicted_class,
+                predicted_probability=predicted_probability,
+                metadata=self.metadata,
+            )
+        except Exception:
+            logger.exception("Single-record prediction failed.")
+            raise
 
     def predict_batch(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Batch prediction for a pandas dataframe containing multiple records."""
-        predicted_probabilities = self.model.predict_proba(df)[:, 1]
+        """Predict churn for multiple records while preserving their index.
 
-        predicted_classes = (predicted_probabilities >= self.metadata.threshold).astype(
-            int
-        )
+        Args:
+            df: DataFrame containing one customer record per row.
 
-        result = pd.DataFrame(index=df.index.copy())
+        Returns:
+            DataFrame indexed like ``df`` with predicted probabilities,
+            thresholded classes, the configured threshold, and model version.
+        """
+        try:
+            logger.info("Starting batch prediction for %d rows.", len(df))
+            probabilities = self._to_probability_array(self.model.predict_proba(df))
+            predicted_probabilities = probabilities[:, 1]
 
-        result["predicted_probability"] = predicted_probabilities
-        result["predicted_class"] = predicted_classes
-        result["threshold"] = self.metadata.threshold
-        result["model_version"] = self.metadata.model_version
+            predicted_classes = (
+                predicted_probabilities >= self.metadata.threshold
+            ).astype(int)
 
-        return result
+            result = pd.DataFrame(index=df.index.copy())
+
+            result["predicted_probability"] = predicted_probabilities
+            result["predicted_class"] = predicted_classes
+            result["threshold"] = self.metadata.threshold
+            result["model_version"] = self.metadata.model_version
+
+            logger.info(
+                "Batch prediction completed for %d rows. Mean probability: %.4f.",
+                len(result),
+                result["predicted_probability"].mean(),
+            )
+            return result
+        except Exception:
+            logger.exception("Batch prediction failed for %d rows.", len(df))
+            raise

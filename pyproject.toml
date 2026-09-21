@@ -45,5 +45,6 @@ addopts = [
 ]
 markers = [
     "unit: fast isolated tests",
+    "smoke: quick integration tests",
     "integration: end-to-end workflow tests",
 ]

@@ -1,26 +1,52 @@
+import logging
+
 import pandas as pd
 
 from churn_mlops.config.settings import RAW_DATA_DIR
 
+logger = logging.getLogger(__name__)
 
-def load_raw_data(file_name: str, index_col=None) -> pd.DataFrame:
+
+def load_raw_data(file_name: str, index_col: str | None = None) -> pd.DataFrame:
+    """Load and normalize a raw CSV file from the configured data directory.
+
+    Args:
+        file_name: Name of the CSV file in ``RAW_DATA_DIR``.
+        index_col: Optional column name to use as the DataFrame index.
+
+    Returns:
+        DataFrame with normalized column names, nullable dtypes, the optional
+        index applied, and rows containing only missing values removed.
+
+    Raises:
+        FileNotFoundError: If the requested CSV file does not exist.
     """
-    Using pandas, load raw data from standard csv-file stored in raw data directory.
-    Column names are converted to snake_case.
-    An index column is set based on user input.
-    Records with missing values only are dropped.
-    """
-    df = pd.read_csv(
-        # retrieve raw data from specified file
-        RAW_DATA_DIR / file_name,
-    )
-    # convert column names to snake_case
-    df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_", regex=False)
-    # convert columns to nullable data types
-    df = df.convert_dtypes()
-    # set index column
-    if index_col:
-        df.set_index(index_col, inplace=True)
-    # drop rows containing only missing values
-    df.dropna(how="all", inplace=True)
-    return df
+    try:
+        logger.info("Loading raw dataset '%s' from '%s'.", file_name, RAW_DATA_DIR)
+        df = pd.read_csv(RAW_DATA_DIR / file_name)
+        df.columns = (
+            df.columns.str.strip().str.lower().str.replace(" ", "_", regex=False)
+        )
+        df = df.convert_dtypes()
+        if index_col:
+            df.set_index(index_col, inplace=True)
+            logger.info("Set index column '%s' on dataset '%s'.", index_col, file_name)
+        prior_rows = len(df)
+        df.dropna(how="all", inplace=True)
+        dropped_rows = prior_rows - len(df)
+        if dropped_rows:
+            logger.warning(
+                "Dropped %d all-missing rows from dataset '%s'.",
+                dropped_rows,
+                file_name,
+            )
+        logger.info(
+            "Loaded dataset '%s' with %d rows and %d columns.",
+            file_name,
+            len(df),
+            len(df.columns),
+        )
+        return df
+    except Exception:
+        logger.exception("Failed to load raw dataset '%s'.", file_name)
+        raise

@@ -1,4 +1,7 @@
+from typing import Any
+
 import pytest
+from pandas import Series
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import (
     ExtraTreesClassifier,
@@ -16,6 +19,7 @@ from churn_mlops.models import build_classifier_pipeline
 from churn_mlops.models.pipelines import _requires_scaling
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "classifier",
     [
@@ -24,10 +28,13 @@ from churn_mlops.models.pipelines import _requires_scaling
         SVC(),
     ],
 )
-def test_requires_scaling(classifier):
+def test_requires_scaling_returns_true_for_scaling_classifiers(
+    classifier: LogisticRegression | KNeighborsClassifier | SVC,
+) -> None:
     assert _requires_scaling(classifier) is True
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "classifier",
     [
@@ -39,15 +46,26 @@ def test_requires_scaling(classifier):
         DecisionTreeClassifier(),
     ],
 )
-def test_does_not_require_scaling(classifier):
+def test_requires_scaling_returns_false_for_non_scaling_classifiers(
+    classifier: DummyClassifier
+    | ExtraTreesClassifier
+    | HistGradientBoostingClassifier
+    | RandomForestClassifier
+    | GaussianNB
+    | DecisionTreeClassifier,
+) -> None:
     assert _requires_scaling(classifier) is False
 
 
-def test_pipeline_fit_and_predict(sample_training_data):
+@pytest.mark.unit
+def test_classifier_pipeline_predicts_after_fitting(
+    sample_training_data: tuple[Any, Series],
+) -> None:
     X, y = sample_training_data
 
     pipeline = build_classifier_pipeline(LogisticRegression())
 
+    # Verify the pipeline rejects prediction before it has been fitted.
     with pytest.raises(NotFittedError):
         pipeline.predict(X)
 
@@ -58,7 +76,8 @@ def test_pipeline_fit_and_predict(sample_training_data):
     assert len(predictions) == len(X)
 
 
-def test_pipeline_contains_expected_steps():
+@pytest.mark.unit
+def test_classifier_pipeline_contains_expected_steps() -> None:
     pipeline = build_classifier_pipeline(LogisticRegression())
 
     assert set(pipeline.named_steps) == {
@@ -68,6 +87,7 @@ def test_pipeline_contains_expected_steps():
     }
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "classifier",
     [
@@ -80,7 +100,15 @@ def test_pipeline_contains_expected_steps():
         DecisionTreeClassifier(),
     ],
 )
-def test_pipeline_contains_classifier(classifier):
+def test_classifier_pipeline_preserves_supplied_classifier(
+    classifier: DummyClassifier
+    | LogisticRegression
+    | ExtraTreesClassifier
+    | HistGradientBoostingClassifier
+    | RandomForestClassifier
+    | GaussianNB
+    | DecisionTreeClassifier,
+) -> None:
     pipeline = build_classifier_pipeline(classifier)
 
     assert pipeline.named_steps["classifier"] is classifier

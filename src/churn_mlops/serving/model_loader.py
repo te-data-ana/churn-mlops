@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import mlflow
+from sklearn.pipeline import Pipeline
 
 from churn_mlops.config import TRACKING_DIR, ServingSettings
 from churn_mlops.tracking import ModelRegistry
@@ -16,11 +17,21 @@ class ModelMetadata:
 
 @dataclass
 class LoadedModel:
-    model: object
+    model: Pipeline
     metadata: ModelMetadata
 
 
 def load_model() -> LoadedModel:
+    """Load the configured serving model and its registry metadata.
+
+    Returns:
+        Loaded model together with its name, alias, version, and probability
+        threshold.
+
+    Raises:
+        mlflow.exceptions.MlflowException: If the configured model or alias
+            cannot be found in the MLflow registry.
+    """
 
     # local tracking SQLite DB
     mlflow.set_tracking_uri(f"sqlite:///{TRACKING_DIR}/mlflow.db")
