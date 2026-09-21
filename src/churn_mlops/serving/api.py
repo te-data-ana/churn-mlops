@@ -1,8 +1,11 @@
 from fastapi import FastAPI
 
+from churn_mlops.config import configure_logging
 from churn_mlops.serving.model_loader import load_model
 from churn_mlops.serving.predictor import PredictionResult, Predictor
 from churn_mlops.serving.schemas import InputFeatures
+
+configure_logging()
 
 app = FastAPI()
 

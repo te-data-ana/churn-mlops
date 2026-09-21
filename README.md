@@ -29,11 +29,32 @@ Run the tests:
 uv run pytest
 ```
 
+Use the package entry point for the supported local workflows:
+
+```bash
+uv run churn-mlops --help
+```
+
 Train a model with the sample configuration:
 
 ```bash
-uv run python -m churn_mlops.train \
+uv run churn-mlops train \
 	--config sample_training_config.yaml
+```
+
+Generate batch predictions:
+
+```bash
+uv run churn-mlops batch-predict \
+	--input_csv customer_churn_dataset-inference.csv \
+	--output_csv predictions.csv \
+	--index_col customerid
+```
+
+Serve the FastAPI application:
+
+```bash
+uv run churn-mlops serve --host 127.0.0.1 --port 8000 --reload
 ```
 
 Training reads configuration files from `src/config` and input data from `data/raw`. Local MLflow state is stored in `tracking/mlflow.db`; run artifacts are written to `artifacts`.
@@ -45,7 +66,7 @@ Training reads configuration files from `src/config` and input data from `data/r
 Training loads and validates a CSV, builds a feature and preprocessing pipeline, fits the configured classifier, evaluates it on a stratified holdout set, and logs the result to MLflow.
 
 ```bash
-uv run python -m churn_mlops.train \
+uv run churn-mlops train \
 	--config sample_training_config.yaml
 ```
 
@@ -56,7 +77,7 @@ The default training file is `data/raw/customer_churn_dataset-training.csv`.
 Batch inference validates an input CSV, loads the configured registered model, and writes predictions under `tmp`:
 
 ```bash
-uv run python -m churn_mlops.batch_predict \
+uv run churn-mlops batch-predict \
 	--input_csv customer_churn_dataset-inference.csv \
 	--output_csv predictions.csv \
 	--index_col customerid
@@ -75,7 +96,13 @@ Input filenames are resolved from `data/raw`; output filenames are written to `t
 
 ### Serve predictions through HTTP
 
-Start the FastAPI application:
+Start the FastAPI application through the package CLI:
+
+```bash
+uv run churn-mlops serve --host 127.0.0.1 --port 8000 --reload
+```
+
+The equivalent direct Uvicorn command is still:
 
 ```bash
 uv run uvicorn churn_mlops.serving.api:app --reload
@@ -110,7 +137,7 @@ curl -X POST http://127.0.0.1:8000/predict \
 	}'
 ```
 
-The API requires a registered model with the configured alias. By default it loads model `churn-propensity` using the `champion` alias.
+The API requires a registered model with the configured alias. By default it loads model `churn-propensity` using the `champion` alias from the MLflow registry.
 
 ## Input data contract
 
@@ -153,7 +180,7 @@ Training is controlled by YAML files in [src/config](src/config). A configuratio
 - `evaluation`: prediction threshold; and
 - `registry`: model registration and promotion settings.
 
-The repository includes configurations for `dc`, `dt`, `hgb`, `lr`, `nb`, and `rf`, including [sample_training_config.yaml](src/config/sample_training_config.yaml).
+The repository includes configurations files for `dc`, `dt`, `hgb`, `lr`, `nb`, and `rf`, along with a [sample_training_config.yaml](src/config/sample_training_config.yaml).
 
 ### Feature engineering and preprocessing
 
@@ -172,6 +199,8 @@ Numeric values are imputed, categorical values are imputed and one-hot encoded, 
 | `et` | `ExtraTreesClassifier` |
 | `rf` | `RandomForestClassifier` |
 | `hgb` | `HistGradientBoostingClassifier` |
+
+The list of supported classifiers can be extended easily, by extending the model catalog [src/churn_mlops/models/catalog.py](src/churn_mlops/models/catalog.py).
 
 ### Evaluation
 
@@ -272,5 +301,3 @@ This project is designed as a local-first MLOps example. It currently does not p
 - support for arbitrary input schemas.
 
 Paths are resolved relative to the project root, and the API currently loads the registered model for each prediction request. The serving API requires the configured model alias to exist before prediction requests can succeed.
-
-The `churn-mlops` console-script entry point declared in `pyproject.toml` currently targets `churn_mlops:main`, which is not implemented. Use the module commands documented above until that entry point is corrected.
