@@ -27,7 +27,7 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
     predictor = Mock()
     predictor.predict_batch.return_value = prediction_df
 
-    # Supply CLI arguments and redirect output to a temporary directory.
+    # Supply CLI arguments and redirect in-/output from/to a temporary directory.
     monkeypatch.setattr(
         sys,
         "argv",
@@ -41,6 +41,7 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
             "customerid",
         ],
     )
+    monkeypatch.setattr(batch_predict, "RAW_DATA_DIR", tmp_path)
     monkeypatch.setattr(batch_predict, "TMP_DIR", tmp_path)
     # Replace filesystem, validation, model-loading, and prediction boundaries.
     load_raw_data = Mock(return_value=input_df)
@@ -61,6 +62,7 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
     load_raw_data.assert_called_once_with(
         file_name="customers.csv",
         index_col="customerid",
+        data_dir=tmp_path,
     )
     validate_inference_data.assert_called_once_with(input_df)
     load_model.assert_called_once_with()
@@ -74,3 +76,30 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
         pd.read_csv(output_path, index_col=0),
         prediction_df,
     )
+
+
+@pytest.mark.integration
+def test_batch_prediction_uses_registered_model(
+    generated_inference_csv: Path,
+    registered_model: dict[str, str | Path],
+    tmp_path: Path,
+) -> None:
+    output_path = batch_predict.run_batch_prediction(
+        input_csv=generated_inference_csv.name,
+        output_csv="predictions.csv",
+        index_col="customerid",
+        input_dir=generated_inference_csv.parent,
+        output_dir=tmp_path / "output",
+        tracking_uri=str(registered_model["tracking_uri"]),
+        model_name=str(registered_model["model_name"]),
+        model_alias=str(registered_model["model_alias"]),
+    )
+
+    predictions = pd.read_csv(output_path, index_col=0)
+
+    assert output_path == tmp_path / "output" / "predictions.csv"
+    assert len(predictions) == len(pd.read_csv(generated_inference_csv))
+    assert predictions["predicted_probability"].between(0, 1).all()
+    assert predictions["predicted_class"].isin([0, 1]).all()
+    assert (predictions["threshold"] == 0.5).all()
+    assert predictions["model_version"].notna().all()

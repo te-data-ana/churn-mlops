@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from churn_mlops.serving import api
-from churn_mlops.serving.model_loader import LoadedModel
+from churn_mlops.serving.model_loader import LoadedModel, load_model
 
 
 @pytest.mark.unit
@@ -91,3 +91,29 @@ def test_predict_endpoint_rejects_invalid_payload(client: TestClient) -> None:
     response = client.post("/predict", json={"age": 45, "gender": "XY"})
 
     assert response.status_code == 422
+
+
+@pytest.mark.integration
+def test_api_serves_predictions_from_registered_model(
+    monkeypatch: pytest.MonkeyPatch,
+    registered_model: dict[str, object],
+    sample_dict: dict[str, Any],
+) -> None:
+    def load_registered_model() -> LoadedModel:
+        return load_model(
+            tracking_uri=str(registered_model["tracking_uri"]),
+            model_name=str(registered_model["model_name"]),
+            model_alias=str(registered_model["model_alias"]),
+        )
+
+    monkeypatch.setattr(api, "load_model", load_registered_model)
+
+    with TestClient(api.app) as test_client:
+        health_response = test_client.get("/health")
+        ready_response = test_client.get("/ready")
+        predict_response = test_client.post("/predict", json=sample_dict)
+
+    assert health_response.status_code == 200
+    assert ready_response.status_code == 200
+    assert predict_response.status_code == 200
+    assert 0 <= predict_response.json()["predicted_probability"] <= 1

@@ -7,7 +7,7 @@ import pytest
 from sklearn.pipeline import Pipeline
 
 from churn_mlops.config.schemas import TrainingConfig
-from churn_mlops.training import TrainingResult, run_training_job, train
+from churn_mlops.training import TrainingResult, train
 
 
 def assert_training_result(result) -> None:
@@ -32,10 +32,10 @@ def assert_training_result(result) -> None:
 
 
 @pytest.mark.integration
-def test_run_training_job_returns_valid_training_result() -> None:
-    result = run_training_job(experiment_name="pytest")
-
-    assert_training_result(result)
+def test_run_training_job_returns_valid_training_result(
+    registered_model: dict[str, object],
+) -> None:
+    assert_training_result(registered_model["result"])
 
 
 @pytest.mark.unit
