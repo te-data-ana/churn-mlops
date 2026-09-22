@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from pathlib import Path
-from uuid import uuid4
+from typing import Any
 
 import pandas as pd
 import pytest
@@ -210,17 +210,25 @@ def generated_inference_csv(
 
 
 @pytest.fixture
-def registered_model(
-    tmp_path: Path,
-    generated_training_csv: Path,
-) -> dict[str, object]:
-    """Train and register a model in an isolated temporary MLflow store."""
-    from churn_mlops.training import run_training_job
+def mlflow_test_setup(tmp_path: Path) -> dict[str, Any]:
+    """Return a dictionary of MLflow test parameters for use in training and inference tests."""
+    return {
+        "tmp_path": tmp_path,
+        "model_name": "test-model",
+        "model_alias": "test-champion",
+        "experiment_name": "test-experiment",
+        "tracking_uri": f"sqlite:///{tmp_path / 'mlflow.db'}",
+    }
 
-    model_name = f"ci-churn-{uuid4().hex}"
-    model_alias = "ci-champion"
-    tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
-    artifact_dir = tmp_path / "artifacts"
+
+@pytest.fixture
+def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
+    """Write a sample training configuration to a temporary YAML file."""
+
+    tmp_path = mlflow_test_setup["tmp_path"]
+    model_name = mlflow_test_setup["model_name"]
+    model_alias = mlflow_test_setup["model_alias"]
+
     config_path = tmp_path / "training.yaml"
     config_path.write_text(
         yaml.safe_dump(
@@ -257,14 +265,32 @@ def registered_model(
             }
         )
     )
+    return config_path
+
+
+@pytest.fixture
+def registered_model(
+    mlflow_test_setup: dict[str, Any],
+    sample_config_yaml: Path,
+    generated_training_csv: Path,
+) -> dict[str, object]:
+    """Train and register a model in an isolated temporary MLflow store."""
+    from churn_mlops.training import run_training_job
+
+    tmp_path = mlflow_test_setup["tmp_path"]
+    model_name = mlflow_test_setup["model_name"]
+    model_alias = mlflow_test_setup["model_alias"]
+    experiment_name = mlflow_test_setup["experiment_name"]
+    tracking_uri = mlflow_test_setup["tracking_uri"]
+    artifact_dir = tmp_path / "artifacts"
 
     result = run_training_job(
-        config_file=config_path.name,
+        config_file=sample_config_yaml.name,
         config_dir=tmp_path,
         training_file=generated_training_csv.name,
         index_col="customerid",
         data_dir=tmp_path,
-        experiment_name=f"ci-{uuid4().hex}",
+        experiment_name=experiment_name,
         tracking_uri=tracking_uri,
         artifact_dir=artifact_dir,
     )
