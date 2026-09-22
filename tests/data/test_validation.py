@@ -6,9 +6,9 @@ from churn_mlops.data import load_raw_data, validate_training_data
 
 
 @pytest.fixture
-def ingested_df() -> pd.DataFrame:
+def ingested_df(generated_training_csv) -> pd.DataFrame:
     return load_raw_data(
-        "customer_churn_dataset-training.csv",
+        generated_training_csv,
         index_col="customerid",
     )
 

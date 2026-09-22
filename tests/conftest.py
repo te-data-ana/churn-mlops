@@ -123,12 +123,12 @@ def generated_training_df() -> pd.DataFrame:
     """Return deterministic schema-valid training data for integration tests."""
     return pd.DataFrame(
         {
-            "age": [22, 31, 44, 57, 29, 63, 38, 48, 71, 26, 52, 35],
-            "tenure": [2, 8, 14, 30, 4, 42, 18, 25, 55, 6, 36, 11],
-            "usage_frequency": [3, 8, 12, 22, 5, 28, 14, 18, 30, 4, 20, 9],
-            "support_calls": [8, 5, 3, 1, 7, 0, 4, 2, 0, 9, 1, 6],
-            "payment_delay": [20, 12, 5, 0, 18, 0, 7, 2, 0, 25, 1, 15],
-            "last_interaction": [35, 20, 12, 3, 28, 1, 10, 6, 2, 40, 4, 18],
+            "Age": [22, 31, 44, 57, 29, 63, 38, 48, 71, 26, 52, 35],
+            "Tenure": [2, 8, 14, 30, 4, 42, 18, 25, 55, 6, 36, 11],
+            "Usage Frequency": [3, 8, 12, 22, 5, 28, 14, 18, 30, 4, 20, 9],
+            "Support Calls": [8, 5, 3, 1, 7, 0, 4, 2, 0, 9, 1, 6],
+            "Payment Delay": [20, 12, 5, 0, 18, 0, 7, 2, 0, 25, 1, 15],
+            "Last Interaction": [35, 20, 12, 3, 28, 1, 10, 6, 2, 40, 4, 18],
             "total_spend": [
                 100.0,
                 450.0,
@@ -143,7 +143,7 @@ def generated_training_df() -> pd.DataFrame:
                 300.0,
                 700.0,
             ],
-            "gender": [
+            "Gender": [
                 "Female",
                 "Male",
                 "Female",
@@ -157,7 +157,7 @@ def generated_training_df() -> pd.DataFrame:
                 "Female",
                 "Male",
             ],
-            "subscription_type": [
+            "Subscription Type": [
                 "Basic",
                 "Standard",
                 "Premium",
@@ -171,7 +171,7 @@ def generated_training_df() -> pd.DataFrame:
                 "Standard",
                 "Standard",
             ],
-            "contract_length": [
+            "Contract Length": [
                 "Monthly",
                 "Quarterly",
                 "Annual",
@@ -185,7 +185,7 @@ def generated_training_df() -> pd.DataFrame:
                 "Quarterly",
                 "Monthly",
             ],
-            "churn": [1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1],
+            "Churn": [1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1],
         },
         index=pd.Index(range(1001, 1013), name="customerid"),
     )
@@ -205,7 +205,7 @@ def generated_inference_csv(
 ) -> Path:
     """Write generated inference data to a temporary CSV file."""
     path = tmp_path / "inference.csv"
-    generated_training_df.drop(columns=["churn"]).to_csv(path)
+    generated_training_df.drop(columns=["Churn"]).to_csv(path)
     return path
 
 
