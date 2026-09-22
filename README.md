@@ -282,6 +282,11 @@ Install the pre-commit hooks:
 uv run pre-commit install
 ```
 
+CI runs the locked dependency installation, Ruff lint and format checks, and
+the full pytest suite. Integration tests generate temporary input data and
+isolated MLflow state, so they do not require committed datasets or local
+developer artifacts.
+
 ## Repository layout
 
 ```text
@@ -308,7 +313,7 @@ This project is designed as a local-first MLOps example. It currently does not p
 
 - a remote MLflow tracking server or cloud artifact store;
 - Docker, Kubernetes, or cloud deployment configuration;
-- CI/CD pipeline configuration;
+- automated CI deployment pipeline or production CD configuration;
 - authentication, authorization, or CORS configuration;
 - production monitoring or drift detection; or
 - support for arbitrary input schemas.

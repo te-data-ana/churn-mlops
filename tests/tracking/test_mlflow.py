@@ -1,11 +1,11 @@
 from collections.abc import Callable
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 from mlflow.exceptions import MlflowException
 
 import churn_mlops.tracking.mlflow as tracking
-from churn_mlops.config import TMP_DIR
 from churn_mlops.config.schemas import TrainingConfig
 from churn_mlops.training import TrainingResult
 
@@ -54,11 +54,10 @@ def test_setup_local_experiment_returns_existing_experiment_id(
 @pytest.mark.unit
 def test_log_experiment_result_logs_metrics_parameters_model_and_artifacts(
     monkeypatch: pytest.MonkeyPatch,
+    sample_config_yaml: Path,
     mock_training_result: TrainingResult,
     config_factory: Callable[..., TrainingConfig],
 ) -> None:
-    config_file_path = TMP_DIR / "test.yaml"
-    config_file_path.write_text("test")
 
     # Mock MLflow logging components and verify each category is logged (at least) once.
     mock_log_metrics = MagicMock()
@@ -76,7 +75,7 @@ def test_log_experiment_result_logs_metrics_parameters_model_and_artifacts(
     monkeypatch.setattr(tracking.mlflow, "log_artifact", mock_log_artifact)
 
     tracking.log_experiment_result(
-        mock_training_result, config_factory(), config_file_path
+        mock_training_result, config_factory(), sample_config_yaml
     )
 
     mock_log_metrics.assert_called_once()

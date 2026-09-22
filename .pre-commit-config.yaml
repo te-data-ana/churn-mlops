@@ -13,24 +13,24 @@ repos:
       - id: name-tests-test
         args: [--pytest-test-first]
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    # ruff version
-    rev: v0.16.6
-    hooks:
-      # run linter
-      - id: ruff-check
-        types_or: [ python, pyi, pyproject ]
-        args: [--fix]
-      # run formatter
-      - id: ruff-format
-        types_or: [ python, pyi, markdown ]
-
   - repo: https://github.com/kynan/nbstripout
     # nbstripout version
     rev: 0.9.1
     hooks:
       # strip output of jupyter notebooks for git only
       - id: nbstripout
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # ruff version
+    rev: v0.16.6
+    hooks:
+      # run linter
+      - id: ruff-check
+        types_or: [ python, pyi, jupyter, pyproject ]
+        args: [--fix]
+      # run formatter
+      - id: ruff-format
+        types_or: [ python, pyi, jupyter, markdown ]
 
   - repo: https://github.com/Yelp/detect-secrets
     # detect-secrets version

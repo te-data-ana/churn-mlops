@@ -16,11 +16,18 @@ if TYPE_CHECKING:
     from churn_mlops.training import TrainingResult
 
 
-def setup_local_experiment(experiment_name: str) -> str:
+def setup_local_experiment(
+    experiment_name: str,
+    tracking_uri: str | None = None,
+    artifact_dir: Path = ARTIFACT_DIR,
+) -> str:
     """Configure local MLflow tracking and select an experiment.
 
     Args:
         experiment_name: Name of the experiment to create or activate.
+        tracking_uri: Optional MLflow tracking URI. Defaults to the local
+            project database.
+        artifact_dir: Directory used for experiment artifacts.
 
     Returns:
         MLflow experiment identifier.
@@ -30,12 +37,12 @@ def setup_local_experiment(experiment_name: str) -> str:
     """
 
     # local tracking SQLite DB
-    mlflow.set_tracking_uri(f"sqlite:///{TRACKING_DIR}/mlflow.db")
+    mlflow.set_tracking_uri(tracking_uri or f"sqlite:///{TRACKING_DIR}/mlflow.db")
 
     # create experiment in case it does not exist yet under that name
     try:
         experiment_id = mlflow.create_experiment(
-            experiment_name, artifact_location=str(ARTIFACT_DIR)
+            experiment_name, artifact_location=str(artifact_dir)
         )
     # otherwise retrieve corresponding ID of existing experiment
     except MlflowException:
@@ -51,6 +58,7 @@ def log_experiment_result(
     result: TrainingResult,
     config: TrainingConfig,
     config_file_path: Path,
+    artifact_dir: Path = ARTIFACT_DIR,
 ) -> ModelInfo:
     """Log training parameters, metrics, artifacts, and the fitted pipeline.
 
@@ -59,6 +67,7 @@ def log_experiment_result(
             classifier configuration, and feature metadata.
         config: Training configuration whose settings are logged as parameters.
         config_file_path: Path to the full configuration file artifact.
+        artifact_dir: Directory used for supporting artifacts.
 
     Returns:
         MLflow model metadata for the logged scikit-learn model.
@@ -120,7 +129,9 @@ def log_experiment_result(
     )
 
     # log model feature names
-    with open(ARTIFACT_DIR / "feature_names.json", "w") as f:
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    feature_names_path = artifact_dir / "feature_names.json"
+    with open(feature_names_path, "w") as f:
         json.dump(
             {
                 "input": result.metadata["feature_names_in"],
@@ -128,7 +139,7 @@ def log_experiment_result(
             },
             f,
         )
-    mlflow.log_artifact(ARTIFACT_DIR / "feature_names.json", artifact_path="features")
+    mlflow.log_artifact(feature_names_path, artifact_path="features")
 
     # log full config file as artifact
     mlflow.log_artifact(config_file_path, artifact_path="config")

@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import mlflow
@@ -8,7 +9,13 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 
-from churn_mlops.config import configure_logging, load_config
+from churn_mlops.config import (
+    ARTIFACT_DIR,
+    CONFIG_DIR,
+    RAW_DATA_DIR,
+    configure_logging,
+    load_config,
+)
 from churn_mlops.config.schemas import TrainingConfig
 from churn_mlops.data import load_raw_data, validate_training_data
 from churn_mlops.evaluation import Timer, evaluate_model
@@ -31,17 +38,25 @@ class TrainingResult:
 
 def run_training_job(
     config_file: str = "sample_training_config.yaml",
+    config_dir: Path = CONFIG_DIR,
     training_file: str = "customer_churn_dataset-training.csv",
-    index_col: str = "customerid",
+    index_col: str | None = "customerid",
+    data_dir: Path = RAW_DATA_DIR,
     experiment_name: str = "test",
+    tracking_uri: str | None = None,
+    artifact_dir: Path = ARTIFACT_DIR,
 ) -> TrainingResult:
     """Run the configured training, tracking, registration, and promotion flow.
 
     Args:
         config_file: Training configuration YAML filename.
+        config_dir: Directory containing the training configuration.
         training_file: Raw training data CSV filename.
         index_col: Column to use as the training DataFrame index.
+        data_dir: Directory containing the training CSV.
         experiment_name: Local MLflow experiment name.
+        tracking_uri: Optional MLflow tracking URI.
+        artifact_dir: Directory used for training artifacts.
 
     Returns:
         TrainingResult containing the fitted pipeline, metrics, classifier
@@ -64,7 +79,7 @@ def run_training_job(
     logger = logging.getLogger(__name__)
 
     try:
-        config, config_file_path = load_config(config_file)
+        config, config_file_path = load_config(file=config_file, path=config_dir)
         classifier_alias = config.model.classifier
         eval_threshold = config.evaluation.threshold
 
@@ -76,7 +91,11 @@ def run_training_job(
         )
 
         run_name = f"{classifier_alias}_{eval_threshold!s}"
-        experiment_id = setup_local_experiment(experiment_name)
+        experiment_id = setup_local_experiment(
+            experiment_name=experiment_name,
+            tracking_uri=tracking_uri,
+            artifact_dir=artifact_dir,
+        )
         experiment = mlflow.get_experiment(experiment_id)
         logger.info(
             "MLflow experiment '%s' initialized with id '%s'.",
@@ -87,13 +106,20 @@ def run_training_job(
         logger.info("Experiment metadata: %s", experiment)
 
         # Load and validate the training data
-        df = load_raw_data(training_file, index_col)
+        df = load_raw_data(
+            file_name=training_file, index_col=index_col, data_dir=data_dir
+        )
         df = validate_training_data(df)
 
         # Start an MLflow run for the training job and log the results
         with mlflow.start_run(experiment_id=experiment_id, run_name=run_name):
             result = train(config, df)
-            model_info = log_experiment_result(result, config, config_file_path)
+            model_info = log_experiment_result(
+                result=result,
+                config=config,
+                config_file_path=config_file_path,
+                artifact_dir=artifact_dir,
+            )
 
         # Register the candidate model and evaluate it for promotion to champion if enabled
         if config.registry.register_model:

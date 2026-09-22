@@ -39,6 +39,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     train_parser.add_argument(
         "--config", required=True, help="Training config file path."
     )
+    train_parser.add_argument(
+        "--experiment_name",
+        required=False,
+        help="Experiment name used for MLflow tracking.",
+    )
 
     batch_parser = subparsers.add_parser(
         "batch-predict",
@@ -80,7 +85,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command == "train":
         from .train import main as train_main
 
-        sys.argv = ["churn-mlops.train", "--config", args.config]
+        command = [
+            "churn-mlops.train",
+            "--config",
+            args.config,
+            "--experiment_name",
+            args.experiment_name,
+        ]
+
+        sys.argv = command
         train_main()
         return
 

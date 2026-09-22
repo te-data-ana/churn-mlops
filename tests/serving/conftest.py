@@ -7,14 +7,18 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from churn_mlops.serving.api import app
+from churn_mlops.serving import api
 from churn_mlops.serving.model_loader import LoadedModel, ModelMetadata
 from churn_mlops.serving.schemas import InputFeatures
 
 
 @pytest.fixture
-def client() -> Generator[Any, Any, Any]:
-    with TestClient(app) as test_client:
+def client(
+    monkeypatch: pytest.MonkeyPatch,
+    mock_model_factory: Callable[..., LoadedModel],
+) -> Generator[Any, Any, Any]:
+    monkeypatch.setattr(api, "load_model", mock_model_factory)
+    with TestClient(api.app) as test_client:
         yield test_client
 
 

@@ -21,12 +21,21 @@ class LoadedModel:
     metadata: ModelMetadata
 
 
-def load_model() -> LoadedModel:
+def load_model(
+    tracking_uri: str | None = None,
+    model_name: str | None = None,
+    model_alias: str | None = None,
+) -> LoadedModel:
     """Load the configured serving model and its registry metadata.
 
     Returns:
         Loaded model together with its name, alias, version, and probability
         threshold.
+
+        Args:
+            tracking_uri: Optional MLflow tracking URI.
+            model_name: Optional registered model name.
+            model_alias: Optional registered model alias.
 
     Raises:
         mlflow.exceptions.MlflowException: If the configured model or alias
@@ -34,15 +43,15 @@ def load_model() -> LoadedModel:
     """
 
     # local tracking SQLite DB
-    mlflow.set_tracking_uri(f"sqlite:///{TRACKING_DIR}/mlflow.db")
+    mlflow.set_tracking_uri(tracking_uri or f"sqlite:///{TRACKING_DIR}/mlflow.db")
 
     # initialize model registry
     registry = ModelRegistry()
 
     # load settings used for model serving
     settings = ServingSettings()
-    model_name = settings.model_name
-    model_alias = settings.model_alias
+    model_name = model_name or settings.model_name
+    model_alias = model_alias or settings.model_alias
 
     # load model from registry
     model = registry.load_model(
