@@ -118,6 +118,19 @@ curl http://127.0.0.1:8000/health
 {"status":"healthy"}
 ```
 
+The `/health` endpoint is a liveness check. Use `/ready` to verify that the
+configured model loaded successfully:
+
+```bash
+curl -i http://127.0.0.1:8000/ready
+```
+
+The API loads the configured model once during startup and reuses it for
+subsequent requests. This happens once per Uvicorn worker process. If the
+configured model alias is unavailable, the process stays alive, `/health`
+continues to return `200`, and `/ready` and `/predict` return `503` until the
+service is restarted with a valid model configuration.
+
 Send one customer record for prediction:
 
 ```bash
@@ -300,4 +313,5 @@ This project is designed as a local-first MLOps example. It currently does not p
 - production monitoring or drift detection; or
 - support for arbitrary input schemas.
 
-Paths are resolved relative to the project root, and the API currently loads the registered model for each prediction request. The serving API requires the configured model alias to exist before prediction requests can succeed.
+Paths are resolved relative to the project root, and the serving API requires
+the configured model alias to exist before prediction requests can succeed.

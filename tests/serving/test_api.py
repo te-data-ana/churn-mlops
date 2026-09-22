@@ -1,7 +1,11 @@
+from collections.abc import Callable
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+
+from churn_mlops.serving import api
+from churn_mlops.serving.model_loader import LoadedModel
 
 
 @pytest.mark.unit
@@ -13,11 +17,19 @@ def test_health_endpoint_returns_healthy_status(client: TestClient) -> None:
 
 
 @pytest.mark.unit
+def test_ready_endpoint_returns_ready_status(client: TestClient) -> None:
+    response = client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+
+
+@pytest.mark.unit
 def test_predict_endpoint_returns_prediction_payload(
     client: TestClient,
-    sample_json: Any,
+    sample_dict: dict[str, Any],
 ) -> None:
-    response = client.post("/predict", json=sample_json)
+    response = client.post("/predict", json=sample_dict)
 
     payload = response.json()
 
@@ -27,6 +39,51 @@ def test_predict_endpoint_returns_prediction_payload(
     assert "metadata" in payload
     assert payload["predicted_class"] in {0, 1}
     assert 0 <= payload["predicted_probability"] <= 1
+
+
+@pytest.mark.unit
+def test_predictor_loads_once_per_api_lifetime(
+    monkeypatch: pytest.MonkeyPatch,
+    mock_model_factory: Callable[..., LoadedModel],
+    sample_dict: dict[str, Any],
+) -> None:
+    load_count = 0
+
+    def load_once() -> LoadedModel:
+        nonlocal load_count
+        load_count += 1
+        return mock_model_factory()
+
+    monkeypatch.setattr(api, "load_model", load_once)
+
+    with TestClient(api.app) as test_client:
+        first_response = test_client.post("/predict", json=sample_dict)
+        second_response = test_client.post("/predict", json=sample_dict)
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert load_count == 1
+
+
+@pytest.mark.unit
+def test_api_reports_not_ready_when_model_loading_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_dict: dict[str, Any],
+) -> None:
+    def fail_to_load() -> None:
+        raise RuntimeError("model alias is unavailable")
+
+    monkeypatch.setattr(api, "load_model", fail_to_load)
+
+    with TestClient(api.app) as test_client:
+        health_response = test_client.get("/health")
+        ready_response = test_client.get("/ready")
+        predict_response = test_client.post("/predict", json=sample_dict)
+
+    assert health_response.status_code == 200
+    assert ready_response.status_code == 503
+    assert ready_response.json() == {"status": "not_ready"}
+    assert predict_response.status_code == 503
 
 
 @pytest.mark.unit

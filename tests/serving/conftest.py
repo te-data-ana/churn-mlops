@@ -1,6 +1,6 @@
 """Fixtures shared by serving tests."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from typing import Any
 
 import numpy as np
@@ -13,8 +13,9 @@ from churn_mlops.serving.schemas import InputFeatures
 
 
 @pytest.fixture
-def client() -> TestClient:
-    return TestClient(app)
+def client() -> Generator[Any, Any, Any]:
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 @pytest.fixture
@@ -34,7 +35,7 @@ def sample_input() -> InputFeatures:
 
 
 @pytest.fixture
-def sample_json(sample_input: InputFeatures) -> dict[str, Any]:
+def sample_dict(sample_input: InputFeatures) -> dict[str, Any]:
     return sample_input.model_dump()
 
 
