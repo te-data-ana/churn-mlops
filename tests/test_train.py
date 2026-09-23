@@ -23,7 +23,7 @@ def test_train_main_passes_cli_config_to_training_job(
         [
             "train.py",
             "--config",
-            "sample_training_config.yaml",
+            "sample.yaml",
             "--experiment_name",
             "test_experiment",
         ],
@@ -32,5 +32,5 @@ def test_train_main_passes_cli_config_to_training_job(
     train.main()
 
     mock_run_training_job.assert_called_once_with(
-        config_file="sample_training_config.yaml", experiment_name="test_experiment"
+        config_file="sample.yaml", experiment_name="test_experiment"
     )

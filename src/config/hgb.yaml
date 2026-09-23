@@ -22,7 +22,7 @@ evaluation:
   threshold: 0.5
 
 registry:
-  register_model: false
+  register_model: true
   registry_params:
     model_name: churn-propensity
     alias: candidate

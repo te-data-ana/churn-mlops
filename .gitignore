@@ -25,6 +25,7 @@ tmp/
 # Environment variables / secrets
 .env
 .env.*
+!.env.example
 
 # Build artifacts
 build/
@@ -36,4 +37,6 @@ data/*
 
 # MLflow
 artifacts/
+artifacts_local/
 tracking/mlflow.db
+tracking_local/mlflow.db

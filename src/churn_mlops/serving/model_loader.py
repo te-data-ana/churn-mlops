@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import mlflow
 from sklearn.pipeline import Pipeline
 
-from churn_mlops.config import TRACKING_DIR, ServingSettings
+from churn_mlops.config import ServingSettings
 from churn_mlops.tracking import ModelRegistry
 
 
@@ -42,39 +42,39 @@ def load_model(
             cannot be found in the MLflow registry.
     """
 
-    # local tracking SQLite DB
-    mlflow.set_tracking_uri(tracking_uri or f"sqlite:///{TRACKING_DIR}/mlflow.db")
+    # load settings used for model serving
+    settings = ServingSettings()
+    resolved_model_name = model_name or settings.model_name
+    resolved_model_alias = model_alias or settings.model_alias
+    resolved_tracking_uri = tracking_uri or settings.mlflow_tracking_uri
+    if resolved_tracking_uri:
+        mlflow.set_tracking_uri(resolved_tracking_uri)
 
     # initialize model registry
     registry = ModelRegistry()
 
-    # load settings used for model serving
-    settings = ServingSettings()
-    model_name = model_name or settings.model_name
-    model_alias = model_alias or settings.model_alias
-
     # load model from registry
     model = registry.load_model(
-        model_name=model_name,
-        alias=model_alias,
+        model_name=resolved_model_name,
+        alias=resolved_model_alias,
     )
 
     # retrieve model version from registry
     version = registry.get_model_version_by_alias(
-        model_name=model_name,
-        alias=model_alias,
+        model_name=resolved_model_name,
+        alias=resolved_model_alias,
     )
 
     # retrieve class threshold from registry
     threshold = registry.get_threshold_by_alias(
-        model_name=model_name,
-        alias=model_alias,
+        model_name=resolved_model_name,
+        alias=resolved_model_alias,
     )
 
     # combine model metadata
     metadata = ModelMetadata(
-        model_name=model_name,
-        model_alias=model_alias,
+        model_name=resolved_model_name,
+        model_alias=resolved_model_alias,
         model_version=int(version.version),
         threshold=threshold,
     )

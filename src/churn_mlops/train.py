@@ -15,9 +15,11 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    result = run_training_job(
-        config_file=args.config, experiment_name=args.experiment_name
-    )
+    training_kwargs = {"config_file": args.config}
+    if args.experiment_name is not None:
+        training_kwargs["experiment_name"] = args.experiment_name
+
+    result = run_training_job(**training_kwargs)
 
     logger.info(
         "Successfully trained %s model: AUC=%.4f",

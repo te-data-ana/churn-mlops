@@ -9,7 +9,7 @@ import mlflow.sklearn
 from mlflow.exceptions import MlflowException
 from mlflow.models.model import ModelInfo
 
-from churn_mlops.config.settings import ARTIFACT_DIR, TRACKING_DIR
+from churn_mlops.config.settings import RuntimeSettings
 
 if TYPE_CHECKING:
     from churn_mlops.config.schemas import TrainingConfig
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 def setup_local_experiment(
     experiment_name: str,
     tracking_uri: str | None = None,
-    artifact_dir: Path = ARTIFACT_DIR,
+    artifact_dir: Path | None = None,
 ) -> str:
     """Configure local MLflow tracking and select an experiment.
 
@@ -36,13 +36,16 @@ def setup_local_experiment(
         MlflowException: If the experiment cannot be created or retrieved.
     """
 
-    # local tracking SQLite DB
-    mlflow.set_tracking_uri(tracking_uri or f"sqlite:///{TRACKING_DIR}/mlflow.db")
+    settings = RuntimeSettings()
+    resolved_tracking_uri = tracking_uri or settings.mlflow_tracking_uri
+    resolved_artifact_dir = artifact_dir or settings.artifact_dir
+    resolved_artifact_dir.mkdir(parents=True, exist_ok=True)
+    mlflow.set_tracking_uri(resolved_tracking_uri)
 
     # create experiment in case it does not exist yet under that name
     try:
         experiment_id = mlflow.create_experiment(
-            experiment_name, artifact_location=str(artifact_dir)
+            experiment_name, artifact_location=str(resolved_artifact_dir)
         )
     # otherwise retrieve corresponding ID of existing experiment
     except MlflowException:
@@ -58,7 +61,7 @@ def log_experiment_result(
     result: TrainingResult,
     config: TrainingConfig,
     config_file_path: Path,
-    artifact_dir: Path = ARTIFACT_DIR,
+    artifact_dir: Path | None = None,
 ) -> ModelInfo:
     """Log training parameters, metrics, artifacts, and the fitted pipeline.
 
@@ -72,6 +75,8 @@ def log_experiment_result(
     Returns:
         MLflow model metadata for the logged scikit-learn model.
     """
+
+    resolved_artifact_dir = artifact_dir or RuntimeSettings().artifact_dir
 
     # log all parameters required for reproducibility
     # log data parameters
@@ -129,8 +134,8 @@ def log_experiment_result(
     )
 
     # log model feature names
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    feature_names_path = artifact_dir / "feature_names.json"
+    resolved_artifact_dir.mkdir(parents=True, exist_ok=True)
+    feature_names_path = resolved_artifact_dir / "feature_names.json"
     with open(feature_names_path, "w") as f:
         json.dump(
             {

@@ -2,7 +2,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from churn_mlops.config import RAW_DATA_DIR, TMP_DIR, configure_logging
+from churn_mlops.config import ServingSettings, configure_logging
 from churn_mlops.data import load_raw_data, validate_inference_data
 from churn_mlops.serving import Predictor, load_model
 
@@ -34,8 +34,12 @@ def run_batch_prediction(
     Returns:
         Path to the generated prediction CSV.
     """
-    resolved_input_dir = input_dir or RAW_DATA_DIR
-    resolved_output_dir = output_dir or TMP_DIR
+    settings = ServingSettings()
+    resolved_input_dir = input_dir or settings.raw_data_dir
+    resolved_output_dir = output_dir or settings.tmp_dir
+    resolved_tracking_uri = tracking_uri or settings.mlflow_tracking_uri
+    resolved_model_name = model_name or settings.model_name
+    resolved_model_alias = model_alias or settings.model_alias
 
     try:
         logger.info(
@@ -51,14 +55,11 @@ def run_batch_prediction(
         )
         df = validate_inference_data(df)
 
-        if tracking_uri is None and model_name is None and model_alias is None:
-            loaded_model = load_model()
-        else:
-            loaded_model = load_model(
-                tracking_uri=tracking_uri,
-                model_name=model_name,
-                model_alias=model_alias,
-            )
+        loaded_model = load_model(
+            tracking_uri=resolved_tracking_uri,
+            model_name=resolved_model_name,
+            model_alias=resolved_model_alias,
+        )
 
         predictor = Predictor(loaded_model)
         df_pred = predictor.predict_batch(df=df)
