@@ -2,6 +2,7 @@ import argparse
 import sys
 from collections.abc import Sequence
 
+from .config import ServingSettings
 from .training import TrainingResult, run_training_job
 
 __all__ = ["TrainingResult", "main", "run_training_job"]
@@ -64,11 +65,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         "serve",
         help="Start the FastAPI prediction service.",
     )
+    settings = ServingSettings()
     serve_parser.add_argument(
-        "--host", default="127.0.0.1", help="Hostname for the API server."
+        "--host", default=settings.api_host, help="Hostname for the API server."
     )
     serve_parser.add_argument(
-        "--port", type=int, default=8000, help="Port for the API server."
+        "--port",
+        type=int,
+        default=settings.api_port,
+        help="Port for the API server.",
     )
     serve_parser.add_argument(
         "--reload",
@@ -89,9 +94,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             "churn-mlops.train",
             "--config",
             args.config,
-            "--experiment_name",
-            args.experiment_name,
         ]
+        if args.experiment_name is not None:
+            command.extend(["--experiment_name", args.experiment_name])
 
         sys.argv = command
         train_main()

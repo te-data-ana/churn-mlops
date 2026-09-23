@@ -10,13 +10,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 
 from churn_mlops.config import (
-    ARTIFACT_DIR,
-    CONFIG_DIR,
-    RAW_DATA_DIR,
     configure_logging,
     load_config,
 )
 from churn_mlops.config.schemas import TrainingConfig
+from churn_mlops.config.settings import RuntimeSettings
 from churn_mlops.data import load_raw_data, validate_training_data
 from churn_mlops.evaluation import Timer, evaluate_model
 from churn_mlops.models import build_classifier_pipeline, create_model
@@ -38,13 +36,13 @@ class TrainingResult:
 
 def run_training_job(
     config_file: str = "sample_training_config.yaml",
-    config_dir: Path = CONFIG_DIR,
+    config_dir: Path | None = None,
     training_file: str = "customer_churn_dataset-training.csv",
     index_col: str | None = "customerid",
-    data_dir: Path = RAW_DATA_DIR,
-    experiment_name: str = "test",
+    data_dir: Path | None = None,
+    experiment_name: str | None = None,
     tracking_uri: str | None = None,
-    artifact_dir: Path = ARTIFACT_DIR,
+    artifact_dir: Path | None = None,
 ) -> TrainingResult:
     """Run the configured training, tracking, registration, and promotion flow.
 
@@ -54,7 +52,8 @@ def run_training_job(
         training_file: Raw training data CSV filename.
         index_col: Column to use as the training DataFrame index.
         data_dir: Directory containing the training CSV.
-        experiment_name: Local MLflow experiment name.
+        experiment_name: Optional MLflow experiment name override. When omitted,
+            the ``MLFLOW_EXPERIMENT_NAME`` runtime setting is used.
         tracking_uri: Optional MLflow tracking URI.
         artifact_dir: Directory used for training artifacts.
 
@@ -78,8 +77,17 @@ def run_training_job(
     configure_logging()
     logger = logging.getLogger(__name__)
 
+    settings = RuntimeSettings()
+    resolved_config_dir = config_dir or settings.config_dir
+    resolved_data_dir = data_dir or settings.raw_data_dir
+    resolved_artifact_dir = artifact_dir or settings.artifact_dir
+    resolved_tracking_uri = tracking_uri or settings.mlflow_tracking_uri
+    resolved_experiment_name = experiment_name or settings.mlflow_experiment_name
+
     try:
-        config, config_file_path = load_config(file=config_file, path=config_dir)
+        config, config_file_path = load_config(
+            file=config_file, path=resolved_config_dir
+        )
         classifier_alias = config.model.classifier
         eval_threshold = config.evaluation.threshold
 
@@ -92,14 +100,14 @@ def run_training_job(
 
         run_name = f"{classifier_alias}_{eval_threshold!s}"
         experiment_id = setup_local_experiment(
-            experiment_name=experiment_name,
-            tracking_uri=tracking_uri,
-            artifact_dir=artifact_dir,
+            experiment_name=resolved_experiment_name,
+            tracking_uri=resolved_tracking_uri,
+            artifact_dir=resolved_artifact_dir,
         )
         experiment = mlflow.get_experiment(experiment_id)
         logger.info(
             "MLflow experiment '%s' initialized with id '%s'.",
-            experiment_name,
+            resolved_experiment_name,
             experiment_id,
         )
         logger.info("Tracking URI: %s", mlflow.get_tracking_uri())
@@ -107,7 +115,9 @@ def run_training_job(
 
         # Load and validate the training data
         df = load_raw_data(
-            file_name=training_file, index_col=index_col, data_dir=data_dir
+            file_name=training_file,
+            index_col=index_col,
+            data_dir=resolved_data_dir,
         )
         df = validate_training_data(df)
 
@@ -118,7 +128,7 @@ def run_training_job(
                 result=result,
                 config=config,
                 config_file_path=config_file_path,
-                artifact_dir=artifact_dir,
+                artifact_dir=resolved_artifact_dir,
             )
 
         # Register the candidate model and evaluate it for promotion to champion if enabled

@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pandas as pd
@@ -22,10 +23,6 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
         },
         index=input_df.index,
     )
-    # Mock the model and predictor so this test covers orchestration only.
-    loaded_model = Mock()
-    predictor = Mock()
-    predictor.predict_batch.return_value = prediction_df
 
     # Supply CLI arguments and redirect in-/output from/to a temporary directory.
     monkeypatch.setattr(
@@ -41,8 +38,23 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
             "customerid",
         ],
     )
-    monkeypatch.setattr(batch_predict, "RAW_DATA_DIR", tmp_path)
-    monkeypatch.setattr(batch_predict, "TMP_DIR", tmp_path)
+
+    # Mock settings
+    settings = SimpleNamespace(
+        raw_data_dir=tmp_path,
+        tmp_dir=tmp_path,
+        mlflow_tracking_uri=None,
+        model_name=None,
+        model_alias=None,
+    )
+
+    monkeypatch.setattr(batch_predict, "ServingSettings", lambda: settings)
+
+    # Mock the model and predictor so this test covers orchestration only.
+    loaded_model = Mock(tracking_uri=None, model_name=None, model_alias=None)
+    predictor = Mock()
+    predictor.predict_batch.return_value = prediction_df
+
     # Replace filesystem, validation, model-loading, and prediction boundaries.
     load_raw_data = Mock(return_value=input_df)
     validate_inference_data = Mock(return_value=validated_df)
@@ -65,7 +77,11 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
         data_dir=tmp_path,
     )
     validate_inference_data.assert_called_once_with(input_df)
-    load_model.assert_called_once_with()
+    load_model.assert_called_once_with(
+        tracking_uri=None,
+        model_name=None,
+        model_alias=None,
+    )
     predictor_factory.assert_called_once_with(loaded_model)
     predictor.predict_batch.assert_called_once_with(df=validated_df)
 

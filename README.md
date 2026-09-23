@@ -59,6 +59,60 @@ uv run churn-mlops serve --host 127.0.0.1 --port 8000 --reload
 
 Training reads configuration files from `src/config` and input data from `data/raw`. Local MLflow state is stored in `tracking/mlflow.db`; run artifacts are written to `artifacts`.
 
+## Containerized local stack
+
+Docker Compose provides a reproducible local runtime using the same CLI and
+SQLite-backed MLflow registry. The API container binds to `0.0.0.0:8000` and
+persists its registry state, model artifacts, and batch outputs on the host.
+
+Requirements:
+
+- Docker Engine with the Compose plugin
+
+Build and start the API:
+
+```bash
+cp .env.example .env
+docker compose up --build -d
+```
+
+Check the container and endpoints:
+
+```bash
+docker compose ps
+curl http://127.0.0.1:8000/health
+curl -i http://127.0.0.1:8000/ready
+```
+
+`/health` confirms that the process is running. `/ready` returns `503` until
+the configured model alias exists and can be loaded from MLflow. Train and
+register a model in the same Compose environment with:
+
+```bash
+docker compose run --rm api train --config sample_training_config.yaml
+```
+
+Run batch prediction through the container:
+
+```bash
+docker compose run --rm api batch-predict \
+	--input_csv customer_churn_dataset-inference.csv \
+	--output_csv predictions.csv \
+	--index_col customerid
+```
+
+The Compose service mounts `tracking/`, `artifacts/`, and `tmp/` as writable
+directories, and mounts `data/raw` and `src/config` read-only. Keep the MLflow
+database and artifacts together: the database contains registry metadata while
+the artifacts contain the registered model files. Recreating the API container
+does not remove these host directories.
+
+Stop the stack with:
+
+```bash
+docker compose down
+```
+
 ## User workflows
 
 ### Train a model
@@ -152,6 +206,8 @@ curl -X POST http://127.0.0.1:8000/predict \
 
 The API requires a registered model with the configured alias. By default it loads model `churn-propensity` using the `champion` alias from the MLflow registry.
 
+Access the interactive API docs under http://127.0.0.1:8000/docs, when the FastAPI application is running.
+
 ## Input data contract
 
 Training and inference data must contain these customer features:
@@ -243,23 +299,35 @@ See [tracking implementation](src/churn_mlops/tracking).
 
 ## Configuration and environment
 
-Serving defaults can be overridden with environment variables:
+Runtime and serving defaults can be overridden with environment variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `MLFLOW_TRACKING_URI` | Project-local SQLite URI | MLflow tracking and registry backend |
+| `MLFLOW_EXPERIMENT_NAME` | `test` | MLflow experiment used for training runs |
 | `MODEL_NAME` | `churn-propensity` | Registered model name |
 | `MODEL_ALIAS` | `champion` | Alias used to load the serving model |
+| `API_HOST` | `127.0.0.1` | Host interface for the `serve` command |
+| `API_PORT` | `8000` | Port for the `serve` command |
 | `LOG_LEVEL` | Application default | Logging verbosity |
 
-Project directories are relative to the repository root:
+Runtime directory overrides are also supported. In the container, these
+default to the mounted paths shown below:
 
-| Directory | Purpose |
+| Variable | Default in the image | Purpose |
 | --- | --- |
-| `data/raw` | Input CSV files |
-| `src/config` | Training YAML files |
-| `tracking` | Local MLflow database |
-| `artifacts` | MLflow and model artifacts |
-| `tmp` | Batch prediction output |
+| `ARTIFACT_DIR` | `/app/artifacts` | MLflow run artifacts and model files |
+| `TRACKING_DIR` | `/app/tracking` | SQLite MLflow database |
+| `RAW_DATA_DIR` | `/app/data/raw` | Input CSV files |
+| `CONFIG_DIR` | `/app/src/config` | Training YAML files |
+| `TMP_DIR` | `/app/tmp` | Batch prediction output |
+
+Without Docker, these settings default to the corresponding directories in the
+repository root. `.env.example` contains the container defaults and can be
+copied to `.env` for Docker Compose.
+
+An explicit experiment name passed to the training function or CLI takes
+precedence over `MLFLOW_EXPERIMENT_NAME`.
 
 ## Development
 
