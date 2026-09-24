@@ -275,7 +275,7 @@ def registered_model(
     generated_training_csv: Path,
 ) -> dict[str, object]:
     """Train and register a model in an isolated temporary MLflow store."""
-    from churn_mlops.training import run_training_job
+    from churn_mlops.train import run_training_job
 
     tmp_path = mlflow_test_setup["tmp_path"]
     model_name = mlflow_test_setup["model_name"]

@@ -3,11 +3,10 @@ import sys
 from collections.abc import Sequence
 
 from .config import ServingSettings
-from .training import TrainingResult, run_training_job
 
-__all__ = ["TrainingResult", "main", "run_training_job"]
+__all__ = ["main"]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 def main(argv: Sequence[str] | None = None) -> None:
