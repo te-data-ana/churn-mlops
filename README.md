@@ -297,6 +297,44 @@ Promotion requires the candidate ROC AUC to improve on the champion by more than
 
 See [tracking implementation](src/churn_mlops/tracking).
 
+### Inference logging and observability
+
+Structured inference logs are collected for every API request to support operational monitoring, debugging, and auditability.
+
+**Prediction events** capture
+
+- request identifier and UTC timestamp,
+- prediction latency in milliseconds,
+- model name, alias, and registry version,
+- predicted probability and predicted class,
+- classification threshold used during inference and
+- optionally, the validated input features used for prediction.
+
+**Prediction error events** additionally record
+
+- exception type and message and
+- full traceback information,
+
+besides request ID, timestamp, latency and (optional) input features.
+
+Example prediction event:
+
+```json
+{
+	"request_id": "687afb9b-1b20-45ec-8fac-ac53efe4941a",
+	"timestamp_utc": "2026-09-23T19:54:19.548767Z",
+	"latency_ms": 98.97,
+	"features": {"age": 42, "tenure": 18, "usage_frequency": 12, "support_calls": 2, "payment_delay": 0, "last_interaction": 7, "total_spend": 1250.5, "gender": "Female", "subscription_type": "Standard", "contract_length": "Annual"},
+	"event": "prediction",
+	"model_name": "churn-propensity",
+	"model_alias": "champion",
+	"model_version": 3,
+	"predicted_class": 0,
+	"predicted_probability": 0.29,
+	"threshold": 0.5
+}
+```
+
 ## Configuration and environment
 
 Runtime and serving defaults can be overridden with environment variables:
@@ -309,18 +347,21 @@ Runtime and serving defaults can be overridden with environment variables:
 | `MODEL_ALIAS` | `champion` | Alias used to load the serving model |
 | `API_HOST` | `127.0.0.1` | Host interface for the `serve` command |
 | `API_PORT` | `8000` | Port for the `serve` command |
+| `REQUEST_ID_HEADER` | `X-Request-ID` | HTTP header used to propagate request IDs for tracing |
+| `LOG_FEATURES` | `True` | Controls whether input features are logged |
 | `LOG_LEVEL` | Application default | Logging verbosity |
 
 Runtime directory overrides are also supported. In the container, these
 default to the mounted paths shown below:
 
 | Variable | Default in the image | Purpose |
-| --- | --- |
+| --- | --- | --- |
 | `ARTIFACT_DIR` | `/app/artifacts` | MLflow run artifacts and model files |
 | `TRACKING_DIR` | `/app/tracking` | SQLite MLflow database |
 | `RAW_DATA_DIR` | `/app/data/raw` | Input CSV files |
 | `CONFIG_DIR` | `/app/src/config` | Training YAML files |
 | `TMP_DIR` | `/app/tmp` | Batch prediction output |
+| `LOGGING_DIR` | `/app/logs` | JSONL prediction and error event logs |
 
 Without Docker, these settings default to the corresponding directories in the
 repository root. `.env.example` contains the container defaults and can be
@@ -328,6 +369,19 @@ copied to `.env` for Docker Compose.
 
 An explicit experiment name passed to the training function or CLI takes
 precedence over `MLFLOW_EXPERIMENT_NAME`.
+
+### Serving observability configuration
+
+The prediction service supports configurable request tracing and inference-event
+logging through environment variables. Every request is assigned a request ID,
+either from the configured request header or generated automatically. The
+service persists structured prediction and prediction-error events as JSONL
+records in the configured logging directory.
+
+When `LOG_FEATURES` is enabled, validated request features are included in
+prediction/error logs to support debugging and audit scenarios. For privacy-sensitive
+deployments, feature logging can be disabled while retaining latency,
+prediction, model-version, and error telemetry.
 
 ## Development
 

@@ -9,6 +9,24 @@ from churn_mlops.serving.model_loader import LoadedModel, load_model
 
 
 @pytest.mark.unit
+def test_add_request_id_header_is_preserved(client: TestClient) -> None:
+    response = client.get(
+        "/health",
+        headers={"X-Request-ID": "test-request-id"},
+    )
+
+    assert response.headers["X-Request-ID"] == "test-request-id"
+
+
+@pytest.mark.unit
+def test_add_request_id_header_is_generated(client: TestClient) -> None:
+    response = client.get("/health")
+
+    assert "X-Request-ID" in response.headers
+    assert response.headers["X-Request-ID"]
+
+
+@pytest.mark.unit
 def test_health_endpoint_returns_healthy_status(client: TestClient) -> None:
     response = client.get("/health")
 
@@ -39,6 +57,61 @@ def test_predict_endpoint_returns_prediction_payload(
     assert "metadata" in payload
     assert payload["predicted_class"] in {0, 1}
     assert 0 <= payload["predicted_probability"] <= 1
+
+
+@pytest.mark.unit
+def test_predict_logs_error_when_prediction_fails(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    sample_dict: dict[str, Any],
+):
+    class FailingPredictor:
+        def predict(self, features):
+            raise RuntimeError("prediction failed")
+
+    calls = {}
+
+    def log_error(**kwargs):
+        calls.update(kwargs)
+
+    client.app.state.predictor = FailingPredictor()
+    monkeypatch.setattr(
+        client.app.state.prediction_logger,
+        "log_error",
+        log_error,
+    )
+
+    with pytest.raises(RuntimeError, match="prediction failed"):
+        response = client.post("/predict", json=sample_dict)
+        assert response.status_code == 500
+        assert calls["request_id"]
+        assert calls["latency_ms"] >= 0
+        assert isinstance(calls["exception"], RuntimeError)
+
+
+@pytest.mark.unit
+def test_predict_handles_log_error_failure(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    sample_dict: dict[str, Any],
+):
+    class FailingPredictor:
+        def predict(self, features):
+            raise RuntimeError("prediction failed")
+
+    def failing_log_error(**kwargs):
+        raise RuntimeError("cannot write log")
+
+    client.app.state.predictor = FailingPredictor()
+    monkeypatch.setattr(
+        client.app.state.prediction_logger,
+        "log_error",
+        failing_log_error,
+    )
+
+    with pytest.raises(RuntimeError, match="prediction failed"):
+        response = client.post("/predict", json=sample_dict)
+        assert response.status_code == 500
 
 
 @pytest.mark.unit

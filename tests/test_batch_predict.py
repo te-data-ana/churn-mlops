@@ -94,6 +94,87 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
     )
 
 
+@pytest.mark.unit
+def test_batch_prediction_uses_default_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    settings = SimpleNamespace(
+        raw_data_dir=tmp_path / "raw",
+        tmp_dir=tmp_path / "tmp",
+        mlflow_tracking_uri="uri",
+        model_name="my_model",
+        model_alias="prod",
+    )
+
+    monkeypatch.setattr(batch_predict, "ServingSettings", lambda: settings)
+
+    load_raw_data = Mock(return_value=pd.DataFrame({"x": [1]}))
+    validate = Mock(return_value=pd.DataFrame({"x": [1]}))
+    load_model = Mock()
+    predictor = Mock()
+    predictor.predict_batch.return_value = pd.DataFrame(
+        {"predicted_probability": [0.5]}
+    )
+
+    monkeypatch.setattr(batch_predict, "load_raw_data", load_raw_data)
+    monkeypatch.setattr(batch_predict, "validate_inference_data", validate)
+    monkeypatch.setattr(batch_predict, "load_model", load_model)
+    monkeypatch.setattr(batch_predict, "Predictor", Mock(return_value=predictor))
+
+    batch_predict.run_batch_prediction(
+        input_csv="input.csv",
+        output_csv="output.csv",
+    )
+
+    load_raw_data.assert_called_once_with(
+        file_name="input.csv",
+        index_col=None,
+        data_dir=settings.raw_data_dir,
+    )
+
+    load_model.assert_called_once_with(
+        tracking_uri="uri",
+        model_name="my_model",
+        model_alias="prod",
+    )
+
+
+@pytest.mark.unit
+def test_batch_prediction_logs_and_reraises_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        batch_predict,
+        "ServingSettings",
+        lambda: SimpleNamespace(
+            raw_data_dir=tmp_path,
+            tmp_dir=tmp_path,
+            mlflow_tracking_uri=None,
+            model_name=None,
+            model_alias=None,
+        ),
+    )
+
+    monkeypatch.setattr(
+        batch_predict,
+        "load_raw_data",
+        Mock(side_effect=RuntimeError("boom")),
+    )
+
+    log_exception = Mock()
+    monkeypatch.setattr(batch_predict.logger, "exception", log_exception)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        batch_predict.run_batch_prediction(
+            input_csv="input.csv",
+            output_csv="output.csv",
+        )
+
+    log_exception.assert_called_once()
+
+
 @pytest.mark.integration
 def test_batch_prediction_uses_registered_model(
     generated_inference_csv: Path,
