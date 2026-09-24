@@ -9,7 +9,7 @@ from churn_mlops.config import (
     load_config,
 )
 from churn_mlops.config.settings import RuntimeSettings
-from churn_mlops.data import load_raw_data, validate_training_data
+from churn_mlops.data import load_raw_data, validate_data
 from churn_mlops.tracking import (
     ModelCardBuilder,
     ModelCardContext,
@@ -107,7 +107,7 @@ def run_training_job(
             index_col=index_col,
             data_dir=resolved_data_dir,
         )
-        df = validate_training_data(df)
+        df = validate_data(df)
 
         # Start an MLflow run for the training job and log the results
         with mlflow.start_run(experiment_id=experiment_id, run_name=run_name):

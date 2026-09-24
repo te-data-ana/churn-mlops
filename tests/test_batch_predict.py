@@ -57,13 +57,11 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
 
     # Replace filesystem, validation, model-loading, and prediction boundaries.
     load_raw_data = Mock(return_value=input_df)
-    validate_inference_data = Mock(return_value=validated_df)
+    validate_data = Mock(return_value=validated_df)
     predictor_factory = Mock(return_value=predictor)
     load_model = Mock(return_value=loaded_model)
     monkeypatch.setattr(batch_predict, "load_raw_data", load_raw_data)
-    monkeypatch.setattr(
-        batch_predict, "validate_inference_data", validate_inference_data
-    )
+    monkeypatch.setattr(batch_predict, "validate_data", validate_data)
     monkeypatch.setattr(batch_predict, "Predictor", predictor_factory)
     monkeypatch.setattr(batch_predict, "load_model", load_model)
 
@@ -76,7 +74,7 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
         index_col="customerid",
         data_dir=tmp_path,
     )
-    validate_inference_data.assert_called_once_with(input_df)
+    validate_data.assert_called_once_with(input_df)
     load_model.assert_called_once_with(
         tracking_uri=None,
         model_name=None,
@@ -118,7 +116,7 @@ def test_batch_prediction_uses_default_settings(
     )
 
     monkeypatch.setattr(batch_predict, "load_raw_data", load_raw_data)
-    monkeypatch.setattr(batch_predict, "validate_inference_data", validate)
+    monkeypatch.setattr(batch_predict, "validate_data", validate)
     monkeypatch.setattr(batch_predict, "load_model", load_model)
     monkeypatch.setattr(batch_predict, "Predictor", Mock(return_value=predictor))
 

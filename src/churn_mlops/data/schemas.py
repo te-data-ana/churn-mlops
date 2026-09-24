@@ -4,7 +4,7 @@ from pandera import Float64, Int64
 from pandera.typing import Index, Series
 
 
-class InferenceDataSchema(pa.DataFrameModel):
+class DataSchema(pa.DataFrameModel):
     customerid: Index[Int64]
 
     age: Series[Int64]
@@ -19,6 +19,10 @@ class InferenceDataSchema(pa.DataFrameModel):
     gender: Series[str]
     subscription_type: Series[str]
     contract_length: Series[str]
+
+    churn: Series[Int64] | None
+
+    reference_date: Series[pd.Timestamp] | None
 
     class Config:
         coerce = True
@@ -82,10 +86,6 @@ class InferenceDataSchema(pa.DataFrameModel):
     def valid_contract_length(cls, s: pd.Series) -> pd.Series:
         """Check that contract lengths use the supported categories."""
         return s.isin(["Annual", "Monthly", "Quarterly"])
-
-
-class TrainingDataSchema(InferenceDataSchema):
-    churn: Series[Int64]
 
     @pa.check("churn")
     @classmethod

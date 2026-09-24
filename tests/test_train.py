@@ -71,7 +71,7 @@ def test_run_training_job_resolves_mlflow_experiment_name(
     monkeypatch.setattr(train, "RuntimeSettings", lambda: settings)
     monkeypatch.setattr(train, "load_config", lambda **_: (config, Path("train.yaml")))
     monkeypatch.setattr(train, "load_raw_data", MagicMock(return_value=MagicMock()))
-    monkeypatch.setattr(train, "validate_training_data", lambda data: data)
+    monkeypatch.setattr(train, "validate_data", lambda data: data)
     monkeypatch.setattr(train, "train_model", MagicMock(return_value=training_result))
     monkeypatch.setattr(train, "setup_local_experiment", setup_experiment)
     monkeypatch.setattr(train, "log_experiment_result", MagicMock())
