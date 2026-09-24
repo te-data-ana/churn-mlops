@@ -108,6 +108,23 @@ class ModelRegistry:
             )
             raise
 
+    def update_model_description(
+        self, model_name: str, version: int, description: str
+    ) -> ModelVersion:
+        """Update the description of a registered model version.
+
+        Args:
+            model_name: Registered model name.
+            version: Registered model version number.
+            description: New description text.
+
+        Returns:
+            The MLflow model version with updated description.
+        """
+        return self.client.update_model_version(
+            name=model_name, version=str(version), description=description
+        )
+
     def get_metric_by_alias(
         self, model_name: str, alias: str, metric_name: str
     ) -> float:

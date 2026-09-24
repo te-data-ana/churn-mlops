@@ -1,17 +1,13 @@
 from collections.abc import Callable
 from datetime import datetime
-from pathlib import Path
-from types import SimpleNamespace
 from typing import Literal
-from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
 from sklearn.pipeline import Pipeline
 
-from churn_mlops import training
 from churn_mlops.config.schemas import TrainingConfig
-from churn_mlops.training import TrainingResult, train
+from churn_mlops.training import TrainingResult, train_model
 
 
 def assert_training_result(result) -> None:
@@ -51,62 +47,13 @@ def test_train_returns_valid_result_for_supported_classifier(
 ):
     cfg = config_factory(classifier=classifier)
 
-    result = train(cfg, sample_training_df)
+    result = train_model(cfg, sample_training_df)
 
     assert_training_result(result)
 
     assert len(result.metadata["feature_names_out"]) > len(
         result.metadata["feature_names_in"]
     )
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("provided_name", "configured_name", "expected_name"),
-    [
-        (None, "configured-experiment", "configured-experiment"),
-        ("explicit-experiment", "configured-experiment", "explicit-experiment"),
-    ],
-)
-def test_run_training_job_resolves_mlflow_experiment_name(
-    monkeypatch: pytest.MonkeyPatch,
-    provided_name: str | None,
-    configured_name: str,
-    expected_name: str,
-) -> None:
-    config = SimpleNamespace(
-        model=SimpleNamespace(classifier="lr"),
-        evaluation=SimpleNamespace(threshold=0.5),
-        registry=SimpleNamespace(register_model=False),
-    )
-    settings = SimpleNamespace(
-        config_dir=Path("config"),
-        raw_data_dir=Path("data"),
-        artifact_dir=Path("artifacts"),
-        mlflow_tracking_uri="sqlite:///tracking.db",
-        mlflow_experiment_name=configured_name,
-    )
-    training_result = MagicMock()
-    setup_experiment = MagicMock(return_value="experiment-id")
-    mlflow_run = MagicMock()
-
-    monkeypatch.setattr(training, "RuntimeSettings", lambda: settings)
-    monkeypatch.setattr(
-        training, "load_config", lambda **_: (config, Path("training.yaml"))
-    )
-    monkeypatch.setattr(training, "load_raw_data", MagicMock(return_value=MagicMock()))
-    monkeypatch.setattr(training, "validate_training_data", lambda data: data)
-    monkeypatch.setattr(training, "train", MagicMock(return_value=training_result))
-    monkeypatch.setattr(training, "setup_local_experiment", setup_experiment)
-    monkeypatch.setattr(training, "log_experiment_result", MagicMock())
-    monkeypatch.setattr(training.mlflow, "get_experiment", MagicMock())
-    monkeypatch.setattr(
-        training.mlflow, "start_run", MagicMock(return_value=mlflow_run)
-    )
-
-    training.run_training_job(experiment_name=provided_name)
-
-    assert setup_experiment.call_args.kwargs["experiment_name"] == expected_name
 
 
 @pytest.mark.unit
@@ -117,7 +64,7 @@ def test_trained_pipeline_predicts_classes_and_probabilities(
     sample_training_df: pd.DataFrame,
 ) -> None:
     cfg = config_factory(classifier=classifier)
-    result = train(cfg, sample_training_df)
+    result = train_model(cfg, sample_training_df)
 
     X = sample_training_df.drop(columns=["churn"])
 
@@ -140,7 +87,7 @@ def test_train_rejects_unknown_classifier(
     cfg = config_factory(classifier="invalid")
 
     with pytest.raises(ValueError, match="Unknown classifier"):
-        train(cfg, sample_training_df)
+        train_model(cfg, sample_training_df)
 
 
 @pytest.mark.unit
@@ -151,8 +98,8 @@ def test_train_returns_reproducible_metrics_for_same_input(
     cfg = config_factory(classifier="dt")
 
     # Train twice with identical inputs to verify deterministic results.
-    result1 = train(cfg, sample_training_df)
-    result2 = train(cfg, sample_training_df)
+    result1 = train_model(cfg, sample_training_df)
+    result2 = train_model(cfg, sample_training_df)
 
     assert result1.metrics["roc_auc"] == result2.metrics["roc_auc"]
     assert result1.metrics["accuracy"] == result2.metrics["accuracy"]

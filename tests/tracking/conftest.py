@@ -5,9 +5,9 @@ from unittest.mock import Mock
 import pytest
 from sklearn.pipeline import Pipeline
 
-from churn_mlops import TrainingResult
 from churn_mlops.models.features import FeatureBuilder
 from churn_mlops.tracking.registry import ModelRegistry
+from churn_mlops.training import TrainingResult
 
 
 @pytest.fixture

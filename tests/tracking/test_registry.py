@@ -35,6 +35,26 @@ def test_registry_get_model_version(registry: ModelRegistry) -> None:
 
 
 @pytest.mark.unit
+def test_registry_update_model_description(registry: ModelRegistry) -> None:
+    model_version = Mock()
+    registry.client.update_model_version.return_value = model_version
+
+    result = registry.update_model_description(
+        model_name="my_model",
+        version=3,
+        description="Updated model card.",
+    )
+
+    registry.client.update_model_version.assert_called_once_with(
+        name="my_model",
+        version="3",
+        description="Updated model card.",
+    )
+
+    assert result is model_version
+
+
+@pytest.mark.unit
 def test_registry_get_metric_by_alias(registry: ModelRegistry) -> None:
     version = Mock()
     version.run_id = "abc"
