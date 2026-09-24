@@ -40,3 +40,7 @@ artifacts/
 artifacts_local/
 tracking/mlflow.db
 tracking_local/mlflow.db
+
+# Logs
+logs/
+logs_local/

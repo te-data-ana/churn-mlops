@@ -15,11 +15,14 @@ ENV API_HOST=0.0.0.0
 ENV API_PORT=8000
 ENV MLFLOW_TRACKING_URI=sqlite:////app/tracking/mlflow.db
 ENV MLFLOW_EXPERIMENT_NAME=test
+ENV REQUEST_ID_HEADER=X-Request-ID
+ENV LOG_FEATURES=True
 ENV ARTIFACT_DIR=/app/artifacts
 ENV TRACKING_DIR=/app/tracking
 ENV RAW_DATA_DIR=/app/data/raw
 ENV CONFIG_DIR=/app/src/config
 ENV TMP_DIR=/app/tmp
+ENV LOGGING_DIR=/app/logs
 
 EXPOSE 8000
 

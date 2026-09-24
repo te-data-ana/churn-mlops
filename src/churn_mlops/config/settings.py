@@ -10,6 +10,7 @@ RAW_DATA_DIR = PROJECT_ROOT / "data/raw"
 CONFIG_DIR = PROJECT_ROOT / "src/config"
 ARTIFACT_DIR = PROJECT_ROOT / "artifacts_local"
 TRACKING_DIR = PROJECT_ROOT / "tracking_local"
+LOGGING_DIR = PROJECT_ROOT / "logs_local"
 TMP_DIR = PROJECT_ROOT / "tmp"
 
 
@@ -34,3 +35,14 @@ class RuntimeSettings(BaseSettings):
 class ServingSettings(RuntimeSettings):
     model_name: str = Field(default="churn-propensity", alias="MODEL_NAME")
     model_alias: str = Field(default="champion", alias="MODEL_ALIAS")
+    request_id_header: str = Field(default="X-Request-ID", alias="REQUEST_ID_HEADER")
+    logging_dir: Path = Field(default=LOGGING_DIR, alias="LOGGING_DIR")
+    log_features: bool = Field(default=True, alias="LOG_FEATURES")
+
+    @property
+    def prediction_log_path(self) -> Path:
+        return self.logging_dir / "predictions.jsonl"
+
+    @property
+    def error_log_path(self) -> Path:
+        return self.logging_dir / "prediction_errors.jsonl"
