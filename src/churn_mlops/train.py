@@ -9,7 +9,7 @@ from churn_mlops.config import (
     load_config,
 )
 from churn_mlops.config.settings import RuntimeSettings
-from churn_mlops.data import load_raw_data, validate_training_data
+from churn_mlops.data import load_raw_data, validate_data
 from churn_mlops.tracking import (
     ModelCardBuilder,
     ModelCardContext,
@@ -25,7 +25,7 @@ from churn_mlops.training import TrainingResult, train_model
 def run_training_job(
     config_file: str = "sample_training_config.yaml",
     config_dir: Path | None = None,
-    training_file: str = "customer_churn_dataset-training.csv",
+    training_file: str = "training.csv",
     index_col: str | None = "customerid",
     data_dir: Path | None = None,
     experiment_name: str | None = None,
@@ -107,7 +107,7 @@ def run_training_job(
             index_col=index_col,
             data_dir=resolved_data_dir,
         )
-        df = validate_training_data(df)
+        df = validate_data(df)
 
         # Start an MLflow run for the training job and log the results
         with mlflow.start_run(experiment_id=experiment_id, run_name=run_name):

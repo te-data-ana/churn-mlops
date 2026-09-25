@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 
 from churn_mlops.config import ServingSettings, configure_logging
-from churn_mlops.data import load_raw_data, validate_inference_data
+from churn_mlops.data import load_raw_data, validate_data
 from churn_mlops.serving import Predictor, load_model
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ def run_batch_prediction(
     """
     settings = ServingSettings()
     resolved_input_dir = input_dir or settings.raw_data_dir
-    resolved_output_dir = output_dir or settings.tmp_dir
+    resolved_output_dir = output_dir or settings.output_dir
     resolved_tracking_uri = tracking_uri or settings.mlflow_tracking_uri
     resolved_model_name = model_name or settings.model_name
     resolved_model_alias = model_alias or settings.model_alias
@@ -53,7 +53,7 @@ def run_batch_prediction(
             index_col=index_col,
             data_dir=resolved_input_dir,
         )
-        df = validate_inference_data(df)
+        df = validate_data(df)
 
         loaded_model = load_model(
             tracking_uri=resolved_tracking_uri,
@@ -105,7 +105,7 @@ def main() -> None:
     run_batch_prediction(
         input_csv=args.input_csv,
         output_csv=args.output_csv,
-        index_col=args.index_col,
+        index_col=args.index_col if args.index_col else None,
         input_dir=Path(args.input_dir) if args.input_dir else None,
     )
 

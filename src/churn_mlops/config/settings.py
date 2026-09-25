@@ -11,7 +11,7 @@ CONFIG_DIR = PROJECT_ROOT / "src/config"
 ARTIFACT_DIR = PROJECT_ROOT / "artifacts_local"
 TRACKING_DIR = PROJECT_ROOT / "tracking_local"
 LOGGING_DIR = PROJECT_ROOT / "logs_local"
-TMP_DIR = PROJECT_ROOT / "tmp"
+OUTPUT_DIR = PROJECT_ROOT / "output"
 
 
 class RuntimeSettings(BaseSettings):
@@ -23,7 +23,7 @@ class RuntimeSettings(BaseSettings):
     config_dir: Path = Field(default=CONFIG_DIR, alias="CONFIG_DIR")
     artifact_dir: Path = Field(default=ARTIFACT_DIR, alias="ARTIFACT_DIR")
     tracking_dir: Path = Field(default=TRACKING_DIR, alias="TRACKING_DIR")
-    tmp_dir: Path = Field(default=TMP_DIR, alias="TMP_DIR")
+    output_dir: Path = Field(default=OUTPUT_DIR, alias="OUTPUT_DIR")
     api_host: str = Field(default="127.0.0.1", alias="API_HOST")
     api_port: int = Field(default=8000, alias="API_PORT")
 

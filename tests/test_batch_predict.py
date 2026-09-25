@@ -42,7 +42,7 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
     # Mock settings
     settings = SimpleNamespace(
         raw_data_dir=tmp_path,
-        tmp_dir=tmp_path,
+        output_dir=tmp_path,
         mlflow_tracking_uri=None,
         model_name=None,
         model_alias=None,
@@ -57,13 +57,11 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
 
     # Replace filesystem, validation, model-loading, and prediction boundaries.
     load_raw_data = Mock(return_value=input_df)
-    validate_inference_data = Mock(return_value=validated_df)
+    validate_data = Mock(return_value=validated_df)
     predictor_factory = Mock(return_value=predictor)
     load_model = Mock(return_value=loaded_model)
     monkeypatch.setattr(batch_predict, "load_raw_data", load_raw_data)
-    monkeypatch.setattr(
-        batch_predict, "validate_inference_data", validate_inference_data
-    )
+    monkeypatch.setattr(batch_predict, "validate_data", validate_data)
     monkeypatch.setattr(batch_predict, "Predictor", predictor_factory)
     monkeypatch.setattr(batch_predict, "load_model", load_model)
 
@@ -76,7 +74,7 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
         index_col="customerid",
         data_dir=tmp_path,
     )
-    validate_inference_data.assert_called_once_with(input_df)
+    validate_data.assert_called_once_with(input_df)
     load_model.assert_called_once_with(
         tracking_uri=None,
         model_name=None,
@@ -101,7 +99,7 @@ def test_batch_prediction_uses_default_settings(
 ) -> None:
     settings = SimpleNamespace(
         raw_data_dir=tmp_path / "raw",
-        tmp_dir=tmp_path / "tmp",
+        output_dir=tmp_path / "output",
         mlflow_tracking_uri="uri",
         model_name="my_model",
         model_alias="prod",
@@ -118,7 +116,7 @@ def test_batch_prediction_uses_default_settings(
     )
 
     monkeypatch.setattr(batch_predict, "load_raw_data", load_raw_data)
-    monkeypatch.setattr(batch_predict, "validate_inference_data", validate)
+    monkeypatch.setattr(batch_predict, "validate_data", validate)
     monkeypatch.setattr(batch_predict, "load_model", load_model)
     monkeypatch.setattr(batch_predict, "Predictor", Mock(return_value=predictor))
 
@@ -150,7 +148,7 @@ def test_batch_prediction_logs_and_reraises_on_failure(
         "ServingSettings",
         lambda: SimpleNamespace(
             raw_data_dir=tmp_path,
-            tmp_dir=tmp_path,
+            output_dir=tmp_path,
             mlflow_tracking_uri=None,
             model_name=None,
             model_alias=None,

@@ -21,7 +21,7 @@ ENV ARTIFACT_DIR=/app/artifacts
 ENV TRACKING_DIR=/app/tracking
 ENV RAW_DATA_DIR=/app/data/raw
 ENV CONFIG_DIR=/app/src/config
-ENV TMP_DIR=/app/tmp
+ENV OUTPUT_DIR=/app/tmp
 ENV LOGGING_DIR=/app/logs
 
 EXPOSE 8000

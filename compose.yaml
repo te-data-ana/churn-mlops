@@ -21,7 +21,7 @@ services:
       TRACKING_DIR: ${TRACKING_DIR:-/app/tracking}
       RAW_DATA_DIR: ${RAW_DATA_DIR:-/app/data/raw}
       CONFIG_DIR: ${CONFIG_DIR:-/app/src/config}
-      TMP_DIR: ${TMP_DIR:-/app/tmp}
+      OUTPUT_DIR: ${OUTPUT_DIR:-/app/tmp}
       LOGGING_DIR: ${LOGGING_DIR:-/app/logs}
     ports:
       - "${API_PORT:-8000}:8000"
