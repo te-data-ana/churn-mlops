@@ -42,7 +42,7 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
     # Mock settings
     settings = SimpleNamespace(
         raw_data_dir=tmp_path,
-        tmp_dir=tmp_path,
+        output_dir=tmp_path,
         mlflow_tracking_uri=None,
         model_name=None,
         model_alias=None,
@@ -99,7 +99,7 @@ def test_batch_prediction_uses_default_settings(
 ) -> None:
     settings = SimpleNamespace(
         raw_data_dir=tmp_path / "raw",
-        tmp_dir=tmp_path / "tmp",
+        output_dir=tmp_path / "output",
         mlflow_tracking_uri="uri",
         model_name="my_model",
         model_alias="prod",
@@ -148,7 +148,7 @@ def test_batch_prediction_logs_and_reraises_on_failure(
         "ServingSettings",
         lambda: SimpleNamespace(
             raw_data_dir=tmp_path,
-            tmp_dir=tmp_path,
+            output_dir=tmp_path,
             mlflow_tracking_uri=None,
             model_name=None,
             model_alias=None,

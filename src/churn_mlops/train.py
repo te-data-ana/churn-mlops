@@ -25,7 +25,7 @@ from churn_mlops.training import TrainingResult, train_model
 def run_training_job(
     config_file: str = "sample_training_config.yaml",
     config_dir: Path | None = None,
-    training_file: str = "customer_churn_dataset-training.csv",
+    training_file: str = "training.csv",
     index_col: str | None = "customerid",
     data_dir: Path | None = None,
     experiment_name: str | None = None,

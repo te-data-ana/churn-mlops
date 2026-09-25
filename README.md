@@ -2,13 +2,15 @@
 
 An end-to-end customer churn prediction project for training, evaluating, registering, and serving tabular machine-learning models.
 
-The project supports three workflows:
+The project supports five workflows:
 
+- prepare and enrich raw datasets for training and inference;
 - train and evaluate a configurable churn classifier;
-- generate batch predictions from a CSV file; and
+- generate batch predictions from a CSV file;
+- score a sample of live inference rows through the HTTP API; and
 - serve predictions through a FastAPI application.
 
-Experiments, model artifacts, and promotion decisions are tracked locally with MLflow.
+Experiments, model artifacts, model cards, and promotion decisions are tracked locally with MLflow.
 
 ## Quick start
 
@@ -46,7 +48,7 @@ Generate batch predictions:
 
 ```bash
 uv run churn-mlops batch-predict \
-	--input_csv customer_churn_dataset-inference.csv \
+	--input_csv inference.csv \
 	--output_csv predictions.csv \
 	--index_col customerid
 ```
@@ -96,7 +98,7 @@ Run batch prediction through the container:
 
 ```bash
 docker compose run --rm api batch-predict \
-	--input_csv customer_churn_dataset-inference.csv \
+	--input_csv inference.csv \
 	--output_csv predictions.csv \
 	--index_col customerid
 ```
@@ -115,6 +117,20 @@ docker compose down
 
 ## User workflows
 
+### Prepare raw data with reference dates
+
+The project includes a data-preparation helper that validates raw CSV inputs, adds a generated `reference_date` column, and writes the enriched dataset back to disk. This is useful when you want to simulate time-based splits or create training/inference data with a consistent date range.
+
+```bash
+uv run python -m churn_mlops.data.manipulation \
+	--input_csv customer_churn_dataset-inference.csv \
+	--output_csv inference.csv \
+	--start_date 2026-01-01 \
+	--end_date 2026-08-01
+```
+
+The same helper is also used by [scripts/create_data_with_ref_dates.sh](scripts/create_data_with_ref_dates.sh) to generate both training and inference datasets for the repository examples.
+
 ### Train a model
 
 Training loads and validates a CSV, builds a feature and preprocessing pipeline, fits the configured classifier, evaluates it on a stratified holdout set, and logs the result to MLflow.
@@ -124,7 +140,7 @@ uv run churn-mlops train \
 	--config sample_training_config.yaml
 ```
 
-The default training file is `data/raw/customer_churn_dataset-training.csv`.
+The default training file is `data/raw/training.csv`.
 
 ### Generate batch predictions
 
@@ -132,7 +148,7 @@ Batch inference validates an input CSV, loads the configured registered model, a
 
 ```bash
 uv run churn-mlops batch-predict \
-	--input_csv customer_churn_dataset-inference.csv \
+	--input_csv inference.csv \
 	--output_csv predictions.csv \
 	--index_col customerid
 ```
@@ -147,6 +163,16 @@ The output contains:
 | `model_version` | Registered model version used for prediction |
 
 Input filenames are resolved from `data/raw`; output filenames are written to `tmp`.
+
+### Generate sample predictions through the API
+
+For operational checks or smoke tests, the project can sample rows from the inference dataset, send them to the live prediction API, and save the combined response data to a CSV file. This is handled by the sample-serving helper in [src/churn_mlops/serving/serve_samples.py](src/churn_mlops/serving/serve_samples.py) and the convenience script [scripts/serve_samples.sh](scripts/serve_samples.sh).
+
+```bash
+uv run python -m churn_mlops.serving.serve_samples --sample_size 5000 --random_state 42
+```
+
+The helper loads and validates inference data, requests predictions for each sampled record, and writes a file named like `0042_sample_predictions.csv` (depending on the random state) under the configured output directory.
 
 ### Serve predictions through HTTP
 
@@ -295,6 +321,8 @@ When enabled in the training configuration, the workflow registers a candidate m
 
 Promotion requires the candidate ROC AUC to improve on the champion by more than the configured `promotion_delta`. When promotion succeeds, the candidate receives the `champion` alias and the previous champion receives the `former_champion` alias.
 
+The same tracking flow also logs a Markdown model card as an MLflow artifact. The model card summarizes the model metadata, dataset characteristics, feature list, preprocessing choices, evaluation metrics, and the promotion decision when one exists. See [src/churn_mlops/tracking/model_card.py](src/churn_mlops/tracking/model_card.py).
+
 See [tracking implementation](src/churn_mlops/tracking).
 
 ### Inference logging and observability
@@ -360,7 +388,7 @@ default to the mounted paths shown below:
 | `TRACKING_DIR` | `/app/tracking` | SQLite MLflow database |
 | `RAW_DATA_DIR` | `/app/data/raw` | Input CSV files |
 | `CONFIG_DIR` | `/app/src/config` | Training YAML files |
-| `TMP_DIR` | `/app/tmp` | Batch prediction output |
+| `OUTPUT_DIR` | `/app/tmp` | Batch prediction output |
 | `LOGGING_DIR` | `/app/logs` | JSONL prediction and error event logs |
 
 Without Docker, these settings default to the corresponding directories in the
@@ -413,20 +441,21 @@ developer artifacts.
 
 ```text
 src/churn_mlops/
-├── data/          # ingestion and schema validation
+├── data/          # ingestion, validation, and preprocessing
 ├── evaluation/    # metrics and timing
 ├── models/        # features, preprocessing, and classifiers
-├── serving/       # FastAPI application and model loading
-├── tracking/      # MLflow, registry, and promotion
+├── serving/       # FastAPI application, live serving, and sample scoring
+├── tracking/      # MLflow, registry, promotion, and model cards
 ├── batch_predict.py
 ├── train.py
 └── training.py
 src/config/        # YAML training configurations
+scripts/           # helper scripts for data prep and sample-serving workflows
 data/raw/          # input datasets
+output/            # generated sample and batch prediction outputs
 tests/             # unit and integration tests
 tracking/          # local MLflow state
 artifacts/         # generated run artifacts
-tmp/               # generated batch predictions
 ```
 
 ## Current limitations

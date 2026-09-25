@@ -14,7 +14,7 @@ __pycache__/
 .coverage
 htmlcov/
 scratch/
-tmp/
+output/
 
 # Jupyter
 .ipynb_checkpoints/

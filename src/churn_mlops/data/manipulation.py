@@ -9,6 +9,54 @@ from churn_mlops.data.ingestion import load_raw_data
 from churn_mlops.data.validation import validate_data
 
 
+def jsonl_prediction_log_to_csv(jsonl_path: Path, csv_path: Path) -> None:
+    """Convert a prediction log from JSONL to CSV format.
+
+    Flattens the nested ``features`` object into separate columns and
+    writes the transformed records to a CSV file.
+
+    Args:
+        jsonl_path: Path to the source JSONL prediction log.
+        csv_path: Path where the CSV file will be written.
+    """
+    df = pd.read_json(jsonl_path, lines=True)
+    features = pd.json_normalize(df["features"])
+    df = df.drop(columns=["features"])
+    df = pd.concat([df, features], axis=1)
+    df.to_csv(csv_path, index=False)
+
+
+def combine_sample_predictions(data_dir: Path | None = None) -> pd.DataFrame:
+    """Combine sample prediction files into a single DataFrame.
+
+    Reads all CSV files matching the pattern
+    ``dddd_sample_predictions.csv`` from the specified directory,
+    adds a ``run_id`` column derived from the four-digit filename
+    prefix, and concatenates the files into a single DataFrame.
+
+    Args:
+        data_dir: Directory containing sample prediction CSV files. If
+            not provided, the default output data directory from the
+            runtime settings is used.
+
+    Returns:
+        A DataFrame containing the combined prediction records from all
+        matching files, including a ``run_id`` column identifying the
+        source file of each record.
+    """
+    settings = RuntimeSettings()
+    resolved_data_dir = data_dir or settings.output_dir
+
+    dfs = []
+
+    for path in resolved_data_dir.glob("[0-9][0-9][0-9][0-9]_sample_predictions.csv"):
+        df = pd.read_csv(path)
+        df["run_id"] = path.stem[:4]
+        dfs.append(df)
+
+    return pd.concat(dfs, ignore_index=True)
+
+
 def assign_split_values(
     df: pd.DataFrame, values: list, column_name: str, random_state: int = 42
 ) -> pd.DataFrame:
@@ -52,7 +100,7 @@ def preprocess_raw_data(
     start_date: str,
     end_date: str,
     freq: str = "MS",
-    date_column: str = "reference_data",
+    date_column: str = "reference_date",
     data_dir: Path | None = None,
 ) -> Path:
     """Pre-process raw data and store the result as a CSV file.
@@ -72,7 +120,7 @@ def preprocess_raw_data(
         freq: Frequency string used to generate dates via
             :func:`pandas.date_range`. Defaults to ``"MS"`` (month start).
         date_column: Name of the column to add containing the generated date
-            values. Defaults to ``"reference_data"``.
+            values. Defaults to ``"reference_date"``.
         data_dir: Directory containing the input file and where the output
             file will be written. If ``None``, the raw data directory from
             :class:`RuntimeSettings` is used.

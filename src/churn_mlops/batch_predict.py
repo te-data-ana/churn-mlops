@@ -36,7 +36,7 @@ def run_batch_prediction(
     """
     settings = ServingSettings()
     resolved_input_dir = input_dir or settings.raw_data_dir
-    resolved_output_dir = output_dir or settings.tmp_dir
+    resolved_output_dir = output_dir or settings.output_dir
     resolved_tracking_uri = tracking_uri or settings.mlflow_tracking_uri
     resolved_model_name = model_name or settings.model_name
     resolved_model_alias = model_alias or settings.model_alias
@@ -105,7 +105,7 @@ def main() -> None:
     run_batch_prediction(
         input_csv=args.input_csv,
         output_csv=args.output_csv,
-        index_col=args.index_col,
+        index_col=args.index_col if args.index_col else None,
         input_dir=Path(args.input_dir) if args.input_dir else None,
     )
 
