@@ -2,7 +2,7 @@ import argparse
 import sys
 from collections.abc import Sequence
 
-from .config import ServingSettings
+from .config import ServingSettings, configure_logging
 
 __all__ = ["main"]
 
@@ -59,6 +59,27 @@ def main(argv: Sequence[str] | None = None) -> None:
         default=None,
         help="Optional index column name for the input CSV.",
     )
+
+    monitor_parser = subparsers.add_parser(
+        "monitor",
+        help="Monitor scored batch predictions or live API events.",
+    )
+    monitor_parser.add_argument("--reference_csv", required=True, type=str)
+    monitor_source = monitor_parser.add_mutually_exclusive_group(required=True)
+    monitor_source.add_argument("--analysis_csv", type=str)
+    monitor_source.add_argument(
+        "--prediction_log",
+        type=str,
+        help="API prediction JSONL path; defaults to the configured serving log.",
+    )
+    monitor_source.add_argument(
+        "--api",
+        action="store_true",
+        help="Monitor the configured API prediction and error logs.",
+    )
+    monitor_parser.add_argument("--error_log", type=str)
+    monitor_parser.add_argument("--index_col", default="customerid")
+    monitor_parser.add_argument("--output_dir", type=str, default=None)
 
     serve_parser = subparsers.add_parser(
         "serve",
@@ -117,6 +138,29 @@ def main(argv: Sequence[str] | None = None) -> None:
         batch_predict_main()
         return
 
+    if args.command == "monitor":
+        from .monitoring.core import main as monitoring_main
+
+        command = [
+            "churn-mlops.monitoring",
+            "--reference_csv",
+            args.reference_csv,
+        ]
+        if args.analysis_csv is not None:
+            command.extend(["--analysis_csv", args.analysis_csv])
+        elif args.prediction_log is not None:
+            command.extend(["--prediction_log", args.prediction_log])
+        else:
+            command.append("--api")
+        if args.error_log is not None:
+            command.extend(["--error_log", args.error_log])
+        command.extend(["--index_col", args.index_col])
+        if args.output_dir is not None:
+            command.extend(["--output_dir", args.output_dir])
+        sys.argv = command
+        monitoring_main()
+        return
+
     if args.command == "serve":
         import uvicorn
 
@@ -130,3 +174,8 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     parser.print_help()
     raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    configure_logging()
+    main()

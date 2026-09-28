@@ -26,6 +26,7 @@ def _requires_scaling(estimator: BaseEstimator) -> bool:
             "sklearn.linear_model",
             "sklearn.svm",
             "sklearn.neighbors",
+            "sklearn.calibration",
         )
     )
 

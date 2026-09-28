@@ -58,6 +58,7 @@ def test_package_main_prints_help_for_empty_args(capsys) -> None:
     assert "usage: churn-mlops" in captured.out
     assert "train" in captured.out
     assert "batch-predict" in captured.out
+    assert "monitor" in captured.out
     assert "serve" in captured.out
 
 
@@ -93,6 +94,43 @@ def test_package_main_dispatches_batch_predict(monkeypatch) -> None:
         "output.csv",
         "--index_col",
         "customer_id",
+    ]
+
+
+@pytest.mark.smoke
+def test_package_main_dispatches_monitor_command(monkeypatch) -> None:
+    import churn_mlops
+
+    observed = {}
+
+    def fake_monitoring_main() -> None:
+        observed["argv"] = importlib.sys.argv.copy()
+
+    monitoring_module = importlib.import_module("churn_mlops.monitoring.core")
+    monkeypatch.setattr(monitoring_module, "main", fake_monitoring_main)
+
+    churn_mlops.main(
+        [
+            "monitor",
+            "--reference_csv",
+            "reference.csv",
+            "--analysis_csv",
+            "analysis.csv",
+            "--output_dir",
+            "reports",
+        ]
+    )
+
+    assert observed["argv"] == [
+        "churn-mlops.monitoring",
+        "--reference_csv",
+        "reference.csv",
+        "--analysis_csv",
+        "analysis.csv",
+        "--index_col",
+        "customerid",
+        "--output_dir",
+        "reports",
     ]
 
 

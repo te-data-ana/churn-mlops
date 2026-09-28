@@ -106,6 +106,7 @@ def run_training_job(
             file_name=training_file,
             index_col=index_col,
             data_dir=resolved_data_dir,
+            drop_columns=["reference_date"],
         )
         df = validate_data(df)
 

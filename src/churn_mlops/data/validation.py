@@ -11,8 +11,8 @@ def validate_data(df: pd.DataFrame) -> pd.DataFrame:
     """Validate a DataFrame against the data schema.
 
     Args:
-        df: DataFrame containing features and optionally a binary ``churn``
-            target and/or a ``reference_date`` column.
+        df: DataFrame containing features and optionally a ``customerid``,
+            a binary ``churn`` target and/or a ``reference_date`` column.
 
     Returns:
         The validated and type-coerced DataFrame.

@@ -9,6 +9,27 @@ from churn_mlops.data.ingestion import load_raw_data
 from churn_mlops.data.validation import validate_data
 
 
+def read_jsonl_prediction_log(jsonl_path: Path) -> pd.DataFrame:
+    """Convert a prediction log from JSONL to pandas data frame.
+
+    Flattens the nested ``features`` object into separate columns and
+    writes the transformed records to pandas data frame.
+
+    Args:
+        jsonl_path: Path to the source JSONL prediction log.
+    """
+    # if jsonl_path.stat().st_size == 0:
+    #     df_flat = pd.DataFrame()
+    try:
+        df = pd.read_json(jsonl_path, lines=True)
+        features = pd.json_normalize(df["features"])
+        df = df.drop(columns=["features"])
+        df_flat = pd.concat([df, features], axis=1)
+    except FileNotFoundError:
+        df_flat = pd.DataFrame()
+    return df_flat
+
+
 def jsonl_prediction_log_to_csv(jsonl_path: Path, csv_path: Path) -> None:
     """Convert a prediction log from JSONL to CSV format.
 
@@ -19,10 +40,7 @@ def jsonl_prediction_log_to_csv(jsonl_path: Path, csv_path: Path) -> None:
         jsonl_path: Path to the source JSONL prediction log.
         csv_path: Path where the CSV file will be written.
     """
-    df = pd.read_json(jsonl_path, lines=True)
-    features = pd.json_normalize(df["features"])
-    df = df.drop(columns=["features"])
-    df = pd.concat([df, features], axis=1)
+    df = read_jsonl_prediction_log(jsonl_path)
     df.to_csv(csv_path, index=False)
 
 

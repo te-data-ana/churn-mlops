@@ -130,6 +130,10 @@ def log_experiment_result(
             "numpy.dtype",
             "numpy.number",
             "sklearn.compose._column_transformer.make_column_selector",
+            "sklearn.calibration._CalibratedClassifier",
+            "sklearn.calibration._SigmoidCalibration",
+            "sklearn.tree._tree.Tree",
+            "sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor",
         ],
     )
 

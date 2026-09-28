@@ -167,6 +167,7 @@ def test_serve_samples_calls_dependencies(
         sample_size=1,
         random_state=42,
         settings=settings,
+        drop_columns=None,
     )
 
     assert result == expected
@@ -174,6 +175,7 @@ def test_serve_samples_calls_dependencies(
         sample_size=1,
         random_state=42,
         settings=settings,
+        drop_columns=None,
     )
     predict_samples_mock.assert_called_once_with(
         df=sample_df,

@@ -16,7 +16,7 @@ Experiments, model artifacts, model cards, and promotion decisions are tracked l
 
 ### Requirements
 
-- Python 3.14 or newer
+- Python 3.12
 - [uv](https://docs.astral.sh/uv/)
 
 Install dependencies:
@@ -49,7 +49,7 @@ Generate batch predictions:
 ```bash
 uv run churn-mlops batch-predict \
 	--input_csv inference.csv \
-	--output_csv predictions.csv \
+	--output_csv predictions_inference.csv \
 	--index_col customerid
 ```
 
@@ -99,7 +99,7 @@ Run batch prediction through the container:
 ```bash
 docker compose run --rm api batch-predict \
 	--input_csv inference.csv \
-	--output_csv predictions.csv \
+	--output_csv predictions_inference.csv \
 	--index_col customerid
 ```
 
@@ -149,7 +149,7 @@ Batch inference validates an input CSV, loads the configured registered model, a
 ```bash
 uv run churn-mlops batch-predict \
 	--input_csv inference.csv \
-	--output_csv predictions.csv \
+	--output_csv predictions_inference.csv \
 	--index_col customerid
 ```
 
@@ -163,6 +163,43 @@ The output contains:
 | `model_version` | Registered model version used for prediction |
 
 Input filenames are resolved from `data/raw`; output filenames are written to `tmp`.
+
+### Monitor predictions
+
+Monitoring compares a labeled reference CSV scored by a model version with either
+a scored batch CSV or the live API prediction log. Prefer a held-out or
+out-of-time reference cohort over in-sample training predictions.
+
+Monitor batch predictions:
+
+```bash
+uv run churn-mlops monitor \
+	--reference_csv output/predictions_training.csv \
+	--analysis_csv output/predictions_inference.csv
+```
+
+Monitor the configured live API prediction and error logs:
+
+```bash
+uv run churn-mlops monitor \
+	--reference_csv output/predictions_training.csv \
+	--api
+```
+
+Batch mode writes `monitoring_summary_batch.csv` and
+`monitoring_drift_details_batch.csv`; API mode uses the corresponding `_api`
+suffix. Both are written to the configured output directory. The summary includes monthly prediction
+distributions, Jensen-Shannon univariate drift, reconstruction drift, and
+confidence-based ROC AUC estimates when the reference has labels. Realized
+precision, recall, and ROC AUC are included only for analysis rows with labels.
+Rows without a matching reference model version remain in the summary with
+`reference_available` set to `false`; their drift and performance calculations
+are skipped.
+Live API logs also report successful request counts, monthly API-wide error
+counts/rate, and latency percentiles. Error events lack model version metadata,
+so monthly API error metrics are repeated across version rows and are not
+attributed to a specific version. Feature drift is marked unavailable for events
+recorded without features.
 
 ### Generate sample predictions through the API
 

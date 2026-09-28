@@ -11,7 +11,7 @@ applyTo: ["pyproject.toml", "uv.lock", ".pre-commit-config.yaml", "**/*.py", "**
 - Run project commands with `uv run` so they use the locked project environment.
 - Add runtime dependencies with `uv add <package>` and development dependencies with `uv add --dev <package>`.
 - Update dependencies through `pyproject.toml` and regenerate `uv.lock` with `uv lock`; do not edit `uv.lock` manually.
-- Keep the declared Python requirement (`>=3.14`) and the lockfile consistent after dependency changes.
+- Keep the declared Python requirement (`>=3.12,<3.13`) and the lockfile consistent after dependency changes.
 - Do not commit virtual environments, generated caches, coverage output, or local experiment artifacts unless the repository explicitly requires them.
 
 ## Project configuration
