@@ -132,6 +132,7 @@ def predict(request: Request, features: InputFeatures) -> PredictionResult:
             prediction_logger.log_error(
                 request_id=request_id,
                 latency_ms=latency_ms,
+                predictor=predictor,
                 exception=exc,
                 traceback_text=traceback.format_exc(),
                 features=features,

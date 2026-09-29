@@ -10,24 +10,36 @@ from churn_mlops.data.validation import validate_data
 
 
 def read_jsonl_prediction_log(jsonl_path: Path) -> pd.DataFrame:
-    """Convert a prediction log from JSONL to pandas data frame.
+    """Convert a prediction log from JSONL to a pandas DataFrame.
 
-    Flattens the nested ``features`` object into separate columns and
-    writes the transformed records to pandas data frame.
+    Flattens the nested ``features`` object into separate columns when
+    present. Returns an empty DataFrame if the file does not exist,
+    is empty, contains invalid JSONL, or does not contain any valid
+    records.
 
     Args:
         jsonl_path: Path to the source JSONL prediction log.
+
+    Returns:
+        Flattened prediction log as a pandas DataFrame.
     """
-    # if jsonl_path.stat().st_size == 0:
-    #     df_flat = pd.DataFrame()
     try:
         df = pd.read_json(jsonl_path, lines=True)
-        features = pd.json_normalize(df["features"])
-        df = df.drop(columns=["features"])
-        df_flat = pd.concat([df, features], axis=1)
-    except FileNotFoundError:
-        df_flat = pd.DataFrame()
-    return df_flat
+    except (FileNotFoundError, ValueError):
+        return pd.DataFrame()
+
+    if df.empty:
+        return pd.DataFrame()
+
+    if "features" not in df.columns:
+        return df
+
+    features = pd.json_normalize(df["features"])
+
+    return pd.concat(
+        [df.drop(columns=["features"]), features],
+        axis=1,
+    )
 
 
 def jsonl_prediction_log_to_csv(jsonl_path: Path, csv_path: Path) -> None:

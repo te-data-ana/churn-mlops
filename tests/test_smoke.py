@@ -127,8 +127,6 @@ def test_package_main_dispatches_monitor_command(monkeypatch) -> None:
         "reference.csv",
         "--analysis_csv",
         "analysis.csv",
-        "--index_col",
-        "customerid",
         "--output_dir",
         "reports",
     ]

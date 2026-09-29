@@ -154,7 +154,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             command.append("--api")
         if args.error_log is not None:
             command.extend(["--error_log", args.error_log])
-        command.extend(["--index_col", args.index_col])
         if args.output_dir is not None:
             command.extend(["--output_dir", args.output_dir])
         sys.argv = command

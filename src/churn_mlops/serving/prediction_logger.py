@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from churn_mlops.serving.predictor import PredictionResult
+from churn_mlops.serving.predictor import PredictionResult, Predictor
 from churn_mlops.serving.schemas import (
     InputFeatures,
     PredictionErrorEvent,
@@ -66,6 +66,7 @@ class PredictionLogger:
         *,
         request_id: str,
         latency_ms: float,
+        predictor: Predictor,
         exception: Exception,
         traceback_text: str,
         features: InputFeatures | None = None,
@@ -77,6 +78,9 @@ class PredictionLogger:
             request_id=request_id,
             timestamp_utc=self._timestamp(),
             latency_ms=latency_ms,
+            model_name=predictor.metadata.model_name,
+            model_alias=predictor.metadata.model_alias,
+            model_version=predictor.metadata.model_version,
             error_type=type(exception).__name__,
             error_message=str(exception),
             traceback=traceback_text,

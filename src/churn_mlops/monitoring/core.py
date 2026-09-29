@@ -38,15 +38,48 @@ class MonitoringReport:
 def _read_scored_csv(
     path: Path,
 ) -> pd.DataFrame:
+    """Read a scored CSV file and normalize its column names.
+
+    Args:
+        path: Path to the scored CSV to load.
+
+    Returns:
+        A pandas DataFrame containing the CSV contents with normalized column
+        names.
+
+    Raises:
+        FileNotFoundError: If the CSV file does not exist.
+    """
     if not path.is_file():
-        raise FileNotFoundError(f"Monitoring CSV does not exist: {path}")
+        raise FileNotFoundError(f"Input CSV file does not exist: {path}")
 
     frame = pd.read_csv(path)
     frame.columns = normalize_strings(frame.columns)
     return frame
 
 
-def _event_log_to_frame(path: Path, event: str) -> pd.DataFrame:
+def _event_log_to_frame(path: Path | None, event: str) -> pd.DataFrame:
+    """Load a JSONL event log and validate essential columns.
+
+    Args:
+        path: Path to the JSONL log file.
+        event: Expected event name for all records in the log, such as
+            "prediction" or "prediction_error".
+
+    Returns:
+        A DataFrame with normalized event data, including a UTC timestamp
+        converted to a naive datetime and numeric latency values.
+
+    Raises:
+        ValueError: If the log file is missing, contains the wrong event type,
+            or omits required fields.
+    """
+    if path is None:
+        if event == "prediction_error":
+            logger.warning("No %s log supplied; treating as empty.", event)
+            return pd.DataFrame()
+        raise ValueError(f"{event} log path is required.")
+
     if event == "prediction" and not path.exists():
         raise ValueError(f"{event} log path '{path}' does not exist.")
 
@@ -84,6 +117,27 @@ def _prepare_validated_frame(
     require_target: bool = False,
     require_features: bool = False,
 ) -> pd.DataFrame:
+    """Normalize and validate a monitoring DataFrame for a single cohort.
+
+    Args:
+        frame: Input DataFrame to sanitize and validate.
+        name: Label used in logging messages to differentiate inputs and
+            function runs.
+        source: Source label for the cohort, such as "batch" or "api".
+        require_predictions: Whether prediction columns must exist and satisfy
+            probability/class constraints.
+        require_target: Whether the target column is required and must contain
+            both classes.
+        require_features: Whether feature columns must be present and validated.
+
+    Returns:
+        The validated DataFrame with standardized source, period, timestamp, and
+        model version columns.
+
+    Raises:
+        ValueError: If required inputs, labels, or model features are missing or
+            invalid.
+    """
     frame.columns = normalize_strings(frame.columns)
 
     frame.insert(0, "source", source)
@@ -91,7 +145,7 @@ def _prepare_validated_frame(
 
     required = set(AGGREGATION_COLUMNS)
     if require_predictions:
-        required.union(*PREDICTION_COLUMNS)
+        required.update(PREDICTION_COLUMNS)
     if require_target:
         required.add(TARGET_COLUMN)
     missing = required.difference(set(frame.columns))
@@ -144,6 +198,14 @@ def _prepare_validated_frame(
 
 
 def _flatten_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """Flatten nested column labels from a NannyML result into plain strings.
+
+    Args:
+        frame: DataFrame whose columns may be a pandas MultiIndex.
+
+    Returns:
+        A copy of the DataFrame with flat column names.
+    """
     flattened = frame.copy()
     if isinstance(flattened.columns, pd.MultiIndex):
         flattened.columns = [
@@ -152,10 +214,19 @@ def _flatten_columns(frame: pd.DataFrame) -> pd.DataFrame:
         ]
     else:
         flattened.columns = [str(column) for column in flattened.columns]
-    return flattened.reset_index(drop=False)
+    return flattened
 
 
 def _extract_columns(frame: pd.DataFrame, name_set: set) -> list:
+    """Return columns whose final segment matches a target name set.
+
+    Args:
+        frame: DataFrame with flattened column names.
+        name_set: Set of expected suffix names to match.
+
+    Returns:
+        A list of column names whose last suffix is contained in ``name_set``.
+    """
     return [column for column in frame.columns if column.split("__")[-1] in name_set]
 
 
@@ -177,6 +248,20 @@ def _extract_columns(frame: pd.DataFrame, name_set: set) -> list:
 def _drift_alert_summary(
     result: Any, model_version: int, calculator_name: str
 ) -> pd.DataFrame:
+    """Summarize alert counts for a drift calculator result.
+
+    Args:
+        result: NannyML result object containing drift alerts.
+        model_version: Model version ID used to label the output rows.
+        calculator_name: Prefix used for naming the alert metric column.
+
+    Returns:
+        A DataFrame with period, model version, timestamp, and alert count per
+        monitored chunk.
+
+    Raises:
+        KeyError: If the result lacks period, date, or alert columns.
+    """
     raw = _flatten_columns(result.to_df())
 
     period_columns = _extract_columns(frame=raw, name_set={"period"})
@@ -208,6 +293,21 @@ def _drift_alert_summary(
 def _cbpe_summary(
     result: Any, model_version: int, calculator_name: str
 ) -> pd.DataFrame:
+    """Convert a CBPE result into a summary DataFrame covering metrics included
+    during CBPE run.
+
+    Args:
+        result: NannyML CBPE result object to summarize.
+        model_version: Model version ID mapped to the summary rows.
+        calculator_name: Prefix used for the generated metric columns.
+
+    Returns:
+        A DataFrame that includes period, model version, timestamp, and CBPE metric
+        values for each time chunk.
+
+    Raises:
+        KeyError: If period, date, or value columns are not present.
+    """
     raw = _flatten_columns(result.to_df())
 
     period_columns = _extract_columns(frame=raw, name_set={"period"})
@@ -242,6 +342,16 @@ def _base_summary(
     reference: pd.DataFrame,
     analysis: pd.DataFrame,
 ) -> pd.DataFrame:
+    """Aggregate the main prediction metrics for both reference and analysis cohorts.
+
+    Args:
+        reference: Reference cohort DataFrame used as the historical baseline.
+        analysis: Analysis cohort DataFrame covering monitored period.
+
+    Returns:
+        A grouped DataFrame with prediction count, average predicted probability,
+        and positive-rate metrics by source and period.
+    """
     combined = pd.concat([reference, analysis], ignore_index=True)
     grouped = combined.groupby(["source", *AGGREGATION_COLUMNS], dropna=False)
     summary = grouped.agg(
@@ -256,6 +366,18 @@ def _actual_metrics(
     reference: pd.DataFrame,
     analysis: pd.DataFrame,
 ) -> pd.DataFrame:
+    """Calculate realized classification metrics from labeled input data.
+
+    Args:
+        reference: Reference cohort DataFrame used as the historical baseline.
+        analysis: Analysis cohort DataFrame containing labeled outputs for the
+            monitored period.
+
+    Returns:
+        DataFrame with observed positive rate, realized precision, recall, and
+        ROC AUC for each period and model version. Returns an empty DataFrame when
+        no target column is available.
+    """
 
     frame = pd.concat([reference, analysis], ignore_index=True)
 
@@ -299,6 +421,19 @@ def _calculate_version_drift(
     errors: pd.DataFrame,
     model_version: int,
 ) -> pd.DataFrame:
+    """Run drift monitoring for one model version and merge its alerts.
+
+    Args:
+        reference: Reference cohort for the model version.
+        analysis: Scored analysis cohort for the model version.
+        errors: Prediction error records for the same model version.
+        model_version: Model version used to tag the result rows.
+
+    Returns:
+        A merged DataFrame containing Confidence-Based Performance Estimation
+        metrics and drift alert counts across reconstruction and univariate
+        drift calculations for the model version.
+    """
 
     monitoring = pd.concat([analysis, errors], ignore_index=True)
 
@@ -375,6 +510,16 @@ def _operational_summary(
     analysis: pd.DataFrame,
     errors: pd.DataFrame,
 ) -> pd.DataFrame:
+    """Summarize request volume and latency for API monitoring data.
+
+    Args:
+        analysis: Successful prediction records for the monitored period.
+        errors: Failed prediction records for the monitored period.
+
+    Returns:
+        A DataFrame containing request counts, latency percentiles, and error rate
+        for each period, model version, and month.
+    """
 
     analysis_grouped = analysis.groupby(AGGREGATION_COLUMNS, dropna=False)
     success_summary = analysis_grouped.agg(
@@ -416,28 +561,25 @@ def build_monitoring_report(
     errors: pd.DataFrame | None = None,
     output_dir: Path | None = None,
 ) -> MonitoringReport:
-    """Calculate model monitoring metrics based on normalized data frames.
+    """Build a monitoring report across prediction, performance, and drift KPIs.
 
     Args:
-        reference: Labeled reference cohort containing prediction results from
-            the model version(s) to be reviewed.
-        analysis: Scored analysis cohort containing model's prediction results
-            for inference time period.
-        source_reference: Either ``batch`` or ``api``.
-        source_analysis: Either ``batch`` or ``api``.
-        drift: Boolean flag to indicate if drift KPIs should be calculated.
-        errors: Optional API prediction error-event data frame.
-        output_dir: Optional directory receiving CSV reports.
+        reference: Labeled reference cohort containing historical predictions.
+        analysis: Scored analysis cohort for the monitored inference period.
+        source_reference: Source of the reference data, either "batch" or "api".
+        source_analysis: Source of the analysis data, either "batch" or "api".
+        drift: Whether to calculate drift-based alert metrics.
+        errors: Optional API prediction error events to include in operational and
+            drift monitoring.
+        output_dir: Optional directory where the summary CSV should be written.
 
     Returns:
-        Model monitoring report, for time period covered by ``analysis`` dataframe.
-        Monitoring metrics are summarized by month and cover different domains like
-        prediction, observed, operational and drift KPIs, depending on ``source``
-        and provided input data frames.
+        A MonitoringReport summarizing prediction, observed, operational, and drift
+        KPIs for the overlapping model versions and covering reference and analysis periods.
 
     Raises:
-        ValueError: If required data fields are missing, ``source`` is unsupported or
-            ``reference`` and ``analysis`` frames do not have common model version(s).
+        ValueError: If source names are invalid, required columns are missing, or
+            no common model versions exist between reference and analysis data.
     """
 
     if source_reference not in {"batch", "api"}:
@@ -572,11 +714,13 @@ def build_monitoring_report(
         drop=True
     )
 
+    summary = summary.round(4)
+
     summary_path = None
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
         summary_path = output_dir / f"monitoring_summary_{source_analysis}.csv"
-        summary.to_csv(summary_path, index=False)
+        summary.to_csv(summary_path, index=False, float_format="%.4f")
         logger.info("Monitoring summary written to '%s'.", summary_path)
 
     return MonitoringReport(summary, summary_path)
@@ -590,29 +734,27 @@ def run_monitoring(
     error_log: Path | None = None,
     output_dir: Path | None = None,
 ) -> MonitoringReport:
-    """Load monitoring inputs and write a report for batch or API predictions.
+    """Load monitoring inputs and generate a report for batch or API predictions.
 
     Args:
-        reference_csv: Path to labeled CSV file containing prediction results from
-            the model version(s) to be reviewed, based on data covering model
-            training period or out-of-time sample.
-        analysis_csv: Optional path to CSV file containing model's prediction
-            results for inference time period (after training data period).
-            Mutually exclusive with ``prediction_log``.
-        prediction_log: Optional path to API prediction logs in JSONL format.
-            Mutually exclusive with ``analysis_csv``.
-        error_log: Optional path to API prediction error logs in JSONL format.
-            Only used in combination with ``prediction_log``.
-        output_dir: Output directory. Defaults to ``RuntimeSettings.output_dir``.
+        reference_csv: Path to the labeled reference CSV that defines the baseline
+            period for monitoring.
+        analysis_csv: Optional path to a scored batch analysis CSV. Mutually
+            exclusive with ``prediction_log``.
+        prediction_log: Optional path to an API prediction JSONL log. Mutually
+            exclusive with ``analysis_csv``.
+        error_log: Optional path to an API error JSONL log. Only valid together
+            with ``prediction_log``.
+        output_dir: Output directory for the monitoring summary CSV. Defaults to
+            the runtime settings output directory.
 
     Returns:
-        Model monitoring report, for time period covered by ``analysis_csv`` /
-        ``prediction_log``. Monitoring metrics are summarized by month and cover
-        different domains like prediction, observed, operational and drift KPIs,
-        depending on provided input data.
+        A MonitoringReport summarizing the monitoring results for time periods
+        and model versions covered by the provided input data.
 
     Raises:
-        ValueError: If the analysis source is missing or ambiguous.
+        ValueError: If exactly one of ``analysis_csv`` or ``prediction_log`` is
+            not provided, or if ``error_log`` is passed without a prediction log.
     """
     if (analysis_csv is None) == (prediction_log is None):
         raise ValueError("Provide exactly one of analysis_csv or prediction_log.")
@@ -642,7 +784,11 @@ def run_monitoring(
 
 
 def main() -> None:
-    """Parse CLI arguments and run the requested monitoring workflow."""
+    """Parse CLI arguments and run the monitoring workflow.
+
+    This command line entry point accepts either a scored CSV file or an API log
+    source and writes the resulting monitoring report to disk.
+    """
     import argparse
 
     settings = ServingSettings()
