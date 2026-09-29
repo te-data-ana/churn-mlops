@@ -116,7 +116,7 @@ class Predictor:
                 predicted_probabilities >= self.metadata.threshold
             ).astype(int)
 
-            result = pd.DataFrame(index=df.index.copy())
+            result = df.copy()
 
             result["predicted_probability"] = predicted_probabilities
             result["predicted_class"] = predicted_classes

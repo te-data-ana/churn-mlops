@@ -1,6 +1,7 @@
 import json
 from datetime import UTC
 from pathlib import Path
+from types import SimpleNamespace
 
 from churn_mlops.serving.prediction_logger import PredictionLogger
 from churn_mlops.serving.predictor import PredictionResult
@@ -54,11 +55,20 @@ def test_log_error_writes_error_event_with_features(
         log_features=True,
     )
 
+    fake_predictor = SimpleNamespace(
+        metadata=SimpleNamespace(
+            model_name="test_model",
+            model_alias="champion",
+            model_version=1,
+        )
+    )
+
     exc = ValueError("invalid input")
 
     logger.log_error(
         request_id="req-1",
         latency_ms=12.3,
+        predictor=fake_predictor,
         exception=exc,
         traceback_text="traceback content",
         features=sample_input,

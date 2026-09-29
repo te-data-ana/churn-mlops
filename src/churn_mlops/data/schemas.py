@@ -1,11 +1,11 @@
 import pandas as pd
 import pandera.pandas as pa
 from pandera import Float64, Int64
-from pandera.typing import Index, Series
+from pandera.typing import Series  # , Index
 
 
 class DataSchema(pa.DataFrameModel):
-    customerid: Index[Int64]
+    customerid: Series[Int64] | None
 
     age: Series[Int64]
     tenure: Series[Int64]

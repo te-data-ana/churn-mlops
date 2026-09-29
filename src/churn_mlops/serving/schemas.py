@@ -35,16 +35,16 @@ class BaseInferenceEvent(BaseModel):
     timestamp_utc: datetime
     latency_ms: float = Field(ge=0)
 
+    model_name: str
+    model_alias: str
+    model_version: int
+
     # Optional feature logging
     features: InputFeatures | None = None
 
 
 class PredictionEvent(BaseInferenceEvent):
     event: Literal["prediction"] = "prediction"
-
-    model_name: str
-    model_alias: str
-    model_version: int
 
     predicted_class: Literal[0, 1]
     predicted_probability: float = Field(ge=0.0, le=1.0)

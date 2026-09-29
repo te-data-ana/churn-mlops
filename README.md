@@ -1,22 +1,26 @@
 # Churn MLOps
 
-An end-to-end customer churn prediction project for training, evaluating, registering, and serving tabular machine-learning models.
+An end-to-end customer churn prediction project for preparing data, training,
+evaluating, monitoring, registering, and serving tabular machine-learning
+models.
 
-The project supports five workflows:
+The project supports six workflows:
 
 - prepare and enrich raw datasets for training and inference;
-- train and evaluate a configurable churn classifier;
-- generate batch predictions from a CSV file;
-- score a sample of live inference rows through the HTTP API; and
-- serve predictions through a FastAPI application.
+- train and evaluate configurable churn prediction models;
+- generate batch predictions from CSV datasets;
+- serve predictions through a FastAPI application;
+- score sample inference data through the HTTP API; and
+- monitor model performance, data drift, and operational metrics.
 
-Experiments, model artifacts, model cards, and promotion decisions are tracked locally with MLflow.
+Experiments, model artifacts, model cards, and promotion decisions are tracked
+locally with MLflow.
 
 ## Quick start
 
 ### Requirements
 
-- Python 3.14 or newer
+- Python 3.12
 - [uv](https://docs.astral.sh/uv/)
 
 Install dependencies:
@@ -49,7 +53,7 @@ Generate batch predictions:
 ```bash
 uv run churn-mlops batch-predict \
 	--input_csv inference.csv \
-	--output_csv predictions.csv \
+	--output_csv predictions_inference.csv \
 	--index_col customerid
 ```
 
@@ -78,7 +82,21 @@ cp .env.example .env
 docker compose up --build -d
 ```
 
-Check the container and endpoints:
+The container starts successfully even when no model is available. In that
+case `/health` returns `200`, while `/ready` returns `503` until a model has
+been trained, registered, and can be loaded from MLflow.
+
+The image entrypoint is the project CLI (`churn-mlops`) and the default command
+is `serve`. All workflows exposed by the CLI can be executed inside the
+container by overriding the default command, for example:
+
+```bash
+docker compose run --rm api train --config sample_training_config.yaml
+docker compose run --rm api batch-predict ...
+docker compose run --rm api monitor ...
+```
+
+Verify the container and endpoints:
 
 ```bash
 docker compose ps
@@ -86,9 +104,7 @@ curl http://127.0.0.1:8000/health
 curl -i http://127.0.0.1:8000/ready
 ```
 
-`/health` confirms that the process is running. `/ready` returns `503` until
-the configured model alias exists and can be loaded from MLflow. Train and
-register a model in the same Compose environment with:
+Train and register a model in the same Compose environment with:
 
 ```bash
 docker compose run --rm api train --config sample_training_config.yaml
@@ -99,11 +115,29 @@ Run batch prediction through the container:
 ```bash
 docker compose run --rm api batch-predict \
 	--input_csv inference.csv \
-	--output_csv predictions.csv \
+	--output_csv predictions_inference.csv \
 	--index_col customerid
 ```
 
-The Compose service mounts `tracking/`, `artifacts/`, and `tmp/` as writable
+Monitoring can be run against batch prediction outputs or the API inference
+logs produced by the container:
+
+```bash
+docker compose run --rm api monitor \
+    --reference_csv output/predictions_training.csv \
+    --analysis_csv output/predictions_inference.csv
+```
+
+```bash
+docker compose run --rm api monitor \
+    --reference_csv output/predictions_training.csv \
+    --api
+```
+
+Prediction logs, error logs, batch prediction outputs, and monitoring reports
+are persisted on the host through the mounted `logs/` and `output/` directories.
+
+The Compose service mounts `tracking/`, `artifacts/`, and `output/` as writable
 directories, and mounts `data/raw` and `src/config` read-only. Keep the MLflow
 database and artifacts together: the database contains registry metadata while
 the artifacts contain the registered model files. Recreating the API container
@@ -113,6 +147,14 @@ Stop the stack with:
 
 ```bash
 docker compose down
+```
+
+Run the image without Docker Compose:
+
+After building the image, the FastAPI prediction service can be started directly:
+
+```bash
+docker run -p 8000:8000 churn-mlops:local
 ```
 
 ## User workflows
@@ -144,12 +186,12 @@ The default training file is `data/raw/training.csv`.
 
 ### Generate batch predictions
 
-Batch inference validates an input CSV, loads the configured registered model, and writes predictions under `tmp`:
+Batch inference validates an input CSV, loads the configured registered model, and writes predictions under `output`:
 
 ```bash
 uv run churn-mlops batch-predict \
 	--input_csv inference.csv \
-	--output_csv predictions.csv \
+	--output_csv predictions_inference.csv \
 	--index_col customerid
 ```
 
@@ -162,7 +204,120 @@ The output contains:
 | `threshold` | Threshold used for classification |
 | `model_version` | Registered model version used for prediction |
 
-Input filenames are resolved from `data/raw`; output filenames are written to `tmp`.
+Input filenames are resolved from `data/raw`; output filenames are written to `output`.
+
+### Monitor predictions
+
+Monitoring compares a labeled reference CSV scored by a model version with either
+a scored batch CSV or the live API prediction log. Prefer a held-out or
+out-of-time reference cohort over in-sample training predictions.
+
+Monitor batch predictions:
+
+```bash
+uv run churn-mlops monitor \
+	--reference_csv output/predictions_training.csv \
+	--analysis_csv output/predictions_inference.csv
+```
+
+Monitor the configured live API prediction and error logs:
+
+```bash
+uv run churn-mlops monitor \
+	--reference_csv output/predictions_training.csv \
+	--api
+```
+
+Batch mode writes `monitoring_summary_batch.csv`, API mode uses the corresponding
+`_api` suffix.
+
+The monitoring summary is produced at a monthly granularity and separately for
+each model version that exists in both the reference and analysis datasets.
+The report includes:
+
+- prediction_count
+- avg_predicted_probability
+- predicted_positive_rate
+
+When ground-truth labels are available, the report additionally contains realized
+performance metrics:
+
+- observed_positive_rate
+- realized_precision
+- realized_recall
+- realized_roc_auc
+
+When analysis labels are unavailable and the reference dataset contains labels,
+NannyML Confidence-Based Performance Estimation (CBPE) provides estimated
+performance metrics:
+
+- cbpe_precision
+- cbpe_recall
+- cbpe_roc_auc
+
+Feature monitoring includes monthly drift analysis of the model input features
+and reports:
+
+- reconstruction_drift_alert_count
+- univariate_drift_alert_count
+
+Drift calculations are automatically skipped when the reference and analysis
+periods overlap because a proper baseline and monitoring period separation is
+required.
+
+For API-based monitoring, operational metrics are also reported:
+
+- api_request_count
+- api_error_rate
+- prediction_latency_p50_ms
+- prediction_latency_p95_ms
+- api_error_latency_p50_ms
+- api_error_latency_p95_ms
+
+Prediction-error events are incorporated into operational reporting and,
+when feature data is available, drift monitoring.
+
+Monitoring is only calculated for model versions present in both reference
+and analysis data.
+
+#### Monitoring summary metrics
+
+Depending on the available inputs, the report contains a subset of
+the following columns:
+
+| Column | Description |
+|----------|-------------|
+| period | Indicates whether the record belongs to the reference or analysis dataset |
+| model_version | Registered model version being monitored |
+| reference_date | Month represented by the monitoring record |
+| prediction_count | Number of predictions in the period |
+| avg_predicted_probability | Average predicted churn probability |
+| predicted_positive_rate | Fraction of predictions classified as churn |
+| observed_positive_rate | Actual churn rate (only when labels are available) |
+| realized_precision | Measured precision based on observed labels |
+| realized_recall | Measured recall based on observed labels |
+| realized_roc_auc | Measured ROC AUC based on observed labels |
+| cbpe_precision | NannyML estimated precision |
+| cbpe_recall | NannyML estimated recall |
+| cbpe_roc_auc | NannyML estimated ROC AUC |
+| reconstruction_drift_alert_count | Number of reconstruction-drift alerts triggered for the period |
+| univariate_drift_alert_count | Number of feature-level drift alerts triggered for the period |
+| api_request_count | Total API requests (successful and failed) |
+| api_error_rate | Ratio of failed API requests |
+| prediction_latency_p50_ms | Median latency of successful prediction requests |
+| prediction_latency_p95_ms | 95th percentile latency of successful prediction requests |
+| api_error_latency_p50_ms | Median latency of failed prediction requests |
+| api_error_latency_p95_ms | 95th percentile latency of failed prediction requests |
+
+Notes:
+
+- Monitoring is performed independently for each model version.
+- Monitoring is only performed for model versions that exist in both reference
+  and analysis datasets.
+- Realized metrics require ground-truth labels.
+- CBPE metrics are available only when the reference dataset contains labels.
+- Drift metrics are unavailable when reference and analysis periods overlap.
+- API-specific metrics are populated only when monitoring API inference logs, otherwise they are omitted.
 
 ### Generate sample predictions through the API
 
@@ -385,11 +540,11 @@ default to the mounted paths shown below:
 | Variable | Default in the image | Purpose |
 | --- | --- | --- |
 | `ARTIFACT_DIR` | `/app/artifacts` | MLflow run artifacts and model files |
-| `TRACKING_DIR` | `/app/tracking` | SQLite MLflow database |
 | `RAW_DATA_DIR` | `/app/data/raw` | Input CSV files |
-| `CONFIG_DIR` | `/app/src/config` | Training YAML files |
-| `OUTPUT_DIR` | `/app/tmp` | Batch prediction output |
 | `LOGGING_DIR` | `/app/logs` | JSONL prediction and error event logs |
+| `OUTPUT_DIR` | `/app/output` | Batch prediction output |
+| `CONFIG_DIR` | `/app/src/config` | Training YAML files |
+| `TRACKING_DIR` | `/app/tracking` | SQLite MLflow database |
 
 Without Docker, these settings default to the corresponding directories in the
 repository root. `.env.example` contains the container defaults and can be
@@ -441,21 +596,26 @@ developer artifacts.
 
 ```text
 src/churn_mlops/
-├── data/          # ingestion, validation, and preprocessing
-├── evaluation/    # metrics and timing
-├── models/        # features, preprocessing, and classifiers
-├── serving/       # FastAPI application, live serving, and sample scoring
-├── tracking/      # MLflow, registry, promotion, and model cards
+├── config/		# configuration helpers
+├── data/		# ingestion, validation, and preprocessing
+├── evaluation/	# metrics and model evaluation
+├── models/		# feature engineering and classifiers
+├── monitoring/ # drift, performance, and operational monitoring
+├── serving/	# FastAPI application and inference services
+├── tracking/	# MLflow integration and model registry
+├── training/	# training pipelines and orchestration
 ├── batch_predict.py
 ├── train.py
-└── training.py
-src/config/        # YAML training configurations
-scripts/           # helper scripts for data prep and sample-serving workflows
-data/raw/          # input datasets
-output/            # generated sample and batch prediction outputs
-tests/             # unit and integration tests
-tracking/          # local MLflow state
-artifacts/         # generated run artifacts
+└── __init__.py
+src/config/		# YAML training configurations
+artifacts/		# generated run artifacts
+data/raw/		# input datasets
+logs/			# API prediction and error logs
+notebooks/		# exploratory notebooks
+output/			# generated sample and batch prediction outputs
+scripts/		# helper scripts for data prep and sample-serving workflows
+tests/			# unit and integration tests
+tracking/		# local MLflow state
 ```
 
 ## Current limitations
@@ -463,10 +623,9 @@ artifacts/         # generated run artifacts
 This project is designed as a local-first MLOps example. It currently does not provide:
 
 - a remote MLflow tracking server or cloud artifact store;
-- Docker, Kubernetes, or cloud deployment configuration;
-- automated CI deployment pipeline or production CD configuration;
+- Kubernetes, or cloud deployment configuration;
+- automated production CD configuration;
 - authentication, authorization, or CORS configuration;
-- production monitoring or drift detection; or
 - support for arbitrary input schemas.
 
 Paths are resolved relative to the project root, and the serving API requires

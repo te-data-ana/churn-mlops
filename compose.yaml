@@ -18,20 +18,20 @@ services:
       REQUEST_ID_HEADER: ${REQUEST_ID_HEADER:-X-Request-ID}
       LOG_FEATURES: ${LOG_FEATURES:-True}
       ARTIFACT_DIR: ${ARTIFACT_DIR:-/app/artifacts}
-      TRACKING_DIR: ${TRACKING_DIR:-/app/tracking}
       RAW_DATA_DIR: ${RAW_DATA_DIR:-/app/data/raw}
-      CONFIG_DIR: ${CONFIG_DIR:-/app/src/config}
-      OUTPUT_DIR: ${OUTPUT_DIR:-/app/tmp}
       LOGGING_DIR: ${LOGGING_DIR:-/app/logs}
+      OUTPUT_DIR: ${OUTPUT_DIR:-/app/output}
+      CONFIG_DIR: ${CONFIG_DIR:-/app/src/config}
+      TRACKING_DIR: ${TRACKING_DIR:-/app/tracking}
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
       - ./artifacts:/app/artifacts
-      - ./tracking:/app/tracking
-      - ./logs:/app/logs
-      - ./tmp:/app/tmp
       - ./data/raw:/app/data/raw:ro
+      - ./logs:/app/logs
+      - ./output:/app/output
       - ./src/config:/app/src/config:ro
+      - ./tracking:/app/tracking
     healthcheck:
       test:
         - CMD

@@ -18,11 +18,11 @@ ENV MLFLOW_EXPERIMENT_NAME=test
 ENV REQUEST_ID_HEADER=X-Request-ID
 ENV LOG_FEATURES=True
 ENV ARTIFACT_DIR=/app/artifacts
-ENV TRACKING_DIR=/app/tracking
 ENV RAW_DATA_DIR=/app/data/raw
-ENV CONFIG_DIR=/app/src/config
-ENV OUTPUT_DIR=/app/tmp
 ENV LOGGING_DIR=/app/logs
+ENV OUTPUT_DIR=/app/output
+ENV CONFIG_DIR=/app/src/config
+ENV TRACKING_DIR=/app/tracking
 
 EXPOSE 8000
 

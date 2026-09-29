@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 
 import pandas as pd
@@ -8,10 +9,15 @@ from churn_mlops.config import RuntimeSettings
 logger = logging.getLogger(__name__)
 
 
+def normalize_strings(seq: Sequence[str]) -> Sequence[str]:
+    return [s.strip().lower().replace(" ", "_") for s in seq]
+
+
 def load_raw_data(
     file_name: str,
     index_col: str | None = None,
     data_dir: Path | None = None,
+    drop_columns: list[str] | None = None,
 ) -> pd.DataFrame:
     """Load and normalize a raw CSV file from the configured data directory.
 
@@ -19,6 +25,7 @@ def load_raw_data(
         file_name: Name of the CSV file in ``data_dir``.
         index_col: Optional column name to use as the DataFrame index.
         data_dir: Directory containing the CSV file.
+        drop_columns: Optional list of column names to drop from loaded data.
 
     Returns:
         DataFrame with normalized column names, nullable dtypes, the optional
@@ -33,10 +40,12 @@ def load_raw_data(
     try:
         logger.info("Loading raw dataset '%s' from '%s'.", file_name, resolved_data_dir)
         df = pd.read_csv(resolved_data_dir / file_name)
-        df.columns = (
-            df.columns.str.strip().str.lower().str.replace(" ", "_", regex=False)
-        )
+        df.columns = normalize_strings(df.columns)
         df = df.convert_dtypes()
+        if drop_columns:
+            df.drop(
+                columns=normalize_strings(drop_columns), errors="ignore", inplace=True
+            )
         if index_col:
             df.set_index(index_col, inplace=True)
             logger.info("Set index column '%s' on dataset '%s'.", index_col, file_name)

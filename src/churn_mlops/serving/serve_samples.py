@@ -14,6 +14,7 @@ def load_sample_data(
     sample_size: int,
     random_state: int,
     settings: RuntimeSettings,
+    drop_columns: list[str] | None = None,
 ) -> pd.DataFrame:
     """Load, validate, and sample inference data.
 
@@ -24,6 +25,7 @@ def load_sample_data(
         sample_size: Number of records to sample.
         random_state: Seed used for reproducible sampling.
         settings: Runtime configuration containing data locations.
+        drop_columns: Optional list of column names to drop from loaded data.
 
     Returns:
         A validated DataFrame containing the sampled inference records.
@@ -33,6 +35,7 @@ def load_sample_data(
         file_name="inference.csv",
         index_col="customerid",
         data_dir=settings.raw_data_dir,
+        drop_columns=drop_columns,
     )
 
     df = validate_data(df)
@@ -124,6 +127,7 @@ def serve_samples(
     sample_size: int,
     random_state: int,
     settings: RuntimeSettings | None = None,
+    drop_columns: list[str] | None = None,
 ) -> Path:
     """Generate and store predictions for sampled inference data.
 
@@ -137,6 +141,8 @@ def serve_samples(
             identification.
         settings: Runtime configuration. If not provided, a default
             configuration is created.
+        drop_columns: Optional list of column names to drop from loaded
+            data.
 
     Returns:
         Path to the generated prediction CSV file.
@@ -152,6 +158,7 @@ def serve_samples(
         sample_size=sample_size,
         random_state=random_state,
         settings=settings,
+        drop_columns=drop_columns,
     )
 
     df_predictions = predict_samples(
@@ -192,6 +199,7 @@ def main() -> None:
     serve_samples(
         sample_size=int(args.sample_size),
         random_state=random_state,
+        drop_columns=["reference_date"],
     )
 
 
