@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 class PredictionResult:
     predicted_class: int
     predicted_probability: float
+    reference_date: datetime
     metadata: ModelMetadata
 
 
@@ -65,18 +67,25 @@ class Predictor:
             logger.exception("Failed to normalize model probability output.")
             raise
 
-    def predict(self, payload: InputFeatures) -> PredictionResult:
-        """Predict churn for a single validated feature payload.
+    def predict(
+        self, features: InputFeatures, reference_date: datetime | None = None
+    ) -> PredictionResult:
+        """Predict churn for a single validated set of features.
 
         Args:
-            payload: Validated customer feature values.
+            features: Validated customer feature values.
+            reference_date: Optional reference date for the provided `features`.
+                If not provided, set to UTC time at execution.
 
         Returns:
             Prediction result containing the positive-class probability,
             thresholded class, and model metadata.
         """
+        if reference_date is None:
+            reference_date = self._timestamp()
+
         try:
-            df = pd.DataFrame([payload.model_dump()])
+            df = pd.DataFrame([features.model_dump()])
             probabilities = self._to_probability_array(self.model.predict_proba(df))
 
             predicted_probability = float(probabilities[0, 1])
@@ -91,6 +100,7 @@ class Predictor:
             return PredictionResult(
                 predicted_class=predicted_class,
                 predicted_probability=predicted_probability,
+                reference_date=reference_date,
                 metadata=self.metadata,
             )
         except Exception:
@@ -132,3 +142,7 @@ class Predictor:
         except Exception:
             logger.exception("Batch prediction failed for %d rows.", len(df))
             raise
+
+    @staticmethod
+    def _timestamp() -> datetime:
+        return datetime.now(UTC)

@@ -35,7 +35,7 @@ def load_raw_data(
         FileNotFoundError: If the requested CSV file does not exist.
     """
     settings = RuntimeSettings()
-    resolved_data_dir = data_dir or settings.raw_data_dir
+    resolved_data_dir = data_dir or settings.data_dir / "raw"
 
     try:
         logger.info("Loading raw dataset '%s' from '%s'.", file_name, resolved_data_dir)

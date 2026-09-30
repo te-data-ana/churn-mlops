@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 # direcory names
-RAW_DATA_DIR = PROJECT_ROOT / "data/raw"
+DATA_DIR = PROJECT_ROOT / "data"
 CONFIG_DIR = PROJECT_ROOT / "src/config"
 ARTIFACT_DIR = PROJECT_ROOT / "artifacts_local"
 TRACKING_DIR = PROJECT_ROOT / "tracking_local"
@@ -19,7 +19,7 @@ class RuntimeSettings(BaseSettings):
 
     mlflow_tracking_uri: str | None = Field(default=None, alias="MLFLOW_TRACKING_URI")
     mlflow_experiment_name: str = Field(default="test", alias="MLFLOW_EXPERIMENT_NAME")
-    raw_data_dir: Path = Field(default=RAW_DATA_DIR, alias="RAW_DATA_DIR")
+    data_dir: Path = Field(default=DATA_DIR, alias="DATA_DIR")
     config_dir: Path = Field(default=CONFIG_DIR, alias="CONFIG_DIR")
     artifact_dir: Path = Field(default=ARTIFACT_DIR, alias="ARTIFACT_DIR")
     tracking_dir: Path = Field(default=TRACKING_DIR, alias="TRACKING_DIR")

@@ -35,7 +35,7 @@ def run_batch_prediction(
         Path to the generated prediction CSV.
     """
     settings = ServingSettings()
-    resolved_input_dir = input_dir or settings.raw_data_dir
+    resolved_input_dir = input_dir or settings.data_dir / "raw"
     resolved_output_dir = output_dir or settings.output_dir
     resolved_tracking_uri = tracking_uri or settings.mlflow_tracking_uri
     resolved_model_name = model_name or settings.model_name

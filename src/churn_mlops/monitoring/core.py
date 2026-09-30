@@ -93,14 +93,12 @@ def _event_log_to_frame(path: Path | None, event: str) -> pd.DataFrame:
         if not all_records_prediction_events:
             raise ValueError(f"Log '{path}' contains events other than {event}.")
 
-    required = {"timestamp_utc", MODEL_VERSION_COLUMN, "latency_ms"}
+    required = {TIMESTAMP_COLUMN, MODEL_VERSION_COLUMN, "latency_ms"}
     missing = required.difference(frame.columns)
     if missing:
         raise ValueError(
             f"{event} event is missing columns: {', '.join(sorted(missing))}."
         )
-
-    frame.rename(columns={"timestamp_utc": TIMESTAMP_COLUMN}, inplace=True)
 
     frame[TIMESTAMP_COLUMN] = pd.to_datetime(
         frame[TIMESTAMP_COLUMN], utc=True, errors="raise"

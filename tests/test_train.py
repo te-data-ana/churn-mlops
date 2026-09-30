@@ -59,7 +59,7 @@ def test_run_training_job_resolves_mlflow_experiment_name(
     )
     settings = SimpleNamespace(
         config_dir=Path("config"),
-        raw_data_dir=Path("data"),
+        data_dir=Path("data"),
         artifact_dir=Path("artifacts"),
         mlflow_tracking_uri="sqlite:///tracking.db",
         mlflow_experiment_name=configured_name,

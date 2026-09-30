@@ -67,7 +67,7 @@ def run_training_job(
 
     settings = RuntimeSettings()
     resolved_config_dir = config_dir or settings.config_dir
-    resolved_data_dir = data_dir or settings.raw_data_dir
+    resolved_data_dir = data_dir or settings.data_dir / "raw"
     resolved_artifact_dir = artifact_dir or settings.artifact_dir
     resolved_tracking_uri = tracking_uri or settings.mlflow_tracking_uri
     resolved_experiment_name = experiment_name or settings.mlflow_experiment_name

@@ -41,7 +41,7 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
 
     # Mock settings
     settings = SimpleNamespace(
-        raw_data_dir=tmp_path,
+        data_dir=tmp_path,
         output_dir=tmp_path,
         mlflow_tracking_uri=None,
         model_name=None,
@@ -72,7 +72,7 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
     load_raw_data.assert_called_once_with(
         file_name="customers.csv",
         index_col="customerid",
-        data_dir=tmp_path,
+        data_dir=tmp_path / "raw",
     )
     validate_data.assert_called_once_with(input_df)
     load_model.assert_called_once_with(
@@ -98,7 +98,7 @@ def test_batch_prediction_uses_default_settings(
     tmp_path: Path,
 ) -> None:
     settings = SimpleNamespace(
-        raw_data_dir=tmp_path / "raw",
+        data_dir=tmp_path,
         output_dir=tmp_path / "output",
         mlflow_tracking_uri="uri",
         model_name="my_model",
@@ -128,7 +128,7 @@ def test_batch_prediction_uses_default_settings(
     load_raw_data.assert_called_once_with(
         file_name="input.csv",
         index_col=None,
-        data_dir=settings.raw_data_dir,
+        data_dir=settings.data_dir / "raw",
     )
 
     load_model.assert_called_once_with(
@@ -147,7 +147,7 @@ def test_batch_prediction_logs_and_reraises_on_failure(
         batch_predict,
         "ServingSettings",
         lambda: SimpleNamespace(
-            raw_data_dir=tmp_path,
+            data_dir=tmp_path,
             output_dir=tmp_path,
             mlflow_tracking_uri=None,
             model_name=None,

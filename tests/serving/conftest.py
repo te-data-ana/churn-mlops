@@ -84,7 +84,10 @@ def sample_metadata() -> ModelMetadata:
 @pytest.fixture
 def sample_prediction_result(sample_metadata) -> PredictionResult:
     return PredictionResult(
-        predicted_class=1, predicted_probability=0.87, metadata=sample_metadata
+        predicted_class=1,
+        predicted_probability=0.87,
+        reference_date=datetime.now(UTC),
+        metadata=sample_metadata,
     )
 
 
@@ -114,7 +117,7 @@ def mock_model_factory() -> Callable[..., LoadedModel]:
 def sample_prediction_event() -> PredictionEvent:
     return PredictionEvent(
         request_id="req-1",
-        timestamp_utc=datetime.now(UTC),
+        reference_date=datetime.now(UTC),
         latency_ms=10.0,
         features=None,
         model_name="model",
@@ -132,7 +135,7 @@ def sample_prediction_error_event() -> PredictionErrorEvent:
 
     return PredictionErrorEvent(
         request_id="req-1",
-        timestamp_utc=datetime.now(UTC),
+        reference_date=datetime.now(UTC),
         latency_ms=10.0,
         model_name="model",
         model_alias="champion",
@@ -148,7 +151,7 @@ def prediction_event_factory() -> Callable[..., PredictionEvent]:
     def factory(**kwargs) -> PredictionEvent:
         return PredictionEvent(
             request_id=kwargs.get("request_id", "req-1"),
-            timestamp_utc=kwargs.get("timestamp_utc", datetime.now(UTC)),
+            reference_date=kwargs.get("reference_date", datetime.now(UTC)),
             latency_ms=kwargs.get("latency_ms", 10.0),
             features=kwargs.get("features"),
             model_name=kwargs.get("model_name", "model"),

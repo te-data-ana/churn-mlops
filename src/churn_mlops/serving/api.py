@@ -2,6 +2,7 @@ import logging
 import traceback
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import datetime
 from time import perf_counter
 from uuid import uuid4
 
@@ -83,11 +84,15 @@ def ready(request: Request) -> JSONResponse:
 
 
 @app.post("/predict")
-def predict(request: Request, features: InputFeatures) -> PredictionResult:
+def predict(
+    request: Request, features: InputFeatures, reference_date: datetime | None = None
+) -> PredictionResult:
     """Predict target class for one validated input feature record.
 
     Args:
         features: Validated request payload containing input features.
+        reference_date: Optional reference date for the provided `features`.
+            If not provided, set to UTC time at execution.
 
     Returns:
         Prediction result produced by the configured registered model.
@@ -104,7 +109,7 @@ def predict(request: Request, features: InputFeatures) -> PredictionResult:
     start = perf_counter()
 
     try:
-        prediction = predictor.predict(features)
+        prediction = predictor.predict(features=features, reference_date=reference_date)
 
         latency_ms = round(number=(perf_counter() - start) * 1000, ndigits=2)
 

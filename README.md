@@ -168,7 +168,7 @@ uv run python -m churn_mlops.data.manipulation \
 	--input_csv customer_churn_dataset-inference.csv \
 	--output_csv inference.csv \
 	--start_date 2026-01-01 \
-	--end_date 2026-08-01
+	--end_date 2026-06-01
 ```
 
 The same helper is also used by [scripts/create_data_with_ref_dates.sh](scripts/create_data_with_ref_dates.sh) to generate both training and inference datasets for the repository examples.
@@ -321,13 +321,30 @@ Notes:
 
 ### Generate sample predictions through the API
 
-For operational checks or smoke tests, the project can sample rows from the inference dataset, send them to the live prediction API, and save the combined response data to a CSV file. This is handled by the sample-serving helper in [src/churn_mlops/serving/serve_samples.py](src/churn_mlops/serving/serve_samples.py) and the convenience script [scripts/serve_samples.sh](scripts/serve_samples.sh).
+For operational checks, smoke tests, or monitoring validation, the project can
+sample records from the inference dataset, send them to the prediction API, and
+persist the resulting predictions together with the original input features.
+This functionality is implemented in
+[src/churn_mlops/serving/serve_samples.py](src/churn_mlops/serving/serve_samples.py)
+and can also be invoked through [scripts/serve_samples.sh](scripts/serve_samples.sh).
 
 ```bash
-uv run python -m churn_mlops.serving.serve_samples --sample_size 5000 --random_state 42
+uv run python -m churn_mlops.serving.serve_samples \
+    --sample_size 5000 \
+    --random_state 42 \
+    --reference_date 2026-07-01T00:00:00 \
+    --drop_columns churn reference_date
 ```
 
-The helper loads and validates inference data, requests predictions for each sampled record, and writes a file named like `0042_sample_predictions.csv` (depending on the random state) under the configured output directory.
+The helper:
+
+- loads the inference dataset and validates it against the inference schema;
+- draws a reproducible random sample;
+- optionally removes specified columns before scoring;
+- submits each sampled record to the prediction API;
+- optionally uses a fixed reference date for all prediction requests;
+- combines the sampled input data with the prediction results; and
+- writes the output to a CSV file named `0042_sample_predictions.csv` (based on the random state) in the configured output directory.
 
 ### Serve predictions through HTTP
 
@@ -445,7 +462,13 @@ Numeric values are imputed, categorical values are imputed and one-hot encoded, 
 | `dc` | `DummyClassifier` |
 | `nb` | `GaussianNB` |
 | `lr` | `LogisticRegression` |
+| `lda` | `LinearDiscriminantAnalysis` |
+| `qda` | `QuadraticDiscriminantAnalysis` |
+| `knn` | `KNeighborsClassifier` |
+| `lsvc` | `LinearSVC` |
+| `svc` | `SVC(kernel="rbf")` |
 | `dt` | `DecisionTreeClassifier` |
+| `ada` | `AdaBoostClassifier` |
 | `et` | `ExtraTreesClassifier` |
 | `rf` | `RandomForestClassifier` |
 | `hgb` | `HistGradientBoostingClassifier` |
@@ -486,7 +509,7 @@ Structured inference logs are collected for every API request to support operati
 
 **Prediction events** capture
 
-- request identifier and UTC timestamp,
+- request identifier and reference date timestamps,
 - prediction latency in milliseconds,
 - model name, alias, and registry version,
 - predicted probability and predicted class,
@@ -505,7 +528,7 @@ Example prediction event:
 ```json
 {
 	"request_id": "687afb9b-1b20-45ec-8fac-ac53efe4941a",
-	"timestamp_utc": "2026-09-23T19:54:19.548767Z",
+	"reference_date": "2026-09-23T19:54:19.548767Z",
 	"latency_ms": 98.97,
 	"features": {"age": 42, "tenure": 18, "usage_frequency": 12, "support_calls": 2, "payment_delay": 0, "last_interaction": 7, "total_spend": 1250.5, "gender": "Female", "subscription_type": "Standard", "contract_length": "Annual"},
 	"event": "prediction",
@@ -540,7 +563,7 @@ default to the mounted paths shown below:
 | Variable | Default in the image | Purpose |
 | --- | --- | --- |
 | `ARTIFACT_DIR` | `/app/artifacts` | MLflow run artifacts and model files |
-| `RAW_DATA_DIR` | `/app/data/raw` | Input CSV files |
+| `DATA_DIR` | `/app/data` | Input CSV files |
 | `LOGGING_DIR` | `/app/logs` | JSONL prediction and error event logs |
 | `OUTPUT_DIR` | `/app/output` | Batch prediction output |
 | `CONFIG_DIR` | `/app/src/config` | Training YAML files |

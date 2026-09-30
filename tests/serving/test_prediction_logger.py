@@ -1,5 +1,4 @@
 import json
-from datetime import UTC
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -55,20 +54,24 @@ def test_log_error_writes_error_event_with_features(
         log_features=True,
     )
 
-    fake_predictor = SimpleNamespace(
-        metadata=SimpleNamespace(
-            model_name="test_model",
-            model_alias="champion",
-            model_version=1,
-        )
-    )
+    class FakePredictor:
+        def __init__(self):
+            self.metadata = SimpleNamespace(
+                model_name="test_model",
+                model_alias="champion",
+                model_version=1,
+            )
+
+        @staticmethod
+        def _timestamp():
+            return "2026-01-01T00:00:00"
 
     exc = ValueError("invalid input")
 
     logger.log_error(
         request_id="req-1",
         latency_ms=12.3,
-        predictor=fake_predictor,
+        predictor=FakePredictor(),
         exception=exc,
         traceback_text="traceback content",
         features=sample_input,
@@ -81,6 +84,7 @@ def test_log_error_writes_error_event_with_features(
 
     assert record["event"] == "prediction_error"
     assert record["request_id"] == "req-1"
+    assert record["reference_date"] == "2026-01-01T00:00:00"
     assert record["error_type"] == "ValueError"
     assert record["error_message"] == "invalid input"
     assert record["traceback"] == "traceback content"
@@ -112,9 +116,3 @@ def test_append_jsonl_appends_multiple_records(tmp_path: Path) -> None:
     assert len(lines) == 2
     assert json.loads(lines[0]) == {"a": 1, "b": "x"}
     assert json.loads(lines[1]) == {"a": 2, "b": "y"}
-
-
-def test_timestamp_returns_utc_datetime() -> None:
-    ts = PredictionLogger._timestamp()
-
-    assert ts.tzinfo == UTC

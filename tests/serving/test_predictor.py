@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import UTC
 from unittest.mock import Mock
 
 import numpy as np
@@ -69,3 +70,9 @@ def test_predict_batch_returns_predictions_and_preserves_index(
     assert list(result["predicted_class"]) == [0, 1]
     assert list(result["threshold"]) == [0.5, 0.5]
     assert list(result["model_version"]) == [5, 5]
+
+
+def test_timestamp_returns_utc_datetime() -> None:
+    ts = Predictor._timestamp()
+
+    assert ts.tzinfo == UTC

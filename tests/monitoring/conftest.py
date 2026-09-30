@@ -61,7 +61,7 @@ def valid_prediction_log_path(tmp_path: Path) -> Path:
         {
             "event": "prediction",
             "request_id": "req-1",
-            "timestamp_utc": "2026-02-01T00:00:00Z",
+            "reference_date": "2026-02-01T00:00:00Z",
             "latency_ms": 12.5,
             "model_name": "churn-model",
             "model_alias": "champion",
@@ -85,7 +85,7 @@ def valid_prediction_log_path(tmp_path: Path) -> Path:
         {
             "event": "prediction",
             "request_id": "req-2",
-            "timestamp_utc": "2026-02-02T00:00:00Z",
+            "reference_date": "2026-02-02T00:00:00Z",
             "latency_ms": 18.0,
             "model_name": "churn-model",
             "model_alias": "champion",
@@ -120,7 +120,7 @@ def valid_error_log_path(tmp_path: Path) -> Path:
         {
             "event": "prediction_error",
             "request_id": "err-1",
-            "timestamp_utc": "2026-02-03T00:00:00Z",
+            "reference_date": "2026-02-03T00:00:00Z",
             "latency_ms": 55.0,
             "model_name": "churn-model",
             "model_alias": "champion",

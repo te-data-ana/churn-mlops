@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -6,6 +7,28 @@ from fastapi.testclient import TestClient
 
 from churn_mlops.serving import api
 from churn_mlops.serving.model_loader import LoadedModel, load_model
+from churn_mlops.serving.prediction_logger import PredictionLogger
+
+
+@pytest.fixture
+def temp_prediction_logger(tmp_path: Path):
+    return PredictionLogger(
+        prediction_log_path=tmp_path / "predictions.jsonl",
+        error_log_path=tmp_path / "prediction_errors.jsonl",
+        log_features=True,
+    )
+
+
+@pytest.fixture(autouse=True)
+def patch_prediction_logger(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_prediction_logger: PredictionLogger,
+) -> None:
+    monkeypatch.setattr(
+        api,
+        "PredictionLogger",
+        lambda **kwargs: temp_prediction_logger,
+    )
 
 
 @pytest.mark.unit
@@ -45,13 +68,27 @@ def test_ready_endpoint_returns_ready_status(client: TestClient) -> None:
 @pytest.mark.unit
 def test_predict_endpoint_returns_prediction_payload(
     client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
     sample_dict: dict[str, Any],
 ) -> None:
+    logged = {}
+
+    def fake_log_prediction(**kwargs):
+        logged.update(kwargs)
+
+    monkeypatch.setattr(
+        client.app.state.prediction_logger,
+        "log_prediction",
+        fake_log_prediction,
+    )
+
     response = client.post("/predict", json=sample_dict)
+
+    assert response.status_code == 200
+    assert logged["request_id"]
 
     payload = response.json()
 
-    assert response.status_code == 200
     assert "predicted_class" in payload
     assert "predicted_probability" in payload
     assert "metadata" in payload
@@ -66,7 +103,7 @@ def test_predict_logs_error_when_prediction_fails(
     sample_dict: dict[str, Any],
 ):
     class FailingPredictor:
-        def predict(self, features):
+        def predict(self, *args, **kwargs):
             raise RuntimeError("prediction failed")
 
     calls = {}
@@ -82,27 +119,29 @@ def test_predict_logs_error_when_prediction_fails(
     )
 
     with pytest.raises(RuntimeError, match="prediction failed"):
-        response = client.post("/predict", json=sample_dict)
-        assert response.status_code == 500
-        assert calls["request_id"]
-        assert calls["latency_ms"] >= 0
-        assert isinstance(calls["exception"], RuntimeError)
+        client.post("/predict", json=sample_dict)
+
+    assert calls["request_id"]
+    assert calls["latency_ms"] >= 0
+    assert isinstance(calls["exception"], RuntimeError)
 
 
 @pytest.mark.unit
 def test_predict_handles_log_error_failure(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
     sample_dict: dict[str, Any],
-):
+) -> None:
     class FailingPredictor:
-        def predict(self, features):
+        def predict(self, *args, **kwargs):
             raise RuntimeError("prediction failed")
 
     def failing_log_error(**kwargs):
         raise RuntimeError("cannot write log")
 
     client.app.state.predictor = FailingPredictor()
+
     monkeypatch.setattr(
         client.app.state.prediction_logger,
         "log_error",
@@ -110,8 +149,9 @@ def test_predict_handles_log_error_failure(
     )
 
     with pytest.raises(RuntimeError, match="prediction failed"):
-        response = client.post("/predict", json=sample_dict)
-        assert response.status_code == 500
+        client.post("/predict", json=sample_dict)
+
+    assert "Failed to persist prediction error event." in caplog.text
 
 
 @pytest.mark.unit
@@ -160,7 +200,7 @@ def test_api_reports_not_ready_when_model_loading_fails(
 
 
 @pytest.mark.unit
-def test_predict_endpoint_rejects_invalid_payload(client: TestClient) -> None:
+def test_predict_endpoint_rejects_invalid_features(client: TestClient) -> None:
     response = client.post("/predict", json={"age": 45, "gender": "XY"})
 
     assert response.status_code == 422
