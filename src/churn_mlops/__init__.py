@@ -16,6 +16,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         argv: Optional argument list to parse. When omitted, the process argv is
             used.
     """
+    settings = ServingSettings()
+
     parser = argparse.ArgumentParser(
         prog="churn-mlops",
         description=(
@@ -31,6 +33,58 @@ def main(argv: Sequence[str] | None = None) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command")
+
+    prepare_parser = subparsers.add_parser(
+        "prepare-data",
+        help="Convert raw CSV datasets into partitioned Parquet datasets.",
+    )
+    prepare_parser.add_argument(
+        "--input_csv",
+        type=str,
+        required=True,
+        help="Input CSV file path.",
+    )
+    prepare_parser.add_argument(
+        "--timestamp_column",
+        type=str,
+        default="reference_date",
+        help="Timestamp column used for partitioning.",
+    )
+
+    split_parser = subparsers.add_parser(
+        "create-split",
+        help="Create train and test datasets using an out-of-time split.",
+    )
+    split_parser.add_argument(
+        "--dataset_name",
+        required=True,
+        help="Partitioned dataset name.",
+    )
+    split_parser.add_argument(
+        "--timestamp_column",
+        default="reference_date",
+        help="Timestamp column used for splitting.",
+    )
+    split_parser.add_argument(
+        "--start_date",
+        required=True,
+        help="Inclusive extraction start date.",
+    )
+    split_parser.add_argument(
+        "--split_date",
+        required=True,
+        help="First date belonging to the test split.",
+    )
+    split_parser.add_argument(
+        "--end_date",
+        required=True,
+        help="Inclusive extraction end date.",
+    )
+    split_parser.add_argument(
+        "--split_name",
+        default="default",
+        help="Output filename prefix.",
+    )
 
     train_parser = subparsers.add_parser(
         "train",
@@ -85,7 +139,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         "serve",
         help="Start the FastAPI prediction service.",
     )
-    settings = ServingSettings()
     serve_parser.add_argument(
         "--host", default=settings.api_host, help="Hostname for the API server."
     )
@@ -106,6 +159,37 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command is None:
         parser.print_help()
         raise SystemExit(0)
+
+    if args.command == "prepare-data":
+        from .data import load_raw_data, validate_data
+        from .data.storage import write_partitioned_dataset
+
+        df = load_raw_data(file_name=args.input_csv, data_dir=settings.data_dir / "raw")
+        df = validate_data(df)
+
+        write_partitioned_dataset(
+            df=df,
+            dataset_name="partitioned",
+            timestamp_column=args.timestamp_column,
+        )
+
+        return
+
+    if args.command == "create-split":
+        from .data.splitting import create_time_based_split
+
+        split_metadata = create_time_based_split(
+            dataset_name=args.dataset_name,
+            timestamp_column=args.timestamp_column,
+            start_date=args.start_date,
+            split_date=args.split_date,
+            end_date=args.end_date,
+            split_name=args.split_name,
+        )
+
+        print(split_metadata)
+
+        return
 
     if args.command == "train":
         from .train import main as train_main
