@@ -5,8 +5,6 @@ from typing import Any
 @dataclass
 class DataConfig:
     target_column: str
-    test_size: float
-    random_state: int
 
 
 @dataclass

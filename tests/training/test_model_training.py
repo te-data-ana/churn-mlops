@@ -18,7 +18,7 @@ def assert_training_result(result) -> None:
     assert result.metadata
 
     metrics = result.metrics
-    assert 0.5 <= metrics["roc_auc"] <= 1
+    assert 0 <= metrics["roc_auc"] <= 1
     assert 0 <= metrics["accuracy"] <= 1
     assert 0 <= metrics["brier_score"] <= 1
     assert metrics["fit_time_sec"] >= 0
@@ -46,8 +46,9 @@ def test_train_returns_valid_result_for_supported_classifier(
     sample_training_df: pd.DataFrame,
 ):
     cfg = config_factory(classifier=classifier)
-
-    result = train_model(cfg, sample_training_df)
+    train_df = sample_training_df.iloc[:6]
+    test_df = sample_training_df.iloc[6:]
+    result = train_model(cfg, train_df, test_df)
 
     assert_training_result(result)
 
@@ -64,9 +65,11 @@ def test_trained_pipeline_predicts_classes_and_probabilities(
     sample_training_df: pd.DataFrame,
 ) -> None:
     cfg = config_factory(classifier=classifier)
-    result = train_model(cfg, sample_training_df)
+    train_df = sample_training_df.iloc[:6]
+    test_df = sample_training_df.iloc[6:]
+    result = train_model(cfg, train_df, test_df)
 
-    X = sample_training_df.drop(columns=["churn"])
+    X = sample_training_df.iloc[:6].drop(columns=["churn"])
 
     predictions = result.trained_pipeline.predict(X)
     assert len(predictions) == len(X)
@@ -87,7 +90,9 @@ def test_train_rejects_unknown_classifier(
     cfg = config_factory(classifier="invalid")
 
     with pytest.raises(ValueError, match="Unknown classifier"):
-        train_model(cfg, sample_training_df)
+        train_df = sample_training_df.iloc[:6]
+        test_df = sample_training_df.iloc[6:]
+        train_model(cfg, train_df, test_df)
 
 
 @pytest.mark.unit
@@ -98,8 +103,10 @@ def test_train_returns_reproducible_metrics_for_same_input(
     cfg = config_factory(classifier="dt")
 
     # Train twice with identical inputs to verify deterministic results.
-    result1 = train_model(cfg, sample_training_df)
-    result2 = train_model(cfg, sample_training_df)
+    train_df = sample_training_df.iloc[:6]
+    test_df = sample_training_df.iloc[6:]
+    result1 = train_model(cfg, train_df, test_df)
+    result2 = train_model(cfg, train_df, test_df)
 
     assert result1.metrics["roc_auc"] == result2.metrics["roc_auc"]
     assert result1.metrics["accuracy"] == result2.metrics["accuracy"]

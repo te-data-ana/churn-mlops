@@ -205,26 +205,26 @@ uv run churn-mlops create-split \
 ```
 
 This CLI workflow is separate from the date-enrichment helper above. The split
-outputs are Parquet files; the current `train` command reads a raw CSV.
+outputs are Parquet files consumed directly by the `train` command.
 
 ### Train a model
 
-Training loads and validates a CSV, builds a feature and preprocessing pipeline, fits the configured classifier, evaluates it on a stratified holdout set, and logs the result to MLflow.
-
-```bash
-uv run churn-mlops train \
-	--config sample_training_config.yaml
-```
-
-The default training file is `data/raw/training.csv`.
-Configuration filenames are resolved under `src/config` by default. To select a
-specific MLflow experiment for a run, pass `--experiment_name`:
+Training loads and validates the prepared train/test Parquet files, builds a
+feature and preprocessing pipeline, fits the configured classifier on the
+training split, evaluates it on the test split, and logs the result to MLflow.
+To select a specific MLflow experiment for a run, pass `--experiment_name`.
 
 ```bash
 uv run churn-mlops train \
 	--config sample_training_config.yaml \
-	--experiment_name churn-experiments
+	--experiment_name churn-experiments \
+	--split_name baseline
 ```
+
+Training reads `data/splits/{split_name}_train.parquet` and
+`data/splits/{split_name}_test.parquet`. The default split name is `default`,
+matching the default output from `create-split`. Configuration filenames are
+resolved under `src/config` by default.
 
 ### Generate batch predictions
 
@@ -247,6 +247,93 @@ The output contains:
 | `model_version` | Registered model version used for prediction |
 
 Input filenames are resolved from `data/raw`; output filenames are written to `output`.
+
+### Serve predictions through HTTP
+
+Start the FastAPI application through the package CLI:
+
+```bash
+uv run churn-mlops serve --host 127.0.0.1 --port 8000 --reload
+```
+
+The equivalent direct Uvicorn command is still:
+
+```bash
+uv run uvicorn churn_mlops.serving.api:app --reload
+```
+
+Check service health:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+```json
+{"status":"healthy"}
+```
+
+The `/health` endpoint is a liveness check. Use `/ready` to verify that the
+configured model loaded successfully:
+
+```bash
+curl -i http://127.0.0.1:8000/ready
+```
+
+The API loads the configured model once during startup and reuses it for
+subsequent requests. This happens once per Uvicorn worker process. If the
+configured model alias is unavailable, the process stays alive, `/health`
+continues to return `200`, and `/ready` and `/predict` return `503` until the
+service is restarted with a valid model configuration.
+
+Send one customer record for prediction:
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+	-H "Content-Type: application/json" \
+	-d '{
+		"age": 42,
+		"tenure": 18,
+		"usage_frequency": 12,
+		"support_calls": 2,
+		"payment_delay": 0,
+		"last_interaction": 7,
+		"total_spend": 1250.50,
+		"gender": "Female",
+		"subscription_type": "Standard",
+		"contract_length": "Annual"
+	}'
+```
+
+The API requires a registered model with the configured alias. By default it loads model `churn-propensity` using the `champion` alias from the MLflow registry.
+
+Access the interactive API docs under http://127.0.0.1:8000/docs, when the FastAPI application is running.
+
+### Generate sample predictions through the API
+
+For operational checks, smoke tests, or monitoring validation, the project can
+sample records from the inference dataset, send them to the prediction API, and
+persist the resulting predictions together with the original input features.
+This functionality is implemented in
+[src/churn_mlops/serving/serve_samples.py](src/churn_mlops/serving/serve_samples.py)
+and can also be invoked through [scripts/serve_samples.sh](scripts/serve_samples.sh).
+
+```bash
+uv run python -m churn_mlops.serving.serve_samples \
+    --sample_size 5000 \
+    --random_state 42 \
+    --reference_date 2026-07-01T00:00:00 \
+    --drop_columns churn reference_date
+```
+
+The helper:
+
+- loads the inference dataset and validates it against the inference schema;
+- draws a reproducible random sample;
+- optionally removes specified columns before scoring;
+- submits each sampled record to the prediction API;
+- optionally uses a fixed reference date for all prediction requests;
+- combines the sampled input data with the prediction results; and
+- writes the output to a CSV file named `0042_sample_predictions.csv` (based on the random state) in the configured output directory.
 
 ### Monitor predictions
 
@@ -372,93 +459,6 @@ Notes:
 - Drift metrics are unavailable when reference and analysis periods overlap.
 - API-specific metrics are populated only when monitoring API inference logs, otherwise they are omitted.
 
-### Generate sample predictions through the API
-
-For operational checks, smoke tests, or monitoring validation, the project can
-sample records from the inference dataset, send them to the prediction API, and
-persist the resulting predictions together with the original input features.
-This functionality is implemented in
-[src/churn_mlops/serving/serve_samples.py](src/churn_mlops/serving/serve_samples.py)
-and can also be invoked through [scripts/serve_samples.sh](scripts/serve_samples.sh).
-
-```bash
-uv run python -m churn_mlops.serving.serve_samples \
-    --sample_size 5000 \
-    --random_state 42 \
-    --reference_date 2026-07-01T00:00:00 \
-    --drop_columns churn reference_date
-```
-
-The helper:
-
-- loads the inference dataset and validates it against the inference schema;
-- draws a reproducible random sample;
-- optionally removes specified columns before scoring;
-- submits each sampled record to the prediction API;
-- optionally uses a fixed reference date for all prediction requests;
-- combines the sampled input data with the prediction results; and
-- writes the output to a CSV file named `0042_sample_predictions.csv` (based on the random state) in the configured output directory.
-
-### Serve predictions through HTTP
-
-Start the FastAPI application through the package CLI:
-
-```bash
-uv run churn-mlops serve --host 127.0.0.1 --port 8000 --reload
-```
-
-The equivalent direct Uvicorn command is still:
-
-```bash
-uv run uvicorn churn_mlops.serving.api:app --reload
-```
-
-Check service health:
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-```json
-{"status":"healthy"}
-```
-
-The `/health` endpoint is a liveness check. Use `/ready` to verify that the
-configured model loaded successfully:
-
-```bash
-curl -i http://127.0.0.1:8000/ready
-```
-
-The API loads the configured model once during startup and reuses it for
-subsequent requests. This happens once per Uvicorn worker process. If the
-configured model alias is unavailable, the process stays alive, `/health`
-continues to return `200`, and `/ready` and `/predict` return `503` until the
-service is restarted with a valid model configuration.
-
-Send one customer record for prediction:
-
-```bash
-curl -X POST http://127.0.0.1:8000/predict \
-	-H "Content-Type: application/json" \
-	-d '{
-		"age": 42,
-		"tenure": 18,
-		"usage_frequency": 12,
-		"support_calls": 2,
-		"payment_delay": 0,
-		"last_interaction": 7,
-		"total_spend": 1250.50,
-		"gender": "Female",
-		"subscription_type": "Standard",
-		"contract_length": "Annual"
-	}'
-```
-
-The API requires a registered model with the configured alias. By default it loads model `churn-propensity` using the `champion` alias from the MLflow registry.
-
-Access the interactive API docs under http://127.0.0.1:8000/docs, when the FastAPI application is running.
-
 ## Input data contract
 
 Training and inference data must contain these customer features:
@@ -493,7 +493,7 @@ See [data schemas](src/churn_mlops/data/schemas.py) and [API schemas](src/churn_
 
 Training is controlled by YAML files in [src/config](src/config). A configuration contains sections for:
 
-- `data`: target column, test-set size, and random state;
+- `data`: target column;
 - `feature_builder`: engineered-feature parameters;
 - `preprocessing`: numeric and categorical imputation strategies;
 - `model`: classifier alias and estimator parameters;

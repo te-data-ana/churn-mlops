@@ -9,7 +9,7 @@ from churn_mlops.config import (
     load_config,
 )
 from churn_mlops.config.settings import RuntimeSettings
-from churn_mlops.data import load_raw_data, validate_data
+from churn_mlops.data.splitting import load_and_validate_training_splits
 from churn_mlops.tracking import (
     ModelCardBuilder,
     ModelCardContext,
@@ -25,9 +25,8 @@ from churn_mlops.training import TrainingResult, train_model
 def run_training_job(
     config_file: str = "sample_training_config.yaml",
     config_dir: Path | None = None,
-    training_file: str = "training.csv",
-    index_col: str | None = "customerid",
-    data_dir: Path | None = None,
+    split_name: str = "default",
+    split_dir: Path | None = None,
     experiment_name: str | None = None,
     tracking_uri: str | None = None,
     artifact_dir: Path | None = None,
@@ -37,9 +36,8 @@ def run_training_job(
     Args:
         config_file: Training configuration YAML filename.
         config_dir: Directory containing the training configuration.
-        training_file: Raw training data CSV filename.
-        index_col: Column to use as the training DataFrame index.
-        data_dir: Directory containing the training CSV.
+        split_name: Prefix of the prepared train/test Parquet split files.
+        split_dir: Directory containing the prepared split files.
         experiment_name: Optional MLflow experiment name override. When omitted,
             the ``MLFLOW_EXPERIMENT_NAME`` runtime setting is used.
         tracking_uri: Optional MLflow tracking URI.
@@ -67,7 +65,7 @@ def run_training_job(
 
     settings = RuntimeSettings()
     resolved_config_dir = config_dir or settings.config_dir
-    resolved_data_dir = data_dir or settings.data_dir / "raw"
+    resolved_split_dir = split_dir or settings.data_dir / "splits"
     resolved_artifact_dir = artifact_dir or settings.artifact_dir
     resolved_tracking_uri = tracking_uri or settings.mlflow_tracking_uri
     resolved_experiment_name = experiment_name or settings.mlflow_experiment_name
@@ -101,18 +99,14 @@ def run_training_job(
         logger.info("Tracking URI: %s", mlflow.get_tracking_uri())
         logger.info("Experiment metadata: %s", experiment)
 
-        # Load and validate the training data
-        df = load_raw_data(
-            file_name=training_file,
-            index_col=index_col,
-            data_dir=resolved_data_dir,
-            drop_columns=["reference_date"],
+        train_df, test_df = load_and_validate_training_splits(
+            split_name=split_name,
+            split_dir=resolved_split_dir,
         )
-        df = validate_data(df)
 
         # Start an MLflow run for the training job and log the results
         with mlflow.start_run(experiment_id=experiment_id, run_name=run_name):
-            result = train_model(config, df)
+            result = train_model(config, train_df, test_df)
             model_info = log_experiment_result(
                 result=result,
                 config=config,
@@ -216,9 +210,9 @@ def run_training_job(
         return result
     except Exception:
         logger.exception(
-            "Training job failed while processing config '%s' and file '%s'.",
+            "Training job failed while processing config '%s' and split '%s'.",
             config_file,
-            training_file,
+            split_name,
         )
         raise
 
@@ -230,11 +224,12 @@ def main() -> None:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
+    parser.add_argument("--split_name", default="default")
     parser.add_argument("--experiment_name", required=False)
 
     args = parser.parse_args()
 
-    training_kwargs = {"config_file": args.config}
+    training_kwargs = {"config_file": args.config, "split_name": args.split_name}
     if args.experiment_name is not None:
         training_kwargs["experiment_name"] = args.experiment_name
 

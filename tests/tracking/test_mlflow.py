@@ -74,6 +74,7 @@ def test_log_experiment_result_logs_metrics_parameters_model_and_artifacts(
     monkeypatch.setattr(tracking.mlflow.sklearn, "log_model", mock_log_model)
     monkeypatch.setattr(tracking.mlflow, "log_artifact", mock_log_artifact)
 
+    mock_training_result.classifier_config["random_state"] = 42
     tracking.log_experiment_result(
         mock_training_result, config_factory(), sample_config_yaml
     )
@@ -81,6 +82,12 @@ def test_log_experiment_result_logs_metrics_parameters_model_and_artifacts(
     mock_log_metrics.assert_called_once()
     mock_log_param.assert_called_once()
     assert mock_log_params.call_count > 4
+    logged_parameters = {
+        name for call in mock_log_params.call_args_list for name in call.args[0]
+    }
+    assert "test_size" not in logged_parameters
+    assert "data_random_state" not in logged_parameters
+    assert "random_state" in logged_parameters
     mock_set_tags.assert_called_once()
     mock_log_model.assert_called_once()
     assert mock_log_artifact.call_count >= 2

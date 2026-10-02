@@ -83,8 +83,6 @@ def log_experiment_result(
     mlflow.log_params(
         {
             "target_column": config.data.target_column,
-            "test_size": config.data.test_size,
-            "data_random_state": config.data.random_state,
         }
     )
     # log feature enginnering hyper-parameters

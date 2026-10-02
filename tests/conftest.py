@@ -26,8 +26,6 @@ def config_factory() -> Callable[..., TrainingConfig]:
         config = TrainingConfig(
             data=DataConfig(
                 target_column="churn",
-                test_size=0.5,
-                random_state=42,
             ),
             feature_builder=FeatureBuilderConfig(
                 feature_params={
@@ -200,6 +198,21 @@ def generated_training_csv(tmp_path: Path, generated_training_df: pd.DataFrame) 
 
 
 @pytest.fixture
+def generated_training_splits(
+    tmp_path: Path, generated_training_df: pd.DataFrame
+) -> Path:
+    """Write deterministic train/test Parquet files for training integration tests."""
+    split_dir = tmp_path / "splits"
+    split_dir.mkdir()
+    training_df = generated_training_df.reset_index(drop=True)
+    training_df.iloc[:8].to_parquet(
+        split_dir / "integration_train.parquet", index=False
+    )
+    training_df.iloc[8:].to_parquet(split_dir / "integration_test.parquet", index=False)
+    return split_dir
+
+
+@pytest.fixture
 def generated_inference_csv(
     tmp_path: Path, generated_training_df: pd.DataFrame
 ) -> Path:
@@ -235,8 +248,6 @@ def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
             {
                 "data": {
                     "target_column": "churn",
-                    "test_size": 0.25,
-                    "random_state": 42,
                 },
                 "feature_builder": {
                     "feature_params": {
@@ -272,7 +283,7 @@ def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
 def registered_model(
     mlflow_test_setup: dict[str, Any],
     sample_config_yaml: Path,
-    generated_training_csv: Path,
+    generated_training_splits: Path,
 ) -> dict[str, object]:
     """Train and register a model in an isolated temporary MLflow store."""
     from churn_mlops.train import run_training_job
@@ -287,9 +298,8 @@ def registered_model(
     result = run_training_job(
         config_file=sample_config_yaml.name,
         config_dir=tmp_path,
-        training_file=generated_training_csv.name,
-        index_col="customerid",
-        data_dir=tmp_path,
+        split_name="integration",
+        split_dir=generated_training_splits,
         experiment_name=experiment_name,
         tracking_uri=tracking_uri,
         artifact_dir=artifact_dir,

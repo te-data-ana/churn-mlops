@@ -38,6 +38,8 @@ def test_package_main_dispatches_train_command(monkeypatch) -> None:
         "churn-mlops.train",
         "--config",
         "config.yaml",
+        "--split_name",
+        "default",
         "--experiment_name",
         "my-exp",
     ]

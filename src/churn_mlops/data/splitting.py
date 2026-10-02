@@ -1,9 +1,15 @@
+import logging
+from pathlib import Path
 from typing import TypedDict
 
 import pandas as pd
 
 from churn_mlops.config import RuntimeSettings
+from churn_mlops.data.ingestion import normalize_strings
 from churn_mlops.data.storage import read_partitioned_dataset
+from churn_mlops.data.validation import validate_data
+
+logger = logging.getLogger(__name__)
 
 
 class SplitMetadata(TypedDict):
@@ -13,6 +19,39 @@ class SplitMetadata(TypedDict):
     train_end: pd.Timestamp
     test_start: pd.Timestamp
     test_end: pd.Timestamp
+
+
+def load_and_validate_training_splits(
+    split_name: str = "default",
+    split_dir: Path | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load and validate the prepared train and test Parquet files.
+
+    Args:
+        split_name: Prefix shared by the train and test split filenames.
+        split_dir: Directory containing the split files. Defaults to the
+            configured ``data/splits`` directory.
+
+    Returns:
+        Validated training and test DataFrames, in that order.
+
+    Raises:
+        FileNotFoundError: If either split file does not exist.
+        pandera.errors.SchemaError: If either split violates the data schema.
+    """
+    settings = RuntimeSettings()
+    resolved_split_dir = split_dir or settings.data_dir / "splits"
+    split_data: dict[str, pd.DataFrame] = {}
+
+    for split in ("train", "test"):
+        split_file = resolved_split_dir / f"{split_name}_{split}.parquet"
+        logger.info("Loading %s split from '%s'.", split, split_file)
+        df = pd.read_parquet(split_file)
+        df.columns = normalize_strings(df.columns)
+        df.drop(columns=["reference_date"], errors="ignore", inplace=True)
+        split_data[split] = validate_data(df.convert_dtypes())
+
+    return split_data["train"], split_data["test"]
 
 
 def create_time_based_split(

@@ -60,6 +60,31 @@ def test_create_time_based_split_writes_datasets_and_returns_metadata(
 
 
 @pytest.mark.unit
+def test_load_and_validate_training_splits_reads_and_prepares_parquet_files(
+    data_dir: Path,
+    generated_training_df: pd.DataFrame,
+) -> None:
+    split_dir = data_dir / "splits"
+    split_dir.mkdir()
+    df = generated_training_df.copy()
+    df["Reference Date"] = pd.date_range("2026-01-01", periods=len(df))
+    df.iloc[:6].to_parquet(split_dir / "baseline_train.parquet", index=False)
+    df.iloc[6:].to_parquet(split_dir / "baseline_test.parquet", index=False)
+
+    train_df, test_df = splitting.load_and_validate_training_splits(
+        split_name="baseline",
+        split_dir=split_dir,
+    )
+
+    assert len(train_df) == 6
+    assert len(test_df) == len(df) - 6
+    assert "reference_date" not in train_df.columns
+    assert "reference_date" not in test_df.columns
+    assert "usage_frequency" in train_df.columns
+    assert "usage_frequency" in test_df.columns
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("start_date", "split_date", "end_date", "message"),
     [
@@ -96,13 +121,13 @@ def test_create_time_based_split_rejects_empty_sides(
     timestamps: list[str],
     message: str,
 ) -> None:
-    frame = pd.DataFrame(
+    df = pd.DataFrame(
         {
             "reference_date": pd.to_datetime(timestamps),
             "value": range(len(timestamps)),
         }
     )
-    monkeypatch.setattr(splitting, "read_partitioned_dataset", lambda **_: frame)
+    monkeypatch.setattr(splitting, "read_partitioned_dataset", lambda **_: df)
 
     with pytest.raises(ValueError, match=message):
         create_time_based_split(

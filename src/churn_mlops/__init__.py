@@ -94,6 +94,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--config", required=True, help="Training config file path."
     )
     train_parser.add_argument(
+        "--split_name",
+        default="default",
+        help="Name prefix of prepared train/test Parquet files in data/splits.",
+    )
+    train_parser.add_argument(
         "--experiment_name",
         required=False,
         help="Experiment name used for MLflow tracking.",
@@ -233,6 +238,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             "churn-mlops.train",
             "--config",
             args.config,
+            "--split_name",
+            args.split_name,
         ]
         if args.experiment_name is not None:
             command.extend(["--experiment_name", args.experiment_name])
