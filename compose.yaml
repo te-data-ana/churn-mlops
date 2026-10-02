@@ -27,7 +27,7 @@ services:
       - "${API_PORT:-8000}:8000"
     volumes:
       - ./artifacts:/app/artifacts
-      - ./data/raw:/app/data:ro
+      - ./data:/app/data
       - ./logs:/app/logs
       - ./output:/app/output
       - ./src/config:/app/src/config:ro

@@ -4,13 +4,14 @@ An end-to-end customer churn prediction project for preparing data, training,
 evaluating, monitoring, registering, and serving tabular machine-learning
 models.
 
-The project supports six workflows:
+The project supports workflows to:
 
-- prepare and enrich raw datasets for training and inference;
+- prepare raw datasets, write partitioned Parquet data, and create time-based splits;
 - train and evaluate configurable churn prediction models;
 - generate batch predictions from CSV datasets;
 - serve predictions through a FastAPI application;
-- score sample inference data through the HTTP API; and
+- score sample inference data through the HTTP API;
+- ingest API prediction and error logs into partitioned datasets; and
 - monitor model performance, data drift, and operational metrics.
 
 Experiments, model artifacts, model cards, and promotion decisions are tracked
@@ -63,7 +64,7 @@ Serve the FastAPI application:
 uv run churn-mlops serve --host 127.0.0.1 --port 8000 --reload
 ```
 
-Training reads configuration files from `src/config` and input data from `data/raw`. Local MLflow state is stored in `tracking/mlflow.db`; run artifacts are written to `artifacts`.
+Training reads configuration files from `src/config` and input data from `data/raw`. By default, local MLflow state is stored in `tracking_local/mlflow.db`, run artifacts in `artifacts_local`, and API logs in `logs_local`.
 
 ## Containerized local stack
 
@@ -87,8 +88,8 @@ case `/health` returns `200`, while `/ready` returns `503` until a model has
 been trained, registered, and can be loaded from MLflow.
 
 The image entrypoint is the project CLI (`churn-mlops`) and the default command
-is `serve`. All workflows exposed by the CLI can be executed inside the
-container by overriding the default command, for example:
+is `serve`. CLI commands can be invoked inside the container by overriding the
+default command. For example:
 
 ```bash
 docker compose run --rm api train --config sample_training_config.yaml
@@ -137,11 +138,13 @@ docker compose run --rm api monitor \
 Prediction logs, error logs, batch prediction outputs, and monitoring reports
 are persisted on the host through the mounted `logs/` and `output/` directories.
 
-The Compose service mounts `tracking/`, `artifacts/`, and `output/` as writable
-directories, and mounts `data/raw` and `src/config` read-only. Keep the MLflow
-database and artifacts together: the database contains registry metadata while
-the artifacts contain the registered model files. Recreating the API container
-does not remove these host directories.
+The Compose service mounts `data/`, `tracking/`, `artifacts/`, and `output/` as
+writable directories, and mounts `src/config` read-only. The data mount maps the
+host data tree to `/app/data`, so raw CSVs are available under `/app/data/raw`
+and partitioned datasets and splits can be written beneath `/app/data`. Keep
+the MLflow database and artifacts together: the database contains registry
+metadata while the artifacts contain the registered model files. Recreating
+the API container does not remove these host directories.
 
 Stop the stack with:
 
@@ -173,6 +176,37 @@ uv run python -m churn_mlops.data.manipulation \
 
 The same helper is also used by [scripts/create_data_with_ref_dates.sh](scripts/create_data_with_ref_dates.sh) to generate both training and inference datasets for the repository examples.
 
+### Prepare partitioned data and create time splits
+
+The `prepare-data` command validates a raw CSV and writes it as a month-partitioned
+Parquet dataset. The input is a filename under `data/raw`; by default the data is
+partitioned using `reference_date` and written under `data/partitioned`. Existing
+partitions for months in the input are replaced.
+
+```bash
+uv run churn-mlops prepare-data \
+	--input_csv training.csv
+```
+
+Use `create-split` to extract a date range from a partitioned dataset and divide
+it into train and test Parquet files. The start and end dates are inclusive;
+records before `split_date` go to train, and records on or after it go to test.
+The timestamp column defaults to `reference_date` and the filename prefix to
+`default`. Output files are written under `data/splits` as
+`{split_name}_train.parquet` and `{split_name}_test.parquet`.
+
+```bash
+uv run churn-mlops create-split \
+	--dataset_name partitioned \
+	--start_date 2025-01-01 \
+	--split_date 2026-01-01 \
+	--end_date 2026-06-30 \
+	--split_name baseline
+```
+
+This CLI workflow is separate from the date-enrichment helper above. The split
+outputs are Parquet files; the current `train` command reads a raw CSV.
+
 ### Train a model
 
 Training loads and validates a CSV, builds a feature and preprocessing pipeline, fits the configured classifier, evaluates it on a stratified holdout set, and logs the result to MLflow.
@@ -183,6 +217,14 @@ uv run churn-mlops train \
 ```
 
 The default training file is `data/raw/training.csv`.
+Configuration filenames are resolved under `src/config` by default. To select a
+specific MLflow experiment for a run, pass `--experiment_name`:
+
+```bash
+uv run churn-mlops train \
+	--config sample_training_config.yaml \
+	--experiment_name churn-experiments
+```
 
 ### Generate batch predictions
 
@@ -228,8 +270,19 @@ uv run churn-mlops monitor \
 	--api
 ```
 
-Batch mode writes `monitoring_summary_batch.csv`, API mode uses the corresponding
-`_api` suffix.
+Batch mode writes `monitoring_summary_batch.csv`; API mode writes
+`monitoring_summary_api.csv`. Reports are written under `output` by default;
+use `--output_dir` to choose another directory. API mode reads the configured
+prediction and error logs. You can select explicit log paths with
+`--prediction_log` and `--error_log`:
+
+```bash
+uv run churn-mlops monitor \
+	--reference_csv output/predictions_training.csv \
+	--prediction_log logs_local/predictions.jsonl \
+	--error_log logs_local/prediction_errors.jsonl \
+	--output_dir output/monitoring
+```
 
 The monitoring summary is produced at a monthly granularity and separately for
 each model version that exists in both the reference and analysis datasets.
@@ -487,8 +540,8 @@ ROC AUC is the metric used for model-promotion decisions. The configured probabi
 
 MLflow is configured for local tracking:
 
-- tracking database: `tracking/mlflow.db`;
-- artifact directory: `artifacts`; and
+- tracking database: `tracking_local/mlflow.db`;
+- artifact directory: `artifacts_local`; and
 - local experiment metadata and run results stored by MLflow.
 
 Runs capture the training configuration, model parameters, evaluation metrics, serialized scikit-learn pipeline, feature names, and pipeline metadata.
@@ -541,6 +594,23 @@ Example prediction event:
 }
 ```
 
+### Ingest API logs
+
+Convert the configured API JSONL files into month-partitioned Parquet datasets:
+
+```bash
+uv run churn-mlops ingest-prediction-logs
+uv run churn-mlops ingest-error-logs
+```
+
+By default, prediction events are read from `logs_local/predictions.jsonl` and
+written under `data/predictions`; error events are read from
+`logs_local/prediction_errors.jsonl` and written under `data/prediction_errors`.
+The timestamp column defaults to `reference_date`. Re-ingesting data replaces
+existing partitions for the months present in the log. Use `--dataset_name` to
+change the destination dataset name or `--timestamp_column` to select another
+partition timestamp.
+
 ## Configuration and environment
 
 Runtime and serving defaults can be overridden with environment variables:
@@ -563,15 +633,17 @@ default to the mounted paths shown below:
 | Variable | Default in the image | Purpose |
 | --- | --- | --- |
 | `ARTIFACT_DIR` | `/app/artifacts` | MLflow run artifacts and model files |
-| `DATA_DIR` | `/app/data` | Input CSV files |
+| `DATA_DIR` | `/app/data` | Raw CSVs, partitioned datasets, and time splits |
 | `LOGGING_DIR` | `/app/logs` | JSONL prediction and error event logs |
 | `OUTPUT_DIR` | `/app/output` | Batch prediction output |
 | `CONFIG_DIR` | `/app/src/config` | Training YAML files |
 | `TRACKING_DIR` | `/app/tracking` | SQLite MLflow database |
 
-Without Docker, these settings default to the corresponding directories in the
-repository root. `.env.example` contains the container defaults and can be
-copied to `.env` for Docker Compose.
+Without Docker, the defaults are `data` for `DATA_DIR`, `src/config` for
+`CONFIG_DIR`, `artifacts_local` for `ARTIFACT_DIR`, `tracking_local` for
+`TRACKING_DIR`, `logs_local` for `LOGGING_DIR`, and `output` for `OUTPUT_DIR`.
+`.env.example` contains the container defaults and can be copied to `.env` for
+Docker Compose.
 
 An explicit experiment name passed to the training function or CLI takes
 precedence over `MLFLOW_EXPERIMENT_NAME`.
@@ -631,14 +703,16 @@ src/churn_mlops/
 ├── train.py
 └── __init__.py
 src/config/		# YAML training configurations
-artifacts/		# generated run artifacts
-data/raw/		# input datasets
-logs/			# API prediction and error logs
-notebooks/		# exploratory notebooks
-output/			# generated sample and batch prediction outputs
-scripts/		# helper scripts for data prep and sample-serving workflows
-tests/			# unit and integration tests
-tracking/		# local MLflow state
+artifacts_local/	# local MLflow run artifacts
+data/raw/			# input CSV datasets
+data/partitioned/	# month-partitioned Parquet datasets
+data/splits/		# train and test Parquet files
+logs_local/			# local API prediction and error logs
+notebooks/			# exploratory notebooks
+output/				# generated sample and batch prediction outputs
+scripts/			# helper scripts for data prep and sample-serving workflows
+tests/				# unit and integration tests
+tracking_local/		# local MLflow state
 ```
 
 ## Current limitations
