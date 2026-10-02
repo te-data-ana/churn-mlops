@@ -11,7 +11,7 @@ import pandas as pd
 from sklearn.metrics import precision_score, recall_score, roc_auc_score
 
 from churn_mlops.config import RuntimeSettings, ServingSettings, configure_logging
-from churn_mlops.data import normalize_strings, read_jsonl_prediction_log, validate_data
+from churn_mlops.data import normalize_strings, read_jsonl_log, validate_data
 from churn_mlops.serving.schemas import InputFeatures
 
 logger = logging.getLogger(__name__)
@@ -83,7 +83,7 @@ def _event_log_to_frame(path: Path | None, event: str) -> pd.DataFrame:
     if event == "prediction" and not path.exists():
         raise ValueError(f"{event} log path '{path}' does not exist.")
 
-    frame = read_jsonl_prediction_log(jsonl_path=path)
+    frame = read_jsonl_log(jsonl_path=path)
 
     if frame.empty:
         logger.warning(f"{event} log '{path}' does not contain any (valid) records.")

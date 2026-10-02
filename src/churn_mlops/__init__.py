@@ -114,6 +114,59 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Optional index column name for the input CSV.",
     )
 
+    serve_parser = subparsers.add_parser(
+        "serve",
+        help="Start the FastAPI prediction service.",
+    )
+    serve_parser.add_argument(
+        "--host", default=settings.api_host, help="Hostname for the API server."
+    )
+    serve_parser.add_argument(
+        "--port",
+        type=int,
+        default=settings.api_port,
+        help="Port for the API server.",
+    )
+    serve_parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Enable auto-reload for local development.",
+    )
+
+    ingest_prediction_log_parser = subparsers.add_parser(
+        "ingest-prediction-logs",
+        help="Convert API prediction logs into a partitioned Parquet dataset.",
+    )
+    ingest_prediction_log_parser.add_argument(
+        "--dataset_name",
+        type=str,
+        default="predictions",
+        help="Target dataset name.",
+    )
+    ingest_prediction_log_parser.add_argument(
+        "--timestamp_column",
+        type=str,
+        default="reference_date",
+        help="Timestamp column used for partitioning.",
+    )
+
+    ingest_error_log_parser = subparsers.add_parser(
+        "ingest-error-logs",
+        help="Convert API prediction error logs into a partitioned Parquet dataset.",
+    )
+    ingest_error_log_parser.add_argument(
+        "--dataset_name",
+        type=str,
+        default="prediction_errors",
+        help="Target dataset name.",
+    )
+    ingest_error_log_parser.add_argument(
+        "--timestamp_column",
+        type=str,
+        default="reference_date",
+        help="Timestamp column used for partitioning.",
+    )
+
     monitor_parser = subparsers.add_parser(
         "monitor",
         help="Monitor scored batch predictions or live API events.",
@@ -135,25 +188,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     monitor_parser.add_argument("--index_col", default="customerid")
     monitor_parser.add_argument("--output_dir", type=str, default=None)
 
-    serve_parser = subparsers.add_parser(
-        "serve",
-        help="Start the FastAPI prediction service.",
-    )
-    serve_parser.add_argument(
-        "--host", default=settings.api_host, help="Hostname for the API server."
-    )
-    serve_parser.add_argument(
-        "--port",
-        type=int,
-        default=settings.api_port,
-        help="Port for the API server.",
-    )
-    serve_parser.add_argument(
-        "--reload",
-        action="store_true",
-        help="Enable auto-reload for local development.",
-    )
-
     args = parser.parse_args(argv)
 
     if args.command is None:
@@ -171,6 +205,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             df=df,
             dataset_name="partitioned",
             timestamp_column=args.timestamp_column,
+            overwrite_partitions=True,
         )
 
         return
@@ -222,6 +257,35 @@ def main(argv: Sequence[str] | None = None) -> None:
         batch_predict_main()
         return
 
+    if args.command == "serve":
+        import uvicorn
+
+        uvicorn.run(
+            "churn_mlops.serving.api:app",
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+        )
+        return
+
+    if args.command == "ingest-prediction-logs":
+        from .data.ingestion import ingest_prediction_logs
+
+        ingest_prediction_logs(
+            dataset_name=args.dataset_name,
+            timestamp_column=args.timestamp_column,
+        )
+        return
+
+    if args.command == "ingest-error-logs":
+        from .data.ingestion import ingest_error_logs
+
+        ingest_error_logs(
+            dataset_name=args.dataset_name,
+            timestamp_column=args.timestamp_column,
+        )
+        return
+
     if args.command == "monitor":
         from .monitoring.core import main as monitoring_main
 
@@ -242,17 +306,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             command.extend(["--output_dir", args.output_dir])
         sys.argv = command
         monitoring_main()
-        return
-
-    if args.command == "serve":
-        import uvicorn
-
-        uvicorn.run(
-            "churn_mlops.serving.api:app",
-            host=args.host,
-            port=args.port,
-            reload=args.reload,
-        )
         return
 
     parser.print_help()

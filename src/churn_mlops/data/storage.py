@@ -6,6 +6,8 @@ time-range queries for model training, evaluation, monitoring,
 and retraining workflows.
 """
 
+import shutil
+
 import pandas as pd
 
 from churn_mlops.config import RuntimeSettings
@@ -17,24 +19,36 @@ def write_partitioned_dataset(
     df: pd.DataFrame,
     dataset_name: str,
     timestamp_column: str,
+    overwrite_partitions: bool = False,
 ) -> None:
     """
     Write a DataFrame as a year/month partitioned Parquet dataset.
 
     The timestamp column is converted to datetime if necessary and used
-    to derive ``year`` and ``month`` partition columns. The resulting
-    dataset is written to ``data/{dataset_name}`` using Hive-style
-    partitioning.
+    to derive ``year`` and ``month`` partition columns. The dataset is
+    written to ``data/{dataset_name}`` using Hive-style partitioning.
+
+    If ``overwrite_partitions`` is ``True``, existing partitions whose
+    year/month combinations are present in the input DataFrame are
+    removed before writing new data. This prevents duplicate records
+    when re-ingesting data for an existing period.
 
     Args:
         df:
-            DataFrame to persist.
+            DataFrame to persist. If the input DataFrame is empty, no
+            output is written.
 
         dataset_name:
             Name of the output dataset directory.
 
         timestamp_column:
             Name of the timestamp column used to derive partition keys.
+            Note that the column must be convertible to datetime via
+            ``pd.to_datetime``.
+
+        overwrite_partitions:
+            Whether to replace existing year/month partitions before
+            writing new data. Defaults to ``True``.
 
     Returns:
         None.
@@ -51,13 +65,19 @@ def write_partitioned_dataset(
     df["month"] = df[timestamp_column].dt.month
 
     settings = RuntimeSettings()
+    dataset_dir = settings.data_dir / dataset_name
+    dataset_dir.mkdir(parents=True, exist_ok=True)
 
-    output_dir = settings.data_dir / dataset_name
+    if overwrite_partitions:
+        year_month_comb = df[["year", "month"]].drop_duplicates().values
+        for year, month in year_month_comb:
+            partition_dir = dataset_dir / f"year={year}" / f"month={month}"
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+            if partition_dir.exists():
+                shutil.rmtree(partition_dir)
 
     df.to_parquet(
-        path=output_dir,
+        path=dataset_dir,
         partition_cols=["year", "month"],
         index=False,
     )
@@ -112,59 +132,82 @@ def _partition_filters(
 def read_partitioned_dataset(
     dataset_name: str,
     timestamp_column: str,
-    start: str | pd.Timestamp,
-    end: str | pd.Timestamp,
+    start: str | pd.Timestamp | None = None,
+    end: str | pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     """
-    Read rows from a partitioned Parquet dataset within a date range.
+    Read rows from a partitioned Parquet dataset.
 
-    The function first applies year/month partition pruning to limit the
-    number of Parquet files read and then applies an exact timestamp
-    filter to ensure that only records within the requested date range
-    are returned.
+    When ``start`` and ``end`` are provided, the function first applies
+    year/month partition pruning to limit the number of Parquet files read
+    and then applies an exact timestamp filter to ensure that only records
+    within the requested date range are returned.
+
+    When both ``start`` and ``end`` are ``None``, the entire dataset is
+    loaded without partition pruning or timestamp filtering.
 
     Args:
         dataset_name:
             Name of the partitioned dataset directory.
 
         timestamp_column:
-            Name of the timestamp column used for filtering.
+            Name of the timestamp column used for filtering when a date
+            range is specified.
 
         start:
-            Inclusive start date of the requested time window.
+            Inclusive start date of the requested time window. Must be
+            provided together with ``end``. If both ``start`` and ``end``
+            are ``None``, the entire dataset is loaded. Defaults to
+            ``None``.
 
         end:
-            Inclusive end date of the requested time window.
+            Inclusive end date of the requested time window. Must be
+            provided together with ``start``. If both ``start`` and ``end``
+            are ``None``, the entire dataset is loaded. Defaults to
+            ``None``.
 
     Returns:
-        A DataFrame containing all rows whose timestamp falls within the
-        specified date range.
+        A DataFrame containing either:
+
+        * all rows in the dataset if ``start`` and ``end`` are ``None``; or
+        * all rows whose timestamp falls within the specified date range.
 
     Raises:
         FileNotFoundError:
             If the dataset directory does not exist.
 
         ValueError:
-            If ``start`` is later than ``end``.
+            If only one of ``start`` or ``end`` is provided, or if
+            ``start`` is later than ``end``.
     """
 
     settings = RuntimeSettings()
-
     dataset_dir = settings.data_dir / dataset_name
+
     if not dataset_dir.exists():
         msg = f"Dataset does not exist: {dataset_dir}"
         raise FileNotFoundError(msg)
 
-    start = pd.Timestamp(start)
-    end = pd.Timestamp(end)
+    if start is None and end is None:
+        df = pd.read_parquet(dataset_dir)
+        df[timestamp_column] = pd.to_datetime(df[timestamp_column])
 
-    partition_filters = _partition_filters(start, end)
+    else:
+        if start is None or end is None:
+            msg = "'start' and 'end' must either both be provided or both be None."
+            raise ValueError(msg)
 
-    df = pd.read_parquet(dataset_dir, filters=partition_filters)
+        start = pd.Timestamp(start)
+        end = pd.Timestamp(end)
 
-    df[timestamp_column] = pd.to_datetime(df[timestamp_column])
+        partition_filters = _partition_filters(start, end)
 
-    date_filter = df[timestamp_column].between(start, end, inclusive="both")
-    df = df[date_filter]
+        df = pd.read_parquet(dataset_dir, filters=partition_filters)
+
+        df[timestamp_column] = pd.to_datetime(df[timestamp_column])
+
+        date_filter = df[timestamp_column].between(start, end, inclusive="both")
+
+        df = df[date_filter]
 
     return df.reset_index(drop=True)
