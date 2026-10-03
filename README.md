@@ -8,7 +8,7 @@ The project supports workflows to:
 
 - prepare raw datasets, write partitioned Parquet data, and create time-based splits;
 - train and evaluate configurable churn prediction models;
-- generate batch predictions from CSV datasets;
+- generate batch predictions from CSV and partitioned datasets;
 - serve predictions through a FastAPI application;
 - score sample inference data through the HTTP API;
 - ingest API prediction and error logs into partitioned datasets; and
@@ -49,7 +49,7 @@ uv run churn-mlops train \
 	--config sample_training_config.yaml
 ```
 
-Generate batch predictions:
+Generate batch predictions from CSV input:
 
 ```bash
 uv run churn-mlops batch-predict \
@@ -57,6 +57,19 @@ uv run churn-mlops batch-predict \
 	--output_csv predictions_inference.csv \
 	--index_col customerid
 ```
+
+Generate and store predictions from month-partitioned dataset:
+
+```bash
+uv run churn-mlops batch-predict \
+	--input_dataset partitioned \
+	--start_date 2026-01-01 \
+	--end_date 2026-06-30
+```
+
+Date bounds are optional as a pair; omitting both reads all available partitions.
+The default timestamp is `reference_date`, and output is written to the
+partitioned `batch_predictions` dataset with matching month partitions replaced.
 
 Serve the FastAPI application:
 
@@ -115,9 +128,9 @@ Run batch prediction through the container:
 
 ```bash
 docker compose run --rm api batch-predict \
-	--input_csv inference.csv \
-	--output_csv predictions_inference.csv \
-	--index_col customerid
+	--input_dataset partitioned \
+	--start_date 2026-01-01 \
+	--end_date 2026-06-30
 ```
 
 Monitoring can be run against batch prediction outputs or the API inference
@@ -228,7 +241,10 @@ resolved under `src/config` by default.
 
 ### Generate batch predictions
 
-Batch inference validates an input CSV, loads the configured registered model, and writes predictions under `output`:
+Batch inference validates input data, loads the configured registered model,
+and writes the predictions. There are two input data options for scoring.
+
+1. CSV files:
 
 ```bash
 uv run churn-mlops batch-predict \
@@ -236,6 +252,26 @@ uv run churn-mlops batch-predict \
 	--output_csv predictions_inference.csv \
 	--index_col customerid
 ```
+
+CSV input filenames are resolved from `data/raw`; output filenames are written
+to `output`.
+
+2. Partitioned data:
+
+```bash
+uv run churn-mlops batch-predict \
+	--input_dataset partitioned \
+	--start_date 2026-06-01 \
+	--end_date 2026-06-30 \
+	--output_dataset batch_predictions
+```
+
+Partitioned inputs and outputs are resolved under `DATA_DIR`. The output
+dataset defaults to `batch_predictions`, uses `reference_date` as its
+timestamp column by default, and replaces existing output partitions for
+the months represented in the prediction result. Providing both date bounds
+is optional. A date-only end bound includes that entire calendar day. To
+process the full input dataset, omit both date bounds.
 
 The output contains:
 
@@ -245,8 +281,6 @@ The output contains:
 | `predicted_class` | Class derived from the configured threshold |
 | `threshold` | Threshold used for classification |
 | `model_version` | Registered model version used for prediction |
-
-Input filenames are resolved from `data/raw`; output filenames are written to `output`.
 
 ### Serve predictions through HTTP
 
@@ -604,8 +638,8 @@ uv run churn-mlops ingest-error-logs
 ```
 
 By default, prediction events are read from `logs_local/predictions.jsonl` and
-written under `data/predictions`; error events are read from
-`logs_local/prediction_errors.jsonl` and written under `data/prediction_errors`.
+written under `data/api_predictions`; error events are read from
+`logs_local/prediction_errors.jsonl` and written under `data/api_errors`.
 The timestamp column defaults to `reference_date`. Re-ingesting data replaces
 existing partitions for the months present in the log. Use `--dataset_name` to
 change the destination dataset name or `--timestamp_column` to select another

@@ -140,8 +140,9 @@ def read_partitioned_dataset(
 
     When ``start`` and ``end`` are provided, the function first applies
     year/month partition pruning to limit the number of Parquet files read
-    and then applies an exact timestamp filter to ensure that only records
-    within the requested date range are returned.
+    and then applies an exact timestamp filter. A date-only string supplied
+    as ``end`` includes the entire end calendar day; explicit timestamps are
+    treated as exact inclusive bounds.
 
     When both ``start`` and ``end`` are ``None``, the entire dataset is
     loaded without partition pruning or timestamp filtering.
@@ -161,10 +162,10 @@ def read_partitioned_dataset(
             ``None``.
 
         end:
-            Inclusive end date of the requested time window. Must be
-            provided together with ``start``. If both ``start`` and ``end``
-            are ``None``, the entire dataset is loaded. Defaults to
-            ``None``.
+            Inclusive end bound of the requested time window. A date-only
+            string includes that entire calendar day. Must be provided
+            together with ``start``. If both ``start`` and ``end`` are
+            ``None``, the entire dataset is loaded. Defaults to ``None``.
 
     Returns:
         A DataFrame containing either:
@@ -198,7 +199,12 @@ def read_partitioned_dataset(
             raise ValueError(msg)
 
         start = pd.Timestamp(start)
+        end_is_date_only = (
+            isinstance(end, str) and pd.Timestamp(end).strftime("%Y-%m-%d") == end
+        )
         end = pd.Timestamp(end)
+        if end_is_date_only:
+            end += pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
 
         partition_filters = _partition_filters(start, end)
 

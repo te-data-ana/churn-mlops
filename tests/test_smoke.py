@@ -102,6 +102,45 @@ def test_package_main_dispatches_batch_predict(monkeypatch) -> None:
 
 
 @pytest.mark.smoke
+def test_package_main_dispatches_partitioned_batch_predict(monkeypatch) -> None:
+    import churn_mlops
+
+    observed = {}
+
+    def fake_batch_predict_main() -> None:
+        observed["argv"] = importlib.sys.argv.copy()
+
+    batch_module = importlib.import_module("churn_mlops.batch_predict")
+    monkeypatch.setattr(batch_module, "main", fake_batch_predict_main)
+
+    churn_mlops.main(
+        [
+            "batch-predict",
+            "--input_dataset",
+            "partitioned",
+            "--output_dataset",
+            "scored",
+            "--start_date",
+            "2026-01-01",
+            "--end_date",
+            "2026-06-30",
+        ]
+    )
+
+    assert observed["argv"] == [
+        "churn-mlops.batch_predict",
+        "--input_dataset",
+        "partitioned",
+        "--output_dataset",
+        "scored",
+        "--start_date",
+        "2026-01-01",
+        "--end_date",
+        "2026-06-30",
+    ]
+
+
+@pytest.mark.smoke
 def test_package_main_dispatches_monitor_command(monkeypatch) -> None:
     import churn_mlops
 
@@ -270,8 +309,8 @@ def test_package_main_dispatches_create_split(
 @pytest.mark.parametrize(
     ("command", "function_name", "dataset_name"),
     [
-        ("ingest-prediction-logs", "ingest_prediction_logs", "predictions"),
-        ("ingest-error-logs", "ingest_error_logs", "prediction_errors"),
+        ("ingest-prediction-logs", "ingest_prediction_logs", "api_predictions"),
+        ("ingest-error-logs", "ingest_error_logs", "api_errors"),
     ],
 )
 def test_package_main_dispatches_log_ingestion(

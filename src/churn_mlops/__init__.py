@@ -106,17 +106,43 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     batch_parser = subparsers.add_parser(
         "batch-predict",
-        help="Generate batch predictions from an input CSV file.",
+        help="Generate batch predictions from CSV or partitioned data.",
     )
-    batch_parser.add_argument("--input_csv", required=True, help="Input CSV file path.")
+    batch_input = batch_parser.add_mutually_exclusive_group(required=True)
+    batch_input.add_argument(
+        "--input_csv",
+        help="Input CSV filename under configured directory for raw data input.",
+    )
+    batch_input.add_argument(
+        "--input_dataset",
+        help="Name of partitioned input dataset under configured data directory.",
+    )
     batch_parser.add_argument(
-        "--output_csv", required=True, help="Output CSV file path."
+        "--output_csv",
+        help="Output CSV filename under configured output directory.",
+    )
+    batch_parser.add_argument(
+        "--output_dataset",
+        help="Name of ouput dataset under configured data directory (default: batch_predictions).",
     )
     batch_parser.add_argument(
         "--index_col",
         required=False,
         default=None,
         help="Optional index column name for the input CSV.",
+    )
+    batch_parser.add_argument(
+        "--start_date",
+        help="Inclusive start date (partitioned input).",
+    )
+    batch_parser.add_argument(
+        "--end_date",
+        help="Inclusive end date (partitioned input).",
+    )
+    batch_parser.add_argument(
+        "--timestamp_column",
+        default="reference_date",
+        help="Timestamp column for partitioned in-/output.",
     )
 
     serve_parser = subparsers.add_parser(
@@ -145,7 +171,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     ingest_prediction_log_parser.add_argument(
         "--dataset_name",
         type=str,
-        default="predictions",
+        default="api_predictions",
         help="Target dataset name.",
     )
     ingest_prediction_log_parser.add_argument(
@@ -162,7 +188,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     ingest_error_log_parser.add_argument(
         "--dataset_name",
         type=str,
-        default="prediction_errors",
+        default="api_errors",
         help="Target dataset name.",
     )
     ingest_error_log_parser.add_argument(
@@ -249,15 +275,37 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
 
     if args.command == "batch-predict":
+        is_csv_input = args.input_csv is not None
+        if is_csv_input and (
+            args.output_csv is None or args.output_dataset is not None
+        ):
+            parser.error(
+                "CSV input requires --output_csv and cannot use --output_dataset."
+            )
+        if not is_csv_input and args.output_csv is not None:
+            parser.error("Partitioned input cannot use --output_csv.")
+        if (args.start_date is None) != (args.end_date is None):
+            parser.error("--start_date and --end_date must be provided together.")
+        if is_csv_input and (args.start_date is not None or args.end_date is not None):
+            parser.error("Date bounds can only be used with partitioned input.")
+        if not is_csv_input and args.index_col is not None:
+            parser.error("--index_col can only be used with CSV input.")
+
         from .batch_predict import main as batch_predict_main
 
-        command = [
-            "churn-mlops.batch_predict",
-            "--input_csv",
-            args.input_csv,
-            "--output_csv",
-            args.output_csv,
-        ]
+        command = ["churn-mlops.batch_predict"]
+        if is_csv_input:
+            command.extend(["--input_csv", args.input_csv])
+            command.extend(["--output_csv", args.output_csv])
+        else:
+            command.extend(["--input_dataset", args.input_dataset])
+            if args.output_dataset is not None:
+                command.extend(["--output_dataset", args.output_dataset])
+            if args.start_date is not None:
+                command.extend(["--start_date", args.start_date])
+                command.extend(["--end_date", args.end_date])
+            if args.timestamp_column != "reference_date":
+                command.extend(["--timestamp_column", args.timestamp_column])
         if args.index_col is not None:
             command.extend(["--index_col", args.index_col])
         sys.argv = command

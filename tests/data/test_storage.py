@@ -27,9 +27,16 @@ def test_write_and_read_partitioned_dataset_filters_inclusive_dates(
     df = pd.DataFrame(
         {
             "reference_date": pd.to_datetime(
-                ["2026-01-31", "2026-02-01", "2026-02-28", "2026-03-01"]
+                [
+                    "2026-01-31",
+                    "2026-02-01",
+                    "2026-02-28",
+                    "2026-02-28 23:59:59.999999",
+                    "2026-03-01",
+                ],
+                format="mixed",
             ),
-            "value": [1, 2, 3, 4],
+            "value": [1, 2, 3, 4, 5],
         }
     )
 
@@ -51,9 +58,12 @@ def test_write_and_read_partitioned_dataset_filters_inclusive_dates(
         end="2026-02-28",
     )
 
-    assert result["value"].tolist() == [2, 3]
+    assert result["value"].tolist() == [2, 3, 4]
     assert result["reference_date"].tolist() == list(
-        pd.to_datetime(["2026-02-01", "2026-02-28"])
+        pd.to_datetime(
+            ["2026-02-01", "2026-02-28", "2026-02-28 23:59:59.999999"],
+            format="mixed",
+        )
     )
 
 

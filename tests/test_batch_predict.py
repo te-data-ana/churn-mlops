@@ -10,10 +10,10 @@ from churn_mlops import batch_predict
 
 
 @pytest.mark.unit
-def test_batch_predict_main_orchestrates_prediction_and_writes_output(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_batch_predict_main_reads_csv_and_writes_predictions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    # Prepare separate frames for raw input, validated input, and model output.
     input_df = pd.DataFrame({"age": [45], "tenure": [24]})
     validated_df = input_df.copy()
     prediction_df = pd.DataFrame(
@@ -23,8 +23,14 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
         },
         index=input_df.index,
     )
+    settings = SimpleNamespace(
+        data_dir=tmp_path,
+        output_dir=tmp_path,
+        mlflow_tracking_uri=None,
+        model_name=None,
+        model_alias=None,
+    )
 
-    # Supply CLI arguments and redirect in-/output from/to a temporary directory.
     monkeypatch.setattr(
         sys,
         "argv",
@@ -38,37 +44,22 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
             "customerid",
         ],
     )
-
-    # Mock settings
-    settings = SimpleNamespace(
-        data_dir=tmp_path,
-        output_dir=tmp_path,
-        mlflow_tracking_uri=None,
-        model_name=None,
-        model_alias=None,
-    )
-
     monkeypatch.setattr(batch_predict, "ServingSettings", lambda: settings)
 
-    # Mock the model and predictor so this test covers orchestration only.
-    loaded_model = Mock(tracking_uri=None, model_name=None, model_alias=None)
-    predictor = Mock()
-    predictor.predict_batch.return_value = prediction_df
-
-    # Replace filesystem, validation, model-loading, and prediction boundaries.
     load_raw_data = Mock(return_value=input_df)
     validate_data = Mock(return_value=validated_df)
-    predictor_factory = Mock(return_value=predictor)
+    predictor = Mock()
+    predictor.predict_batch.return_value = prediction_df
+    loaded_model = Mock()
     load_model = Mock(return_value=loaded_model)
+    predictor_factory = Mock(return_value=predictor)
     monkeypatch.setattr(batch_predict, "load_raw_data", load_raw_data)
     monkeypatch.setattr(batch_predict, "validate_data", validate_data)
-    monkeypatch.setattr(batch_predict, "Predictor", predictor_factory)
     monkeypatch.setattr(batch_predict, "load_model", load_model)
+    monkeypatch.setattr(batch_predict, "Predictor", predictor_factory)
 
-    # Run the real entry-point orchestration with the dependencies controlled.
     batch_predict.main()
 
-    # Confirm arguments flow through each stage in the expected order and shape.
     load_raw_data.assert_called_once_with(
         file_name="customers.csv",
         index_col="customerid",
@@ -83,7 +74,6 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
     predictor_factory.assert_called_once_with(loaded_model)
     predictor.predict_batch.assert_called_once_with(df=validated_df)
 
-    # Confirm the mocked predictions are persisted to the requested output file.
     output_path = tmp_path / "predictions.csv"
     assert output_path.exists()
     pd.testing.assert_frame_equal(
@@ -93,106 +83,129 @@ def test_batch_predict_main_orchestrates_prediction_and_writes_output(
 
 
 @pytest.mark.unit
-def test_batch_prediction_uses_default_settings(
+def test_run_batch_prediction_validates_and_returns_prediction_dataframe(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     settings = SimpleNamespace(
-        data_dir=tmp_path,
-        output_dir=tmp_path / "output",
         mlflow_tracking_uri="uri",
         model_name="my_model",
         model_alias="prod",
     )
+    input_df = pd.DataFrame({"age": [45]})
+    validated_df = pd.DataFrame({"age": [45]})
+    prediction_df = pd.DataFrame({"predicted_probability": [0.5]})
 
     monkeypatch.setattr(batch_predict, "ServingSettings", lambda: settings)
-
-    load_raw_data = Mock(return_value=pd.DataFrame({"x": [1]}))
-    validate = Mock(return_value=pd.DataFrame({"x": [1]}))
-    load_model = Mock()
+    validate_data = Mock(return_value=validated_df)
+    load_model = Mock(return_value=Mock())
     predictor = Mock()
-    predictor.predict_batch.return_value = pd.DataFrame(
-        {"predicted_probability": [0.5]}
-    )
-
-    monkeypatch.setattr(batch_predict, "load_raw_data", load_raw_data)
-    monkeypatch.setattr(batch_predict, "validate_data", validate)
+    predictor.predict_batch.return_value = prediction_df
+    monkeypatch.setattr(batch_predict, "validate_data", validate_data)
     monkeypatch.setattr(batch_predict, "load_model", load_model)
     monkeypatch.setattr(batch_predict, "Predictor", Mock(return_value=predictor))
 
-    batch_predict.run_batch_prediction(
-        input_csv="input.csv",
-        output_csv="output.csv",
-    )
+    result = batch_predict.run_batch_prediction(df=input_df)
 
-    load_raw_data.assert_called_once_with(
-        file_name="input.csv",
-        index_col=None,
-        data_dir=settings.data_dir / "raw",
-    )
-
+    validate_data.assert_called_once_with(input_df)
     load_model.assert_called_once_with(
         tracking_uri="uri",
         model_name="my_model",
         model_alias="prod",
     )
+    predictor.predict_batch.assert_called_once_with(df=validated_df)
+    pd.testing.assert_frame_equal(result, prediction_df)
 
 
 @pytest.mark.unit
 def test_batch_prediction_logs_and_reraises_on_failure(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(
         batch_predict,
         "ServingSettings",
         lambda: SimpleNamespace(
-            data_dir=tmp_path,
-            output_dir=tmp_path,
             mlflow_tracking_uri=None,
             model_name=None,
             model_alias=None,
         ),
     )
-
     monkeypatch.setattr(
         batch_predict,
-        "load_raw_data",
+        "validate_data",
         Mock(side_effect=RuntimeError("boom")),
     )
-
     log_exception = Mock()
     monkeypatch.setattr(batch_predict.logger, "exception", log_exception)
 
     with pytest.raises(RuntimeError, match="boom"):
-        batch_predict.run_batch_prediction(
-            input_csv="input.csv",
-            output_csv="output.csv",
-        )
+        batch_predict.run_batch_prediction(df=pd.DataFrame({"age": [45]}))
 
     log_exception.assert_called_once()
+
+
+@pytest.mark.unit
+def test_batch_predict_main_reads_and_writes_partitioned_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_df = pd.DataFrame({"reference_date": pd.to_datetime(["2026-02-15"])})
+    prediction_df = input_df.assign(predicted_probability=[0.7])
+    read_dataset = Mock(return_value=input_df)
+    predict = Mock(return_value=prediction_df)
+    write_dataset = Mock()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "batch_predict",
+            "--input_dataset",
+            "partitioned",
+            "--start_date",
+            "2026-02-01",
+            "--end_date",
+            "2026-02-28",
+        ],
+    )
+    monkeypatch.setattr(batch_predict, "read_partitioned_dataset", read_dataset)
+    monkeypatch.setattr(batch_predict, "run_batch_prediction", predict)
+    monkeypatch.setattr(batch_predict, "write_partitioned_dataset", write_dataset)
+
+    batch_predict.main()
+
+    read_dataset.assert_called_once_with(
+        dataset_name="partitioned",
+        timestamp_column="reference_date",
+        start="2026-02-01",
+        end="2026-02-28",
+    )
+    predict.assert_called_once_with(df=input_df)
+    write_dataset.assert_called_once_with(
+        df=prediction_df,
+        dataset_name="batch_predictions",
+        timestamp_column="reference_date",
+        overwrite_partitions=True,
+    )
 
 
 @pytest.mark.integration
 def test_batch_prediction_uses_registered_model(
     generated_inference_csv: Path,
     registered_model: dict[str, str | Path],
-    tmp_path: Path,
 ) -> None:
-    output_path = batch_predict.run_batch_prediction(
-        input_csv=generated_inference_csv.name,
-        output_csv="predictions.csv",
+    input_df = batch_predict.load_raw_data(
+        file_name=generated_inference_csv.name,
         index_col="customerid",
-        input_dir=generated_inference_csv.parent,
-        output_dir=tmp_path / "output",
+        data_dir=generated_inference_csv.parent,
+    )
+
+    predictions = batch_predict.run_batch_prediction(
+        df=input_df,
         tracking_uri=str(registered_model["tracking_uri"]),
         model_name=str(registered_model["model_name"]),
         model_alias=str(registered_model["model_alias"]),
     )
 
-    predictions = pd.read_csv(output_path, index_col=0)
-
-    assert output_path == tmp_path / "output" / "predictions.csv"
     assert len(predictions) == len(pd.read_csv(generated_inference_csv))
     assert predictions["predicted_probability"].between(0, 1).all()
     assert predictions["predicted_class"].isin([0, 1]).all()
