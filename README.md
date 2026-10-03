@@ -256,7 +256,7 @@ uv run churn-mlops batch-predict \
 CSV input filenames are resolved from `data/raw`; output filenames are written
 to `output`.
 
-2. Partitioned data:
+2. Parquet data:
 
 ```bash
 uv run churn-mlops batch-predict \
@@ -281,6 +281,27 @@ The output contains:
 | `predicted_class` | Class derived from the configured threshold |
 | `threshold` | Threshold used for classification |
 | `model_version` | Registered model version used for prediction |
+
+
+Batch prediction can also be applied for prepared train/test splits.
+For instance, the results of
+
+```bash
+uv run churn-mlops batch-predict \
+	--input_dataset splits/baseline_train.parquet \
+	--output_dataset train_predictions
+```
+
+and
+
+```bash
+uv run churn-mlops batch-predict \
+	--input_dataset splits/baseline_test.parquet \
+	--output_dataset test_predictions
+```
+
+can be used as reference and analysis data to calculate and compare
+model metrics (see also monitoring).
 
 ### Serve predictions through HTTP
 
@@ -404,6 +425,31 @@ uv run churn-mlops monitor \
 	--error_log logs_local/prediction_errors.jsonl \
 	--output_dir output/monitoring
 ```
+
+Monitoring can also load already-scored reference, analysis, and optional error
+data from the partitioned Parquet datasets under the configured data directory:
+
+```bash
+uv run churn-mlops monitor \
+	--reference_dataset train_predictions \
+	--analysis_dataset api_predictions \
+	--error_dataset api_errors \
+	--source_reference batch \
+	--source_analysis api \
+	--output_dir output/monitoring
+```
+
+Dataset names are relative to the configured data directory (for example,
+`api_predictions` refers to `data/api_predictions`). The datasets are passed
+directly to report generation; they are not scored or transformed by the
+monitoring command. Ensure the reference dataset already includes the required
+prediction, target, model-version, timestamp, and (when drift monitoring is
+enabled) model feature columns. API analysis datasets should include scored
+prediction columns, and error datasets should contain the API error records.
+Use `--timestamp_column` when the datasets use a partition timestamp other than
+`reference_date`. `--source_reference` and `--source_analysis` can each be set
+to `batch` or `api`; the latter controls whether API operational metrics are
+included.
 
 The monitoring summary is produced at a monthly granularity and separately for
 each model version that exists in both the reference and analysis datasets.

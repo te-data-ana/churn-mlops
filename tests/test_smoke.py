@@ -70,13 +70,13 @@ def test_package_main_prints_help_for_empty_args(capsys) -> None:
 def test_package_main_dispatches_monitor_command(monkeypatch) -> None:
     import churn_mlops
 
-    observed = {}
+    observed: dict[str, object] = {}
 
-    def fake_monitoring_main() -> None:
-        observed["argv"] = importlib.sys.argv.copy()
+    def fake_run_monitoring(**kwargs: object) -> None:
+        observed.update(kwargs)
 
     monitoring_module = importlib.import_module("churn_mlops.monitoring.core")
-    monkeypatch.setattr(monitoring_module, "main", fake_monitoring_main)
+    monkeypatch.setattr(monitoring_module, "run_monitoring", fake_run_monitoring)
 
     churn_mlops.main(
         [
@@ -90,15 +90,112 @@ def test_package_main_dispatches_monitor_command(monkeypatch) -> None:
         ]
     )
 
-    assert observed["argv"] == [
-        "churn-mlops.monitoring",
-        "--reference_csv",
-        "reference.csv",
-        "--analysis_csv",
-        "analysis.csv",
-        "--output_dir",
-        "reports",
+    assert observed == {
+        "reference_csv": Path("reference.csv"),
+        "analysis_csv": Path("analysis.csv"),
+        "prediction_log": None,
+        "error_log": None,
+        "output_dir": Path("reports"),
+    }
+
+
+@pytest.mark.smoke
+def test_package_main_builds_report_from_partitioned_datasets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import churn_mlops
+    from churn_mlops import data
+    from churn_mlops.monitoring import core
+
+    datasets = {
+        "partitioned": object(),
+        "api_predictions": object(),
+        "api_errors": object(),
+    }
+    loaded: list[tuple[str, str]] = []
+    observed: dict[str, object] = {}
+
+    def fake_read_partitioned_dataset(
+        dataset_name: str, timestamp_column: str
+    ) -> object:
+        loaded.append((dataset_name, timestamp_column))
+        return datasets[dataset_name]
+
+    def fake_build_monitoring_report(**kwargs: object) -> None:
+        observed.update(kwargs)
+
+    monkeypatch.setattr(data, "read_partitioned_dataset", fake_read_partitioned_dataset)
+    monkeypatch.setattr(core, "build_monitoring_report", fake_build_monitoring_report)
+
+    churn_mlops.main(
+        [
+            "monitor",
+            "--reference_dataset",
+            "partitioned",
+            "--analysis_dataset",
+            "api_predictions",
+            "--error_dataset",
+            "api_errors",
+            "--output_dir",
+            "reports",
+        ]
+    )
+
+    assert loaded == [
+        ("partitioned", "reference_date"),
+        ("api_predictions", "reference_date"),
+        ("api_errors", "reference_date"),
     ]
+    assert observed == {
+        "reference": datasets["partitioned"],
+        "analysis": datasets["api_predictions"],
+        "source_reference": "batch",
+        "source_analysis": "api",
+        "errors": datasets["api_errors"],
+        "output_dir": Path("reports"),
+    }
+
+
+@pytest.mark.smoke
+def test_package_main_dispatches_api_file_monitoring_with_configured_error_log(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import churn_mlops
+    from churn_mlops.monitoring import core
+
+    settings = SimpleNamespace(
+        output_dir=tmp_path / "reports",
+        prediction_log_path=tmp_path / "predictions.jsonl",
+        error_log_path=tmp_path / "errors.jsonl",
+        api_host="127.0.0.1",
+        api_port=8000,
+    )
+    observed: dict[str, object] = {}
+
+    def fake_run_monitoring(**kwargs: object) -> None:
+        observed.update(kwargs)
+
+    monkeypatch.setattr(churn_mlops, "ServingSettings", lambda: settings)
+    monkeypatch.setattr(core, "run_monitoring", fake_run_monitoring)
+
+    churn_mlops.main(
+        [
+            "monitor",
+            "--reference_csv",
+            "reference.csv",
+            "--prediction_log",
+            "custom_predictions.jsonl",
+        ]
+    )
+
+    assert observed == {
+        "reference_csv": Path("reference.csv"),
+        "analysis_csv": None,
+        "prediction_log": Path("custom_predictions.jsonl"),
+        "error_log": settings.error_log_path,
+        "output_dir": settings.output_dir,
+    }
 
 
 @pytest.mark.smoke

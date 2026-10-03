@@ -10,7 +10,7 @@ import nannyml as nml
 import pandas as pd
 from sklearn.metrics import precision_score, recall_score, roc_auc_score
 
-from churn_mlops.config import RuntimeSettings, ServingSettings, configure_logging
+from churn_mlops.config import RuntimeSettings
 from churn_mlops.data import normalize_strings, read_jsonl_log, validate_data
 from churn_mlops.serving.schemas import InputFeatures
 
@@ -779,41 +779,3 @@ def run_monitoring(
             errors=_event_log_to_frame(path=error_log, event="prediction_error"),
             output_dir=report_dir,
         )
-
-
-def main() -> None:
-    """Parse CLI arguments and run the monitoring workflow.
-
-    This command line entry point accepts either a scored CSV file or an API log
-    source and writes the resulting monitoring report to disk.
-    """
-    import argparse
-
-    settings = ServingSettings()
-    parser = argparse.ArgumentParser(description="Monitor batch or API predictions.")
-    parser.add_argument("--reference_csv", required=True, type=Path)
-    source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--analysis_csv", type=Path)
-    source.add_argument("--prediction_log", type=Path)
-    source.add_argument("--api", action="store_true")
-    parser.add_argument("--error_log", type=Path)
-    parser.add_argument("--output_dir", type=Path, default=settings.output_dir)
-    args = parser.parse_args()
-
-    prediction_log = None
-    error_log = None
-    if args.api or args.prediction_log is not None:
-        prediction_log = args.prediction_log or settings.prediction_log_path
-        error_log = args.error_log or settings.error_log_path
-    run_monitoring(
-        reference_csv=args.reference_csv,
-        analysis_csv=args.analysis_csv,
-        prediction_log=prediction_log,
-        error_log=error_log,
-        output_dir=args.output_dir,
-    )
-
-
-if __name__ == "__main__":
-    configure_logging()
-    main()

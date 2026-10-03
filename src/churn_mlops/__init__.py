@@ -1,7 +1,7 @@
 import argparse
 import logging
-import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from .config import ServingSettings, configure_logging
 
@@ -208,14 +208,19 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     monitor_parser = subparsers.add_parser(
         "monitor",
-        help="Monitor scored batch predictions or live API events.",
+        help="Monitor prediction quality based on files or partitioned datasets.",
     )
-    monitor_parser.add_argument("--reference_csv", required=True, type=str)
+    monitor_reference = monitor_parser.add_mutually_exclusive_group(required=True)
+    monitor_reference.add_argument("--reference_csv", type=Path)
+    monitor_reference.add_argument(
+        "--reference_dataset",
+        help="Name of partitioned reference dataset in configured data directory.",
+    )
     monitor_source = monitor_parser.add_mutually_exclusive_group(required=True)
-    monitor_source.add_argument("--analysis_csv", type=str)
+    monitor_source.add_argument("--analysis_csv", type=Path)
     monitor_source.add_argument(
         "--prediction_log",
-        type=str,
+        type=Path,
         help="API prediction JSONL path; defaults to the configured serving log.",
     )
     monitor_source.add_argument(
@@ -223,9 +228,29 @@ def main(argv: Sequence[str] | None = None) -> None:
         action="store_true",
         help="Monitor the configured API prediction and error logs.",
     )
-    monitor_parser.add_argument("--error_log", type=str)
+    monitor_source.add_argument(
+        "--analysis_dataset",
+        help="Name of partitioned analysis dataset in configured data directory.",
+    )
+    monitor_errors = monitor_parser.add_mutually_exclusive_group()
+    monitor_errors.add_argument("--error_log", type=Path)
+    monitor_errors.add_argument(
+        "--error_dataset",
+        help="Name of partitioned error dataset in the configured data directory.",
+    )
     monitor_parser.add_argument("--index_col", default="customerid")
-    monitor_parser.add_argument("--output_dir", type=str, default=None)
+    monitor_parser.add_argument("--timestamp_column", default="reference_date")
+    monitor_parser.add_argument(
+        "--source_reference",
+        choices=("batch", "api"),
+        help="Source label for partitioned reference data (default: batch).",
+    )
+    monitor_parser.add_argument(
+        "--source_analysis",
+        choices=("batch", "api"),
+        help="Source label for partitioned analysis data (default: api).",
+    )
+    monitor_parser.add_argument("--output_dir", type=Path, default=None)
 
     args = parser.parse_args(argv)
 
@@ -364,25 +389,70 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
 
     if args.command == "monitor":
-        from .monitoring.core import main as monitoring_main
+        dataset_mode = args.reference_dataset is not None
+        if dataset_mode != (args.analysis_dataset is not None):
+            parser.error(
+                "--reference_dataset and --analysis_dataset must be used together."
+            )
+        if args.error_dataset is not None and not dataset_mode:
+            parser.error("--error_dataset can only be used with dataset inputs.")
+        if args.error_log is not None and (
+            dataset_mode or (args.prediction_log is None and not args.api)
+        ):
+            parser.error("--error_log can only be used with API file inputs.")
+        if not dataset_mode and (
+            args.source_reference is not None or args.source_analysis is not None
+        ):
+            parser.error(
+                "--source_reference and --source_analysis can only be used with "
+                "dataset inputs."
+            )
 
-        command = [
-            "churn-mlops.monitoring",
-            "--reference_csv",
-            args.reference_csv,
-        ]
-        if args.analysis_csv is not None:
-            command.extend(["--analysis_csv", args.analysis_csv])
-        elif args.prediction_log is not None:
-            command.extend(["--prediction_log", args.prediction_log])
+        output_dir = args.output_dir or settings.output_dir
+        if dataset_mode:
+            from .data import read_partitioned_dataset
+            from .monitoring.core import build_monitoring_report
+
+            reference = read_partitioned_dataset(
+                dataset_name=args.reference_dataset,
+                timestamp_column=args.timestamp_column,
+            )
+            analysis = read_partitioned_dataset(
+                dataset_name=args.analysis_dataset,
+                timestamp_column=args.timestamp_column,
+            )
+            errors = (
+                read_partitioned_dataset(
+                    dataset_name=args.error_dataset,
+                    timestamp_column=args.timestamp_column,
+                )
+                if args.error_dataset is not None
+                else None
+            )
+            build_monitoring_report(
+                reference=reference,
+                analysis=analysis,
+                source_reference=args.source_reference or "batch",
+                source_analysis=args.source_analysis or "api",
+                errors=errors,
+                output_dir=output_dir,
+            )
         else:
-            command.append("--api")
-        if args.error_log is not None:
-            command.extend(["--error_log", args.error_log])
-        if args.output_dir is not None:
-            command.extend(["--output_dir", args.output_dir])
-        sys.argv = command
-        monitoring_main()
+            from .monitoring.core import run_monitoring
+
+            prediction_log = args.prediction_log
+            if args.api and prediction_log is None:
+                prediction_log = settings.prediction_log_path
+            error_log = args.error_log
+            if (args.api or prediction_log is not None) and error_log is None:
+                error_log = settings.error_log_path
+            run_monitoring(
+                reference_csv=args.reference_csv,
+                analysis_csv=args.analysis_csv,
+                prediction_log=prediction_log,
+                error_log=error_log,
+                output_dir=output_dir,
+            )
         return
 
     parser.print_help()
