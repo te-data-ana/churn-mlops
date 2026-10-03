@@ -1,4 +1,3 @@
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -6,16 +5,17 @@ from unittest.mock import Mock
 import pandas as pd
 import pytest
 
-from churn_mlops import batch_predict
+import churn_mlops
+from churn_mlops import batch_predict, data
+from churn_mlops.data import storage
 
 
 @pytest.mark.unit
-def test_batch_predict_main_reads_csv_and_writes_predictions(
+def test_batch_predict_cli_reads_csv_and_writes_predictions(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     input_df = pd.DataFrame({"age": [45], "tenure": [24]})
-    validated_df = input_df.copy()
     prediction_df = pd.DataFrame(
         {
             "predicted_probability": [0.8],
@@ -26,53 +26,33 @@ def test_batch_predict_main_reads_csv_and_writes_predictions(
     settings = SimpleNamespace(
         data_dir=tmp_path,
         output_dir=tmp_path,
-        mlflow_tracking_uri=None,
-        model_name=None,
-        model_alias=None,
+        api_host="127.0.0.1",
+        api_port=8000,
     )
+    load_raw_data = Mock(return_value=input_df)
+    predict = Mock(return_value=prediction_df)
+    monkeypatch.setattr(churn_mlops, "ServingSettings", lambda: settings)
+    monkeypatch.setattr(data, "load_raw_data", load_raw_data)
+    monkeypatch.setattr(batch_predict, "run_batch_prediction", predict)
 
-    monkeypatch.setattr(
-        sys,
-        "argv",
+    churn_mlops.main(
         [
-            "batch_predict",
+            "batch-predict",
             "--input_csv",
             "customers.csv",
             "--output_csv",
             "predictions.csv",
             "--index_col",
             "customerid",
-        ],
+        ]
     )
-    monkeypatch.setattr(batch_predict, "ServingSettings", lambda: settings)
-
-    load_raw_data = Mock(return_value=input_df)
-    validate_data = Mock(return_value=validated_df)
-    predictor = Mock()
-    predictor.predict_batch.return_value = prediction_df
-    loaded_model = Mock()
-    load_model = Mock(return_value=loaded_model)
-    predictor_factory = Mock(return_value=predictor)
-    monkeypatch.setattr(batch_predict, "load_raw_data", load_raw_data)
-    monkeypatch.setattr(batch_predict, "validate_data", validate_data)
-    monkeypatch.setattr(batch_predict, "load_model", load_model)
-    monkeypatch.setattr(batch_predict, "Predictor", predictor_factory)
-
-    batch_predict.main()
 
     load_raw_data.assert_called_once_with(
         file_name="customers.csv",
         index_col="customerid",
         data_dir=tmp_path / "raw",
     )
-    validate_data.assert_called_once_with(input_df)
-    load_model.assert_called_once_with(
-        tracking_uri=None,
-        model_name=None,
-        model_alias=None,
-    )
-    predictor_factory.assert_called_once_with(loaded_model)
-    predictor.predict_batch.assert_called_once_with(df=validated_df)
+    predict.assert_called_once_with(df=input_df)
 
     output_path = tmp_path / "predictions.csv"
     assert output_path.exists()
@@ -85,7 +65,6 @@ def test_batch_predict_main_reads_csv_and_writes_predictions(
 @pytest.mark.unit
 def test_run_batch_prediction_validates_and_returns_prediction_dataframe(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
     settings = SimpleNamespace(
         mlflow_tracking_uri="uri",
@@ -145,7 +124,7 @@ def test_batch_prediction_logs_and_reraises_on_failure(
 
 
 @pytest.mark.unit
-def test_batch_predict_main_reads_and_writes_partitioned_data(
+def test_batch_predict_cli_reads_and_writes_partitioned_data(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     input_df = pd.DataFrame({"reference_date": pd.to_datetime(["2026-02-15"])})
@@ -155,23 +134,30 @@ def test_batch_predict_main_reads_and_writes_partitioned_data(
     write_dataset = Mock()
 
     monkeypatch.setattr(
-        sys,
-        "argv",
+        churn_mlops,
+        "ServingSettings",
+        lambda: SimpleNamespace(
+            data_dir=Path("data"),
+            output_dir=Path("output"),
+            api_host="127.0.0.1",
+            api_port=8000,
+        ),
+    )
+    monkeypatch.setattr(storage, "read_partitioned_dataset", read_dataset)
+    monkeypatch.setattr(batch_predict, "run_batch_prediction", predict)
+    monkeypatch.setattr(storage, "write_partitioned_dataset", write_dataset)
+
+    churn_mlops.main(
         [
-            "batch_predict",
+            "batch-predict",
             "--input_dataset",
             "partitioned",
             "--start_date",
             "2026-02-01",
             "--end_date",
             "2026-02-28",
-        ],
+        ]
     )
-    monkeypatch.setattr(batch_predict, "read_partitioned_dataset", read_dataset)
-    monkeypatch.setattr(batch_predict, "run_batch_prediction", predict)
-    monkeypatch.setattr(batch_predict, "write_partitioned_dataset", write_dataset)
-
-    batch_predict.main()
 
     read_dataset.assert_called_once_with(
         dataset_name="partitioned",
@@ -188,12 +174,64 @@ def test_batch_predict_main_reads_and_writes_partitioned_data(
     )
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("arguments", "error_message"),
+    [
+        (
+            ["--input_csv", "input.csv"],
+            "CSV input requires --output_csv",
+        ),
+        (
+            [
+                "--input_dataset",
+                "partitioned",
+                "--output_csv",
+                "output.csv",
+            ],
+            "Partitioned input cannot use --output_csv",
+        ),
+        (
+            ["--input_dataset", "partitioned", "--start_date", "2026-01-01"],
+            "--start_date and --end_date must be provided together",
+        ),
+        (
+            [
+                "--input_csv",
+                "input.csv",
+                "--output_csv",
+                "output.csv",
+                "--start_date",
+                "2026-01-01",
+                "--end_date",
+                "2026-01-31",
+            ],
+            "Date bounds can only be used with partitioned input",
+        ),
+        (
+            ["--input_dataset", "partitioned", "--index_col", "customerid"],
+            "--index_col can only be used with CSV input",
+        ),
+    ],
+)
+def test_batch_predict_cli_rejects_invalid_arguments(
+    arguments: list[str],
+    error_message: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        churn_mlops.main(["batch-predict", *arguments])
+
+    assert exc_info.value.code == 2
+    assert error_message in capsys.readouterr().err
+
+
 @pytest.mark.integration
 def test_batch_prediction_uses_registered_model(
     generated_inference_csv: Path,
     registered_model: dict[str, str | Path],
 ) -> None:
-    input_df = batch_predict.load_raw_data(
+    input_df = data.load_raw_data(
         file_name=generated_inference_csv.name,
         index_col="customerid",
         data_dir=generated_inference_csv.parent,

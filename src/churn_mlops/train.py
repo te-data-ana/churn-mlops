@@ -1,4 +1,3 @@
-import argparse
 import logging
 from pathlib import Path
 
@@ -215,33 +214,3 @@ def run_training_job(
             split_name,
         )
         raise
-
-
-def main() -> None:
-    """Parse CLI arguments, run training, and log the resulting ROC AUC."""
-
-    logger = logging.getLogger(__name__)
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True)
-    parser.add_argument("--split_name", default="default")
-    parser.add_argument("--experiment_name", required=False)
-
-    args = parser.parse_args()
-
-    training_kwargs = {"config_file": args.config, "split_name": args.split_name}
-    if args.experiment_name is not None:
-        training_kwargs["experiment_name"] = args.experiment_name
-
-    result = run_training_job(**training_kwargs)
-
-    logger.info(
-        "Successfully trained %s model: AUC=%.4f",
-        result.classifier_config["model_name"],
-        result.metrics["roc_auc"],
-    )
-
-
-if __name__ == "__main__":
-    configure_logging()
-    main()

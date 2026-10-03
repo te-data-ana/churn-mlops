@@ -1,16 +1,19 @@
 import argparse
+import logging
 import sys
 from collections.abc import Sequence
 
 from .config import ServingSettings, configure_logging
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["main"]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Dispatch the package CLI to the project's installed workflow entry points.
+    """Parse and dispatch commands for the package CLI.
 
     Args:
         argv: Optional argument list to parse. When omitted, the process argv is
@@ -123,7 +126,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     batch_parser.add_argument(
         "--output_dataset",
-        help="Name of ouput dataset under configured data directory (default: batch_predictions).",
+        type=str,
+        default="batch_predictions",
+        help="Name of ouput dataset under configured data directory.",
     )
     batch_parser.add_argument(
         "--index_col",
@@ -133,14 +138,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     batch_parser.add_argument(
         "--start_date",
+        type=str,
         help="Inclusive start date (partitioned input).",
     )
     batch_parser.add_argument(
         "--end_date",
+        type=str,
         help="Inclusive end date (partitioned input).",
     )
     batch_parser.add_argument(
         "--timestamp_column",
+        type=str,
         default="reference_date",
         help="Timestamp column for partitioned in-/output.",
     )
@@ -258,30 +266,23 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
 
     if args.command == "train":
-        from .train import main as train_main
+        from .train import run_training_job
 
-        command = [
-            "churn-mlops.train",
-            "--config",
-            args.config,
-            "--split_name",
-            args.split_name,
-        ]
+        training_kwargs = {"config_file": args.config, "split_name": args.split_name}
         if args.experiment_name is not None:
-            command.extend(["--experiment_name", args.experiment_name])
-
-        sys.argv = command
-        train_main()
+            training_kwargs["experiment_name"] = args.experiment_name
+        result = run_training_job(**training_kwargs)
+        logger.info(
+            "Successfully trained %s model: AUC=%.4f",
+            result.classifier_config["model_name"],
+            result.metrics["roc_auc"],
+        )
         return
 
     if args.command == "batch-predict":
         is_csv_input = args.input_csv is not None
-        if is_csv_input and (
-            args.output_csv is None or args.output_dataset is not None
-        ):
-            parser.error(
-                "CSV input requires --output_csv and cannot use --output_dataset."
-            )
+        if is_csv_input and args.output_csv is None:
+            parser.error("CSV input requires --output_csv.")
         if not is_csv_input and args.output_csv is not None:
             parser.error("Partitioned input cannot use --output_csv.")
         if (args.start_date is None) != (args.end_date is None):
@@ -291,25 +292,46 @@ def main(argv: Sequence[str] | None = None) -> None:
         if not is_csv_input and args.index_col is not None:
             parser.error("--index_col can only be used with CSV input.")
 
-        from .batch_predict import main as batch_predict_main
+        from .batch_predict import run_batch_prediction
 
-        command = ["churn-mlops.batch_predict"]
         if is_csv_input:
-            command.extend(["--input_csv", args.input_csv])
-            command.extend(["--output_csv", args.output_csv])
+            from .data import load_raw_data
+
+            input_dir = settings.data_dir / "raw"
+            df = load_raw_data(
+                file_name=args.input_csv,
+                index_col=args.index_col,
+                data_dir=input_dir,
+            )
+            df_pred = run_batch_prediction(df=df)
+
+            output_path = settings.output_dir / args.output_csv
+            settings.output_dir.mkdir(parents=True, exist_ok=True)
+            df_pred.to_csv(output_path)
+            logger.info("Batch prediction output written to '%s'.", output_path)
         else:
-            command.extend(["--input_dataset", args.input_dataset])
-            if args.output_dataset is not None:
-                command.extend(["--output_dataset", args.output_dataset])
-            if args.start_date is not None:
-                command.extend(["--start_date", args.start_date])
-                command.extend(["--end_date", args.end_date])
-            if args.timestamp_column != "reference_date":
-                command.extend(["--timestamp_column", args.timestamp_column])
-        if args.index_col is not None:
-            command.extend(["--index_col", args.index_col])
-        sys.argv = command
-        batch_predict_main()
+            from .data.storage import (
+                read_partitioned_dataset,
+                write_partitioned_dataset,
+            )
+
+            df = read_partitioned_dataset(
+                dataset_name=args.input_dataset,
+                timestamp_column=args.timestamp_column,
+                start=args.start_date,
+                end=args.end_date,
+            )
+            df_pred = run_batch_prediction(df=df)
+            write_partitioned_dataset(
+                df=df_pred,
+                dataset_name=args.output_dataset,
+                timestamp_column=args.timestamp_column,
+                overwrite_partitions=True,
+            )
+            logger.info(
+                "Partitioned batch prediction written to '%s'.",
+                args.output_dataset,
+            )
         return
 
     if args.command == "serve":

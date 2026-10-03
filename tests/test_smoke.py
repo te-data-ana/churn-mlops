@@ -16,13 +16,17 @@ def test_project_package_imports_successfully() -> None:
 def test_package_main_dispatches_train_command(monkeypatch) -> None:
     import churn_mlops
 
-    observed = {}
-
-    def fake_train_main() -> None:
-        observed["argv"] = importlib.sys.argv.copy()
-
+    observed: dict[str, object] = {}
     train_module = importlib.import_module("churn_mlops.train")
-    monkeypatch.setattr(train_module, "main", fake_train_main)
+
+    def fake_run_training_job(**kwargs: object) -> SimpleNamespace:
+        observed["kwargs"] = kwargs
+        return SimpleNamespace(
+            classifier_config={"model_name": "test-model"},
+            metrics={"roc_auc": 0.9},
+        )
+
+    monkeypatch.setattr(train_module, "run_training_job", fake_run_training_job)
 
     churn_mlops.main(
         [
@@ -34,15 +38,11 @@ def test_package_main_dispatches_train_command(monkeypatch) -> None:
         ]
     )
 
-    assert observed["argv"] == [
-        "churn-mlops.train",
-        "--config",
-        "config.yaml",
-        "--split_name",
-        "default",
-        "--experiment_name",
-        "my-exp",
-    ]
+    assert observed["kwargs"] == {
+        "config_file": "config.yaml",
+        "split_name": "default",
+        "experiment_name": "my-exp",
+    }
 
 
 @pytest.mark.smoke
@@ -64,80 +64,6 @@ def test_package_main_prints_help_for_empty_args(capsys) -> None:
     assert "batch-predict" in captured.out
     assert "monitor" in captured.out
     assert "serve" in captured.out
-
-
-@pytest.mark.smoke
-def test_package_main_dispatches_batch_predict(monkeypatch) -> None:
-    import churn_mlops
-
-    observed = {}
-
-    def fake_batch_predict_main() -> None:
-        observed["argv"] = importlib.sys.argv.copy()
-
-    batch_module = importlib.import_module("churn_mlops.batch_predict")
-    monkeypatch.setattr(batch_module, "main", fake_batch_predict_main)
-
-    churn_mlops.main(
-        [
-            "batch-predict",
-            "--input_csv",
-            "input.csv",
-            "--output_csv",
-            "output.csv",
-            "--index_col",
-            "customer_id",
-        ]
-    )
-
-    assert observed["argv"] == [
-        "churn-mlops.batch_predict",
-        "--input_csv",
-        "input.csv",
-        "--output_csv",
-        "output.csv",
-        "--index_col",
-        "customer_id",
-    ]
-
-
-@pytest.mark.smoke
-def test_package_main_dispatches_partitioned_batch_predict(monkeypatch) -> None:
-    import churn_mlops
-
-    observed = {}
-
-    def fake_batch_predict_main() -> None:
-        observed["argv"] = importlib.sys.argv.copy()
-
-    batch_module = importlib.import_module("churn_mlops.batch_predict")
-    monkeypatch.setattr(batch_module, "main", fake_batch_predict_main)
-
-    churn_mlops.main(
-        [
-            "batch-predict",
-            "--input_dataset",
-            "partitioned",
-            "--output_dataset",
-            "scored",
-            "--start_date",
-            "2026-01-01",
-            "--end_date",
-            "2026-06-30",
-        ]
-    )
-
-    assert observed["argv"] == [
-        "churn-mlops.batch_predict",
-        "--input_dataset",
-        "partitioned",
-        "--output_dataset",
-        "scored",
-        "--start_date",
-        "2026-01-01",
-        "--end_date",
-        "2026-06-30",
-    ]
 
 
 @pytest.mark.smoke
