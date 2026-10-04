@@ -1,0 +1,66 @@
+stages:
+  add_reference_dates:
+    cmd: >-
+      uv run python -m churn_mlops.data.manipulation
+      --input_csv customer_churn_dataset-training.csv
+      --output_csv training.csv
+      --start_date 2024-01-01
+      --end_date 2025-12-01
+    deps:
+      - data/raw/customer_churn_dataset-training.csv
+      - src/churn_mlops/config
+      - src/churn_mlops/data
+      - pyproject.toml
+      - uv.lock
+    outs:
+      - data/raw/training.csv
+  add_inference_reference_dates:
+    cmd: >-
+      uv run python -m churn_mlops.data.manipulation
+      --input_csv customer_churn_dataset-inference.csv
+      --output_csv inference.csv
+      --start_date 2026-01-01
+      --end_date 2026-06-01
+    deps:
+      - data/raw/customer_churn_dataset-inference.csv
+      - src/churn_mlops/config
+      - src/churn_mlops/data
+      - pyproject.toml
+      - uv.lock
+    outs:
+      - data/raw/inference.csv
+  prepare_partitioned_data:
+    cmd: >-
+      uv run churn-mlops prepare-data
+      --input_csv training.csv
+      --timestamp_column reference_date &&
+      uv run churn-mlops prepare-data
+      --input_csv inference.csv
+      --timestamp_column reference_date
+    deps:
+      - data/raw/training.csv
+      - data/raw/inference.csv
+      - src/churn_mlops/config
+      - src/churn_mlops/data
+      - pyproject.toml
+      - uv.lock
+    outs:
+      - data/partitioned
+  create_baseline_split:
+    cmd: >-
+      uv run churn-mlops create-split
+      --dataset_name partitioned
+      --timestamp_column reference_date
+      --start_date 2024-01-01
+      --split_date 2026-01-01
+      --end_date 2026-06-30
+      --split_name baseline
+    deps:
+      - data/partitioned
+      - src/churn_mlops/config
+      - src/churn_mlops/data
+      - pyproject.toml
+      - uv.lock
+    outs:
+      - data/splits/baseline_test.parquet
+      - data/splits/baseline_train.parquet

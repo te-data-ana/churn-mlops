@@ -220,6 +220,45 @@ uv run churn-mlops create-split \
 This CLI workflow is separate from the date-enrichment helper above. The split
 outputs are Parquet files consumed directly by the `train` command.
 
+### Reproduce data preparation with DVC
+
+DVC versions the local training and inference inputs and the outputs of the
+existing data preparation workflow. The pipeline assigns reference dates to
+both inputs, creates the combined month-partitioned Parquet dataset, and writes
+the baseline train/test split. These stages use the same project commands
+described above. Apart from DVC MLflow owns experiment tracking and model
+artifacts.
+
+DVC is included in the `uv` development dependencies. After `uv sync`, first
+make sure the original training and inference CSVs are present under `data/raw`.
+To start tracking these local inputs with DVC, run this once and commit the
+generated `.dvc` pointers, not the CSV files:
+
+```bash
+uv run dvc add \
+	data/raw/customer_churn_dataset-training.csv \
+	data/raw/customer_churn_dataset-inference.csv
+```
+
+Reproduce the data pipeline and check its state:
+
+```bash
+uv run dvc repro
+uv run dvc status
+```
+
+DVC records stage dependencies and output hashes in the Git-tracked
+`dvc.yaml`/`dvc.lock` files. Use `uv run dvc checkout` to restore cached
+inputs/outputs for the checked-out Git revision when they are available in
+your local DVC cache. If outputs are missing but the source CSV and cache are
+available, `uv run dvc repro` can recreate them.
+
+This setup intentionally has no DVC remote. Data contents stay in the local
+DVC cache and working tree; Git contains only DVC metadata. The cache is not a
+backup and is not available to collaborators or GitHub Actions. A fresh clone
+must be supplied both source CSVs locally, and cannot restore cached data
+unless it is recomputed or a remote is configured later.
+
 ### Train a model
 
 Training loads and validates the prepared train/test Parquet files, builds a
