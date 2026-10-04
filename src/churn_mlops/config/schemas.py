@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -36,6 +36,16 @@ class RegistryConfig:
 
 
 @dataclass(frozen=True)
+class TuningConfig:
+    enabled: bool = False
+    n_trials: int = 50
+    n_splits: int = 4
+    time_column: str = "reference_date"
+    metric: str = "roc_auc"
+    random_state: int = 26
+
+
+@dataclass(frozen=True)
 class TrainingConfig:
     data: DataConfig
     feature_builder: FeatureBuilderConfig
@@ -43,3 +53,4 @@ class TrainingConfig:
     model: ClassifierConfig
     evaluation: EvaluationConfig
     registry: RegistryConfig
+    tuning: TuningConfig = field(default_factory=TuningConfig)

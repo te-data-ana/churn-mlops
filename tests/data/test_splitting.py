@@ -85,6 +85,28 @@ def test_load_and_validate_training_splits_reads_and_prepares_parquet_files(
 
 
 @pytest.mark.unit
+def test_load_and_validate_training_splits_can_preserve_temporal_column(
+    data_dir: Path,
+    generated_training_df: pd.DataFrame,
+) -> None:
+    split_dir = data_dir / "temporal-splits"
+    split_dir.mkdir()
+    df = generated_training_df.copy()
+    df["reference_date"] = pd.date_range("2026-01-01", periods=len(df))
+    df.iloc[:6].to_parquet(split_dir / "temporal_train.parquet", index=False)
+    df.iloc[6:].to_parquet(split_dir / "temporal_test.parquet", index=False)
+
+    train_df, test_df = splitting.load_and_validate_training_splits(
+        split_name="temporal",
+        split_dir=split_dir,
+        preserve_time_column="reference_date",
+    )
+
+    assert "reference_date" in train_df.columns
+    assert "reference_date" in test_df.columns
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("start_date", "split_date", "end_date", "message"),
     [

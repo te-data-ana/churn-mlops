@@ -15,6 +15,7 @@ dependencies = [
     "matplotlib>=3.11.1",
     "mlflow>=3.16.0",
     "nannyml>=0.13.1",
+    "optuna>=5.0.0",
     "pandas>=3.0.5",
     "pandera>=0.33.1",
     "pydantic-settings>=2.15.0",
