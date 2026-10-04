@@ -19,6 +19,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         argv: Optional argument list to parse. When omitted, the process argv is
             used.
     """
+
+    configure_logging()
+
     settings = ServingSettings()
 
     parser = argparse.ArgumentParser(
@@ -460,5 +463,4 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    configure_logging()
     main()
