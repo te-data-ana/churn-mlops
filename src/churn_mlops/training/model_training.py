@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -23,6 +24,8 @@ def train_model(
     config: TrainingConfig,
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
+    model_params_override: Mapping[str, Any] | None = None,
+    exclude_columns: Sequence[str] = (),
 ) -> TrainingResult:
     """Fit and evaluate a configured classifier pipeline.
 
@@ -31,6 +34,10 @@ def train_model(
             MLflow registration settings.
         train_df: Validated training DataFrame containing features and target.
         test_df: Validated test DataFrame containing features and target.
+        model_params_override: Optional model parameters overriding configured
+            values for this fit.
+        exclude_columns: Optional non-feature columns to exclude from fitting
+            and evaluation, such as the timestamp used for temporal CV.
 
     Returns:
         TrainingResult containing the fitted pipeline, evaluation metrics,
@@ -43,9 +50,10 @@ def train_model(
     target_col = config.data.target_column
 
     try:
-        X_train = train_df.drop(columns=[target_col])
+        excluded = [target_col, *exclude_columns]
+        X_train = train_df.drop(columns=excluded, errors="ignore")
         y_train = train_df[target_col]
-        X_test = test_df.drop(columns=[target_col])
+        X_test = test_df.drop(columns=excluded, errors="ignore")
         y_test = test_df[target_col]
         logger.info(
             "Starting training using prepared train/test split with %d"
@@ -57,7 +65,9 @@ def train_model(
 
         classifier, classifier_config = create_model(
             model_alias=config.model.classifier,
-            model_params=config.model.classifier_params,
+            model_params=(
+                config.model.classifier_params | (model_params_override or {})
+            ),
         )
         logger.info(
             "Using classifier '%s' with params %s.",

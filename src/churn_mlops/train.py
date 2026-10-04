@@ -1,3 +1,4 @@
+import json
 import logging
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from churn_mlops.config import (
     configure_logging,
     load_config,
 )
+from churn_mlops.config.schemas import TuningConfig
 from churn_mlops.config.settings import RuntimeSettings
 from churn_mlops.data.splitting import load_and_validate_training_splits
 from churn_mlops.tracking import (
@@ -18,7 +20,11 @@ from churn_mlops.tracking import (
     log_model_card,
     setup_local_experiment,
 )
-from churn_mlops.training import TrainingResult, train_model
+from churn_mlops.training import (
+    TrainingResult,
+    optimize_hyperparameters,
+    train_model,
+)
 
 
 def run_training_job(
@@ -98,14 +104,57 @@ def run_training_job(
         logger.info("Tracking URI: %s", mlflow.get_tracking_uri())
         logger.info("Experiment metadata: %s", experiment)
 
-        train_df, test_df = load_and_validate_training_splits(
-            split_name=split_name,
-            split_dir=resolved_split_dir,
-        )
+        tuning_config = getattr(config, "tuning", TuningConfig())
+        if tuning_config.enabled:
+            train_df, test_df = load_and_validate_training_splits(
+                split_name=split_name,
+                split_dir=resolved_split_dir,
+                preserve_time_column=tuning_config.time_column,
+            )
+        else:
+            train_df, test_df = load_and_validate_training_splits(
+                split_name=split_name,
+                split_dir=resolved_split_dir,
+            )
 
         # Start an MLflow run for the training job and log the results
         with mlflow.start_run(experiment_id=experiment_id, run_name=run_name):
-            result = train_model(config, train_df, test_df)
+            if tuning_config.enabled:
+                tuning_result = optimize_hyperparameters(
+                    config=config,
+                    train_df=train_df,
+                )
+                mlflow.log_params(
+                    {
+                        "tuning_enabled": "true",
+                        "tuning_n_trials": tuning_result.n_trials,
+                        "tuning_n_splits": tuning_result.n_splits,
+                        "tuning_time_column": tuning_result.time_column,
+                        "tuning_metric": tuning_result.metric,
+                        "tuning_random_state": tuning_result.random_state,
+                        "tuning_best_params": json.dumps(
+                            tuning_result.best_params,
+                            sort_keys=True,
+                        ),
+                    }
+                )
+                mlflow.log_metric(
+                    f"tuning_cv_{tuning_result.metric}",
+                    tuning_result.best_score,
+                )
+                result = train_model(
+                    config=config,
+                    train_df=train_df,
+                    test_df=test_df,
+                    model_params_override=tuning_result.best_params,
+                    exclude_columns=[tuning_result.time_column],
+                )
+            else:
+                result = train_model(
+                    config=config,
+                    train_df=train_df,
+                    test_df=test_df,
+                )
             model_info = log_experiment_result(
                 result=result,
                 config=config,

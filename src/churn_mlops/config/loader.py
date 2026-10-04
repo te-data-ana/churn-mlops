@@ -10,6 +10,7 @@ from churn_mlops.config.schemas import (
     PreprocessingConfig,
     RegistryConfig,
     TrainingConfig,
+    TuningConfig,
 )
 from churn_mlops.config.settings import RuntimeSettings
 
@@ -47,4 +48,5 @@ def load_config(
         model=ClassifierConfig(**raw["model"]),
         evaluation=EvaluationConfig(**raw["evaluation"]),
         registry=RegistryConfig(**raw["registry"]),
+        tuning=TuningConfig(**raw.get("tuning", {})),
     ), config_file_path

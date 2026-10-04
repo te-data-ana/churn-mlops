@@ -14,4 +14,5 @@ def test_load_config_returns_config_and_resolved_path(sample_config_yaml) -> Non
     )
 
     assert config.data.target_column == "churn"
+    assert not config.tuning.enabled
     assert path == sample_config_yaml

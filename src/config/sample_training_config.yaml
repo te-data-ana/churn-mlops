@@ -19,6 +19,14 @@ model:
 evaluation:
   threshold: 0.5
 
+tuning:
+  enabled: false
+  n_trials: 50
+  n_splits: 4
+  time_column: reference_date
+  metric: roc_auc
+  random_state: 26
+
 registry:
   register_model: true
   registry_params:

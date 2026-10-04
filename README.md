@@ -278,6 +278,33 @@ Training reads `data/splits/{split_name}_train.parquet` and
 matching the default output from `create-split`. Configuration filenames are
 resolved under `src/config` by default.
 
+Optuna tuning is disabled by default. To enable it, select a classifier with a
+search space in the model catalog (for example `rf`) and add this section to
+its YAML configuration:
+
+```yaml
+tuning:
+  enabled: true
+  n_trials: 50
+  n_splits: 4
+  time_column: reference_date
+  metric: roc_auc
+  random_state: 26
+```
+
+The catalog defines the parameter ranges for each tunable classifier. Tuning
+uses deterministic expanding-window cross-validation ordered by the configured
+timestamp (currently `reference_date`), keeping rows with the same timestamp
+together. Each fold fits its own preprocessing/model pipeline. The timestamp is
+used only for fold ordering, not as a model feature. The configured training
+split must retain that timestamp and contain enough distinct dates and both
+target classes in each fold. Tuning only sees the training split. After
+selecting the best parameters, the workflow fits once on the full training
+split and evaluates once on the untouched test split. The final MLflow run
+records the best parameters, CV metric, trial/fold settings, timestamp column,
+and random seed. The `dc` dummy-classifier baseline has no search space and
+cannot be tuned.
+
 ### Generate batch predictions
 
 Batch inference validates input data, loads the configured registered model,
@@ -616,7 +643,8 @@ Training is controlled by YAML files in [src/config](src/config). A configuratio
 - `feature_builder`: engineered-feature parameters;
 - `preprocessing`: numeric and categorical imputation strategies;
 - `model`: classifier alias and estimator parameters;
-- `evaluation`: prediction threshold; and
+- `evaluation`: prediction threshold;
+- `tuning`: optional Optuna search settings (disabled by default); and
 - `registry`: model registration and promotion settings.
 
 The repository includes configurations files for `dc`, `dt`, `hgb`, `lr`, `nb`, and `rf`, along with a [sample_training_config.yaml](src/config/sample_training_config.yaml).

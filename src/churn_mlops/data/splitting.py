@@ -24,6 +24,7 @@ class SplitMetadata(TypedDict):
 def load_and_validate_training_splits(
     split_name: str = "default",
     split_dir: Path | None = None,
+    preserve_time_column: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load and validate the prepared train and test Parquet files.
 
@@ -31,6 +32,8 @@ def load_and_validate_training_splits(
         split_name: Prefix shared by the train and test split filenames.
         split_dir: Directory containing the split files. Defaults to the
             configured ``data/splits`` directory.
+        preserve_time_column: Optional timestamp column to retain for temporal
+            cross-validation. ``reference_date`` is dropped by default.
 
     Returns:
         Validated training and test DataFrames, in that order.
@@ -48,7 +51,10 @@ def load_and_validate_training_splits(
         logger.info("Loading %s split from '%s'.", split, split_file)
         df = pd.read_parquet(split_file)
         df.columns = normalize_strings(df.columns)
-        df.drop(columns=["reference_date"], errors="ignore", inplace=True)
+        columns_to_drop = (
+            ["reference_date"] if preserve_time_column != "reference_date" else []
+        )
+        df.drop(columns=columns_to_drop, errors="ignore", inplace=True)
         split_data[split] = validate_data(df.convert_dtypes())
 
     return split_data["train"], split_data["test"]
