@@ -1,4 +1,6 @@
 import importlib
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,13 +16,17 @@ def test_project_package_imports_successfully() -> None:
 def test_package_main_dispatches_train_command(monkeypatch) -> None:
     import churn_mlops
 
-    observed = {}
-
-    def fake_train_main() -> None:
-        observed["argv"] = importlib.sys.argv.copy()
-
+    observed: dict[str, object] = {}
     train_module = importlib.import_module("churn_mlops.train")
-    monkeypatch.setattr(train_module, "main", fake_train_main)
+
+    def fake_run_training_job(**kwargs: object) -> SimpleNamespace:
+        observed["kwargs"] = kwargs
+        return SimpleNamespace(
+            classifier_config={"model_name": "test-model"},
+            metrics={"roc_auc": 0.9},
+        )
+
+    monkeypatch.setattr(train_module, "run_training_job", fake_run_training_job)
 
     churn_mlops.main(
         [
@@ -32,13 +38,11 @@ def test_package_main_dispatches_train_command(monkeypatch) -> None:
         ]
     )
 
-    assert observed["argv"] == [
-        "churn-mlops.train",
-        "--config",
-        "config.yaml",
-        "--experiment_name",
-        "my-exp",
-    ]
+    assert observed["kwargs"] == {
+        "config_file": "config.yaml",
+        "split_name": "default",
+        "experiment_name": "my-exp",
+    }
 
 
 @pytest.mark.smoke
@@ -63,51 +67,16 @@ def test_package_main_prints_help_for_empty_args(capsys) -> None:
 
 
 @pytest.mark.smoke
-def test_package_main_dispatches_batch_predict(monkeypatch) -> None:
-    import churn_mlops
-
-    observed = {}
-
-    def fake_batch_predict_main() -> None:
-        observed["argv"] = importlib.sys.argv.copy()
-
-    batch_module = importlib.import_module("churn_mlops.batch_predict")
-    monkeypatch.setattr(batch_module, "main", fake_batch_predict_main)
-
-    churn_mlops.main(
-        [
-            "batch-predict",
-            "--input_csv",
-            "input.csv",
-            "--output_csv",
-            "output.csv",
-            "--index_col",
-            "customer_id",
-        ]
-    )
-
-    assert observed["argv"] == [
-        "churn-mlops.batch_predict",
-        "--input_csv",
-        "input.csv",
-        "--output_csv",
-        "output.csv",
-        "--index_col",
-        "customer_id",
-    ]
-
-
-@pytest.mark.smoke
 def test_package_main_dispatches_monitor_command(monkeypatch) -> None:
     import churn_mlops
 
-    observed = {}
+    observed: dict[str, object] = {}
 
-    def fake_monitoring_main() -> None:
-        observed["argv"] = importlib.sys.argv.copy()
+    def fake_run_monitoring(**kwargs: object) -> None:
+        observed.update(kwargs)
 
     monitoring_module = importlib.import_module("churn_mlops.monitoring.core")
-    monkeypatch.setattr(monitoring_module, "main", fake_monitoring_main)
+    monkeypatch.setattr(monitoring_module, "run_monitoring", fake_run_monitoring)
 
     churn_mlops.main(
         [
@@ -121,15 +90,112 @@ def test_package_main_dispatches_monitor_command(monkeypatch) -> None:
         ]
     )
 
-    assert observed["argv"] == [
-        "churn-mlops.monitoring",
-        "--reference_csv",
-        "reference.csv",
-        "--analysis_csv",
-        "analysis.csv",
-        "--output_dir",
-        "reports",
+    assert observed == {
+        "reference_csv": Path("reference.csv"),
+        "analysis_csv": Path("analysis.csv"),
+        "prediction_log": None,
+        "error_log": None,
+        "output_dir": Path("reports"),
+    }
+
+
+@pytest.mark.smoke
+def test_package_main_builds_report_from_partitioned_datasets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import churn_mlops
+    from churn_mlops import data
+    from churn_mlops.monitoring import core
+
+    datasets = {
+        "partitioned": object(),
+        "api_predictions": object(),
+        "api_errors": object(),
+    }
+    loaded: list[tuple[str, str]] = []
+    observed: dict[str, object] = {}
+
+    def fake_read_partitioned_dataset(
+        dataset_name: str, timestamp_column: str
+    ) -> object:
+        loaded.append((dataset_name, timestamp_column))
+        return datasets[dataset_name]
+
+    def fake_build_monitoring_report(**kwargs: object) -> None:
+        observed.update(kwargs)
+
+    monkeypatch.setattr(data, "read_partitioned_dataset", fake_read_partitioned_dataset)
+    monkeypatch.setattr(core, "build_monitoring_report", fake_build_monitoring_report)
+
+    churn_mlops.main(
+        [
+            "monitor",
+            "--reference_dataset",
+            "partitioned",
+            "--analysis_dataset",
+            "api_predictions",
+            "--error_dataset",
+            "api_errors",
+            "--output_dir",
+            "reports",
+        ]
+    )
+
+    assert loaded == [
+        ("partitioned", "reference_date"),
+        ("api_predictions", "reference_date"),
+        ("api_errors", "reference_date"),
     ]
+    assert observed == {
+        "reference": datasets["partitioned"],
+        "analysis": datasets["api_predictions"],
+        "source_reference": "batch",
+        "source_analysis": "api",
+        "errors": datasets["api_errors"],
+        "output_dir": Path("reports"),
+    }
+
+
+@pytest.mark.smoke
+def test_package_main_dispatches_api_file_monitoring_with_configured_error_log(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import churn_mlops
+    from churn_mlops.monitoring import core
+
+    settings = SimpleNamespace(
+        output_dir=tmp_path / "reports",
+        prediction_log_path=tmp_path / "predictions.jsonl",
+        error_log_path=tmp_path / "errors.jsonl",
+        api_host="127.0.0.1",
+        api_port=8000,
+    )
+    observed: dict[str, object] = {}
+
+    def fake_run_monitoring(**kwargs: object) -> None:
+        observed.update(kwargs)
+
+    monkeypatch.setattr(churn_mlops, "ServingSettings", lambda: settings)
+    monkeypatch.setattr(core, "run_monitoring", fake_run_monitoring)
+
+    churn_mlops.main(
+        [
+            "monitor",
+            "--reference_csv",
+            "reference.csv",
+            "--prediction_log",
+            "custom_predictions.jsonl",
+        ]
+    )
+
+    assert observed == {
+        "reference_csv": Path("reference.csv"),
+        "analysis_csv": None,
+        "prediction_log": Path("custom_predictions.jsonl"),
+        "error_log": settings.error_log_path,
+        "output_dir": settings.output_dir,
+    }
 
 
 @pytest.mark.smoke
@@ -156,4 +222,140 @@ def test_package_main_dispatches_serve_command(monkeypatch) -> None:
         "host": "0.0.0.0",
         "port": 9000,
         "reload": True,
+    }
+
+
+@pytest.mark.smoke
+def test_package_main_dispatches_prepare_data(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import churn_mlops
+    from churn_mlops import data
+    from churn_mlops.data import storage
+
+    raw_data = object()
+    validated_data = object()
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(
+        churn_mlops,
+        "ServingSettings",
+        lambda: SimpleNamespace(
+            data_dir=tmp_path,
+            api_host="127.0.0.1",
+            api_port=8000,
+        ),
+    )
+
+    def fake_load_raw_data(**kwargs: object) -> object:
+        observed["load"] = kwargs
+        return raw_data
+
+    def fake_validate_data(df: object) -> object:
+        observed["validated_input"] = df
+        return validated_data
+
+    def fake_write_partitioned_dataset(**kwargs: object) -> None:
+        observed["write"] = kwargs
+
+    monkeypatch.setattr(data, "load_raw_data", fake_load_raw_data)
+    monkeypatch.setattr(data, "validate_data", fake_validate_data)
+    monkeypatch.setattr(
+        storage,
+        "write_partitioned_dataset",
+        fake_write_partitioned_dataset,
+    )
+
+    churn_mlops.main(["prepare-data", "--input_csv", "training.csv"])
+
+    assert observed == {
+        "load": {"file_name": "training.csv", "data_dir": tmp_path / "raw"},
+        "validated_input": raw_data,
+        "write": {
+            "df": validated_data,
+            "dataset_name": "partitioned",
+            "timestamp_column": "reference_date",
+            "overwrite_partitions": True,
+        },
+    }
+
+
+@pytest.mark.smoke
+def test_package_main_dispatches_create_split(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import churn_mlops
+    from churn_mlops.data import splitting
+
+    observed: dict[str, object] = {}
+    metadata = {"train_rows": 2, "test_rows": 1}
+
+    def fake_create_time_based_split(**kwargs: object) -> dict[str, int]:
+        observed.update(kwargs)
+        return metadata
+
+    monkeypatch.setattr(
+        splitting,
+        "create_time_based_split",
+        fake_create_time_based_split,
+    )
+
+    churn_mlops.main(
+        [
+            "create-split",
+            "--dataset_name",
+            "partitioned",
+            "--start_date",
+            "2026-01-01",
+            "--split_date",
+            "2026-04-01",
+            "--end_date",
+            "2026-06-30",
+            "--split_name",
+            "baseline",
+        ]
+    )
+
+    assert observed == {
+        "dataset_name": "partitioned",
+        "timestamp_column": "reference_date",
+        "start_date": "2026-01-01",
+        "split_date": "2026-04-01",
+        "end_date": "2026-06-30",
+        "split_name": "baseline",
+    }
+    assert capsys.readouterr().out.strip() == str(metadata)
+
+
+@pytest.mark.smoke
+@pytest.mark.parametrize(
+    ("command", "function_name", "dataset_name"),
+    [
+        ("ingest-prediction-logs", "ingest_prediction_logs", "api_predictions"),
+        ("ingest-error-logs", "ingest_error_logs", "api_errors"),
+    ],
+)
+def test_package_main_dispatches_log_ingestion(
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    function_name: str,
+    dataset_name: str,
+) -> None:
+    import churn_mlops
+
+    ingestion = importlib.import_module("churn_mlops.data.ingestion")
+    observed: dict[str, str] = {}
+
+    def fake_ingest(dataset_name: str, timestamp_column: str) -> None:
+        observed["dataset_name"] = dataset_name
+        observed["timestamp_column"] = timestamp_column
+
+    monkeypatch.setattr(ingestion, function_name, fake_ingest)
+
+    churn_mlops.main([command])
+
+    assert observed == {
+        "dataset_name": dataset_name,
+        "timestamp_column": "reference_date",
     }

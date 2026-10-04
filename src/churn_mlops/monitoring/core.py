@@ -10,8 +10,8 @@ import nannyml as nml
 import pandas as pd
 from sklearn.metrics import precision_score, recall_score, roc_auc_score
 
-from churn_mlops.config import RuntimeSettings, ServingSettings, configure_logging
-from churn_mlops.data import normalize_strings, read_jsonl_prediction_log, validate_data
+from churn_mlops.config import RuntimeSettings
+from churn_mlops.data import normalize_strings, read_jsonl_log, validate_data
 from churn_mlops.serving.schemas import InputFeatures
 
 logger = logging.getLogger(__name__)
@@ -83,7 +83,7 @@ def _event_log_to_frame(path: Path | None, event: str) -> pd.DataFrame:
     if event == "prediction" and not path.exists():
         raise ValueError(f"{event} log path '{path}' does not exist.")
 
-    frame = read_jsonl_prediction_log(jsonl_path=path)
+    frame = read_jsonl_log(jsonl_path=path)
 
     if frame.empty:
         logger.warning(f"{event} log '{path}' does not contain any (valid) records.")
@@ -93,14 +93,12 @@ def _event_log_to_frame(path: Path | None, event: str) -> pd.DataFrame:
         if not all_records_prediction_events:
             raise ValueError(f"Log '{path}' contains events other than {event}.")
 
-    required = {"timestamp_utc", MODEL_VERSION_COLUMN, "latency_ms"}
+    required = {TIMESTAMP_COLUMN, MODEL_VERSION_COLUMN, "latency_ms"}
     missing = required.difference(frame.columns)
     if missing:
         raise ValueError(
             f"{event} event is missing columns: {', '.join(sorted(missing))}."
         )
-
-    frame.rename(columns={"timestamp_utc": TIMESTAMP_COLUMN}, inplace=True)
 
     frame[TIMESTAMP_COLUMN] = pd.to_datetime(
         frame[TIMESTAMP_COLUMN], utc=True, errors="raise"
@@ -781,41 +779,3 @@ def run_monitoring(
             errors=_event_log_to_frame(path=error_log, event="prediction_error"),
             output_dir=report_dir,
         )
-
-
-def main() -> None:
-    """Parse CLI arguments and run the monitoring workflow.
-
-    This command line entry point accepts either a scored CSV file or an API log
-    source and writes the resulting monitoring report to disk.
-    """
-    import argparse
-
-    settings = ServingSettings()
-    parser = argparse.ArgumentParser(description="Monitor batch or API predictions.")
-    parser.add_argument("--reference_csv", required=True, type=Path)
-    source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--analysis_csv", type=Path)
-    source.add_argument("--prediction_log", type=Path)
-    source.add_argument("--api", action="store_true")
-    parser.add_argument("--error_log", type=Path)
-    parser.add_argument("--output_dir", type=Path, default=settings.output_dir)
-    args = parser.parse_args()
-
-    prediction_log = None
-    error_log = None
-    if args.api or args.prediction_log is not None:
-        prediction_log = args.prediction_log or settings.prediction_log_path
-        error_log = args.error_log or settings.error_log_path
-    run_monitoring(
-        reference_csv=args.reference_csv,
-        analysis_csv=args.analysis_csv,
-        prediction_log=prediction_log,
-        error_log=error_log,
-        output_dir=args.output_dir,
-    )
-
-
-if __name__ == "__main__":
-    configure_logging()
-    main()

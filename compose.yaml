@@ -18,7 +18,7 @@ services:
       REQUEST_ID_HEADER: ${REQUEST_ID_HEADER:-X-Request-ID}
       LOG_FEATURES: ${LOG_FEATURES:-True}
       ARTIFACT_DIR: ${ARTIFACT_DIR:-/app/artifacts}
-      RAW_DATA_DIR: ${RAW_DATA_DIR:-/app/data/raw}
+      DATA_DIR: ${DATA_DIR:-/app/data}
       LOGGING_DIR: ${LOGGING_DIR:-/app/logs}
       OUTPUT_DIR: ${OUTPUT_DIR:-/app/output}
       CONFIG_DIR: ${CONFIG_DIR:-/app/src/config}
@@ -27,7 +27,7 @@ services:
       - "${API_PORT:-8000}:8000"
     volumes:
       - ./artifacts:/app/artifacts
-      - ./data/raw:/app/data/raw:ro
+      - ./data:/app/data
       - ./logs:/app/logs
       - ./output:/app/output
       - ./src/config:/app/src/config:ro

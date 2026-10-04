@@ -6,6 +6,6 @@ until curl -s http://127.0.0.1:8000/health > /dev/null; do
     sleep 1
 done
 
-uv run python -m churn_mlops.serving.serve_samples --sample_size 5000
+uv run python -m churn_mlops.serving.serve_samples --sample_size 5000 --reference_date 2026-09-01T00:00:00
 
 kill $API_PID

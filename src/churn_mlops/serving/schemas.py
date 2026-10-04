@@ -32,7 +32,7 @@ class BaseInferenceEvent(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     request_id: str
-    timestamp_utc: datetime
+    reference_date: datetime
     latency_ms: float = Field(ge=0)
 
     model_name: str

@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pandas as pd
-from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 
 from churn_mlops.config.schemas import TrainingConfig
@@ -20,49 +19,40 @@ class TrainingResult:
     metadata: dict[str, Any]
 
 
-def train_model(config: TrainingConfig, df: pd.DataFrame) -> TrainingResult:
+def train_model(
+    config: TrainingConfig,
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+) -> TrainingResult:
     """Fit and evaluate a configured classifier pipeline.
 
     Args:
         config: Training, feature, preprocessing, model, evaluation and
             MLflow registration settings.
-        df: Validated DataFrame containing features and the configured target.
+        train_df: Validated training DataFrame containing features and target.
+        test_df: Validated test DataFrame containing features and target.
 
     Returns:
         TrainingResult containing the fitted pipeline, evaluation metrics,
         effective classifier configuration, and feature metadata.
 
     Raises:
-        ValueError: If the configured classifier alias is unknown or the data
-            cannot be split or evaluated by scikit-learn.
+        ValueError: If the configured classifier alias is unknown.
     """
     logger = logging.getLogger(__name__)
     target_col = config.data.target_column
-    test_size = config.data.test_size
-    random_state = config.data.random_state
 
     try:
-        # Features and target need to be separated for training and evaluation
-        X, y = df.drop(columns=[target_col]), df[target_col]
+        X_train = train_df.drop(columns=[target_col])
+        y_train = train_df[target_col]
+        X_test = test_df.drop(columns=[target_col])
+        y_test = test_df[target_col]
         logger.info(
-            "Starting training with %d rows, target '%s', and test_size %.3f.",
-            len(df),
+            "Starting training using prepared train/test split with %d"
+            "train rows and %d test rows for target '%s'.",
+            len(train_df),
+            len(test_df),
             target_col,
-            test_size,
-        )
-
-        # A stratified split produces test data fit for model evaluation and promotion decisions
-        X_train, X_test, y_train, y_test = train_test_split(
-            X,
-            y,
-            test_size=test_size,
-            random_state=random_state,
-            stratify=y,
-        )
-        logger.info(
-            "Train/test split complete: %d rows train, %d rows test.",
-            len(X_train),
-            len(X_test),
         )
 
         classifier, classifier_config = create_model(
@@ -112,10 +102,10 @@ def train_model(config: TrainingConfig, df: pd.DataFrame) -> TrainingResult:
         )
         metadata = {
             "training_config": config,
-            "train_rows": len(X_train),
-            "test_rows": len(X_test),
+            "train_rows": len(train_df),
+            "test_rows": len(test_df),
             "feature_count": len(feature_names_out),
-            "feature_names_in": list(X.columns),
+            "feature_names_in": list(X_train.columns),
             "feature_names_out": feature_names_out,
             "timestamp": datetime.now(timezone.utc).isoformat(),  # noqa: UP017
         }

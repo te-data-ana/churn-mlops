@@ -1,6 +1,6 @@
 [project]
 name = "churn-mlops"
-version = "0.2.0"
+version = "0.3.0"
 description = "MLops project based on churn propensity use case, to evolve and demonstrate my ML engineering skills"
 readme = "README.md"
 # fixing to earlier verison, as required packages are not compatible with newer versions
@@ -36,6 +36,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "detect-secrets>=1.5.0",
+    "dvc>=3.67.1",
     "pre-commit>=4.6.2",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",

@@ -1,7 +1,6 @@
 # from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +41,7 @@ class PredictionLogger:
 
         event = PredictionEvent(
             request_id=request_id,
-            timestamp_utc=self._timestamp(),
+            reference_date=prediction.reference_date,
             latency_ms=latency_ms,
             model_name=prediction.metadata.model_name,
             model_alias=prediction.metadata.model_alias,
@@ -76,7 +75,7 @@ class PredictionLogger:
 
         event = PredictionErrorEvent(
             request_id=request_id,
-            timestamp_utc=self._timestamp(),
+            reference_date=predictor._timestamp(),
             latency_ms=latency_ms,
             model_name=predictor.metadata.model_name,
             model_alias=predictor.metadata.model_alias,
@@ -101,6 +100,6 @@ class PredictionLogger:
             json.dump(record, f, ensure_ascii=False)
             f.write("\n")
 
-    @staticmethod
-    def _timestamp() -> datetime:
-        return datetime.now(UTC)
+    # @staticmethod
+    # def _timestamp() -> datetime:
+    #     return datetime.now(UTC)

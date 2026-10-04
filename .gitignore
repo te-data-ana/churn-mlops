@@ -11,7 +11,7 @@ __pycache__/
 .mypy_cache/
 
 # Testing/Local/Experimentation
-.coverage
+.coverage*
 htmlcov/
 scratch/
 output/
@@ -33,7 +33,9 @@ dist/
 *.egg-info/
 
 # Data
-data/*
+*.csv
+*.parquet
+!*.dvc
 
 # MLflow
 artifacts/

@@ -1,7 +1,5 @@
 data:
   target_column: churn
-  test_size: 0.3
-  random_state: 26
 
 feature_builder:
   feature_params:

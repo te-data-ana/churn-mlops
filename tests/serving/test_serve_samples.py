@@ -180,6 +180,7 @@ def test_serve_samples_calls_dependencies(
     predict_samples_mock.assert_called_once_with(
         df=sample_df,
         settings=settings,
+        reference_date=None,
     )
     save_predictions_mock.assert_called_once_with(
         df=prediction_df,
@@ -196,8 +197,10 @@ def test_main_uses_supplied_random_state(
         argparse.ArgumentParser,
         "parse_args",
         lambda self: argparse.Namespace(
-            sample_size="10",
+            sample_size=10,
             random_state="42",
+            reference_date=None,
+            drop_columns=None,
         ),
     )
 
@@ -213,3 +216,5 @@ def test_main_uses_supplied_random_state(
 
     assert called["sample_size"] == 10
     assert called["random_state"] == 42
+    assert called["reference_date"] == None
+    assert called["drop_columns"] == None

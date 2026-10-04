@@ -26,6 +26,7 @@ class DataSchema(pa.DataFrameModel):
 
     class Config:
         coerce = True
+        strict = "filter"
 
     @pa.check("age")
     @classmethod

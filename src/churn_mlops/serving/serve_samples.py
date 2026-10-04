@@ -1,5 +1,6 @@
 import argparse
 import random
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -34,7 +35,7 @@ def load_sample_data(
     df = load_raw_data(
         file_name="inference.csv",
         index_col="customerid",
-        data_dir=settings.raw_data_dir,
+        data_dir=settings.data_dir / "raw",
         drop_columns=drop_columns,
     )
 
@@ -49,6 +50,7 @@ def load_sample_data(
 def predict_samples(
     df: pd.DataFrame,
     settings: RuntimeSettings,
+    reference_date: datetime | None = None,
 ) -> pd.DataFrame:
     """Generate predictions for a collection of samples.
 
@@ -60,6 +62,9 @@ def predict_samples(
         df: DataFrame containing inference records.
         settings: Runtime configuration containing API connection
             details.
+        reference_date: Optional reference date to use for all
+            prediction requests. If not provided, a 'reference_date'
+            column in `df` is used when available.
 
     Returns:
         A DataFrame containing the original input features together with
@@ -72,19 +77,29 @@ def predict_samples(
 
     predictions = []
 
+    url = f"http://{settings.api_host}:{settings.api_port}/predict"
+
     for _, row in df.iterrows():
-        response = requests.post(
-            f"http://{settings.api_host}:{settings.api_port}/predict",
-            json=row.to_dict(),
+        features = row.to_dict()
+        row_reference_date = features.pop("reference_date", None)
+
+        effective_reference_date = (
+            reference_date if reference_date is not None else row_reference_date
         )
 
-        response.raise_for_status()
+        params = (
+            {"reference_date": pd.Timestamp(effective_reference_date).isoformat()}
+            if pd.notna(effective_reference_date)
+            else {}
+        )
 
+        response = requests.post(url=url, json=features, params=params)
+        response.raise_for_status()
         predictions.append(response.json())
 
     return pd.concat(
         [
-            df,
+            df.drop(columns=["reference_date"], errors="ignore"),
             pd.DataFrame(predictions, index=df.index),
         ],
         axis=1,
@@ -127,6 +142,7 @@ def serve_samples(
     sample_size: int,
     random_state: int,
     settings: RuntimeSettings | None = None,
+    reference_date: datetime | None = None,
     drop_columns: list[str] | None = None,
 ) -> Path:
     """Generate and store predictions for sampled inference data.
@@ -141,6 +157,7 @@ def serve_samples(
             identification.
         settings: Runtime configuration. If not provided, a default
             configuration is created.
+        reference_date: Optional reference date for the sampled data.
         drop_columns: Optional list of column names to drop from loaded
             data.
 
@@ -164,6 +181,7 @@ def serve_samples(
     df_predictions = predict_samples(
         df=df_sample,
         settings=settings,
+        reference_date=reference_date,
     )
 
     run_id = f"{random_state:04d}"
@@ -179,27 +197,41 @@ def main() -> None:
     """Generate predictions for a random sample of inference data.
 
     Reads inference data, validates it, samples a user-specified number
-    of records, and sends each record to the prediction API. The
-    resulting predictions are combined with the sampled input data and
-    written to a CSV file named with a four-digit run identifier. If no
-    random state is provided, a random seed is generated.
+    of records, optionally removes selected columns, and sends each
+    record to the prediction API. An optional reference date can be
+    provided for all prediction requests. The resulting predictions are
+    combined with the sampled input data and written to a CSV file named
+    with a four-digit run identifier. If no random state is provided, a
+    random seed is generated.
 
     Raises:
         requests.HTTPError: If any prediction request returns a non-
             successful status code.
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--sample_size", required=True)
+    parser.add_argument("--sample_size", required=True, type=int)
     parser.add_argument("--random_state")
+    parser.add_argument(
+        "--reference_date",
+        type=datetime.fromisoformat,
+        help="ISO-8601 reference date, e.g. '2026-09-30T12:00:00'",
+    )
+    parser.add_argument(
+        "--drop_columns",
+        nargs="*",
+        default=[],
+        help="Columns to remove before sending records to the API",
+    )
 
     args = parser.parse_args()
 
     random_state = int(args.random_state or random.randint(1, 1000))
 
     serve_samples(
-        sample_size=int(args.sample_size),
+        sample_size=args.sample_size,
         random_state=random_state,
-        drop_columns=["reference_date"],
+        reference_date=args.reference_date,
+        drop_columns=args.drop_columns,
     )
 
 
