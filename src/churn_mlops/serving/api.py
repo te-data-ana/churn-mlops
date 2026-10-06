@@ -29,7 +29,15 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     application.state.settings = settings
 
     try:
-        application.state.predictor = Predictor(load_model())
+        if settings.model_version is None:
+            application.state.predictor = Predictor(load_model())
+        else:
+            application.state.predictor = Predictor(
+                load_model(
+                    model_name=settings.model_name,
+                    model_version=settings.model_version,
+                )
+            )
 
         application.state.prediction_logger = PredictionLogger(
             prediction_log_path=settings.prediction_log_path,

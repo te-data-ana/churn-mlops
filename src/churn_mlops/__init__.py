@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -9,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["main"]
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -199,6 +200,23 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--reload",
         action="store_true",
         help="Enable auto-reload for local development.",
+    )
+    serve_parser.add_argument(
+        "--model-name",
+        type=str,
+        default=None,
+        help="Registered model name (defaults to the configured serving model).",
+    )
+    serve_parser.add_argument(
+        "--model-version",
+        type=int,
+        default=None,
+        help="Exact registered model version; mutually exclusive with a manifest.",
+    )
+    serve_parser.add_argument(
+        "--model_manifest",
+        type=Path,
+        help="Path of model manifest in configured data directory.",
     )
 
     ingest_prediction_log_parser = subparsers.add_parser(
@@ -432,6 +450,27 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
 
     if args.command == "serve":
+        if args.model_manifest is not None and (
+            args.model_name is not None or args.model_version is not None
+        ):
+            parser.error(
+                "--model_manifest cannot be combined with --model_name or --model_version."
+            )
+        if (args.model_name is None) != (args.model_version is None):
+            parser.error("--model_name and --model_version must be provided together.")
+
+        if args.model_manifest is not None:
+            from .tracking import TrainingManifest
+
+            model_manifest_file = settings.data_dir / args.model_manifest
+            manifest = TrainingManifest.read(model_manifest_file)
+            os.environ["MODEL_NAME"] = manifest.model_name
+            os.environ["MODEL_VERSION"] = str(manifest.model_version)
+
+        if args.model_name is not None and args.model_version is not None:
+            os.environ["MODEL_NAME"] = args.model_name
+            os.environ["MODEL_VERSION"] = str(args.model_version)
+
         import uvicorn
 
         uvicorn.run(

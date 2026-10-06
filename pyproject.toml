@@ -1,6 +1,6 @@
 [project]
 name = "churn-mlops"
-version = "0.3.0"
+version = "0.4.0"
 description = "MLops project based on churn propensity use case, to evolve and demonstrate my ML engineering skills"
 readme = "README.md"
 # fixing to earlier verison, as required packages are not compatible with newer versions

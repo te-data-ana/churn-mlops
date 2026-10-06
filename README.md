@@ -847,8 +847,9 @@ Runtime and serving defaults can be overridden with environment variables:
 | --- | --- | --- |
 | `MLFLOW_TRACKING_URI` | Project-local SQLite URI | MLflow tracking and registry backend |
 | `MLFLOW_EXPERIMENT_NAME` | `test` | MLflow experiment used for training runs |
-| `MODEL_NAME` | `churn-propensity` | Registered model name |
+| `MODEL_NAME` | `churn-risk` | Registered model name |
 | `MODEL_ALIAS` | `champion` | Alias used to load the serving model |
+| `MODEL_VERSION` | `None` | Version number used to load the serving model |
 | `API_HOST` | `127.0.0.1` | Host interface for the `serve` command |
 | `API_PORT` | `8000` | Port for the `serve` command |
 | `REQUEST_ID_HEADER` | `X-Request-ID` | HTTP header used to propagate request IDs for tracing |
