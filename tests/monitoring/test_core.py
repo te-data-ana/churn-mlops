@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
@@ -373,6 +374,28 @@ def test_build_monitoring_report_generates_summary_and_csv(
 
 
 @pytest.mark.unit
+def test_build_monitoring_report_can_select_an_exact_model_version(
+    valid_reference_frame: pd.DataFrame,
+    valid_analysis_frame: pd.DataFrame,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(core.nml, "CBPE", _FakeCBPE)
+    reference_v2 = valid_reference_frame.assign(model_version=2)
+    analysis_v2 = valid_analysis_frame.assign(model_version=2)
+
+    report = core.build_monitoring_report(
+        reference=pd.concat([valid_reference_frame, reference_v2], ignore_index=True),
+        analysis=pd.concat([valid_analysis_frame, analysis_v2], ignore_index=True),
+        source_reference="batch",
+        source_analysis="batch",
+        drift=False,
+        model_version=2,
+    )
+
+    assert report.summary[core.MODEL_VERSION_COLUMN].unique().tolist() == [2]
+
+
+@pytest.mark.unit
 @pytest.mark.filterwarnings(
     "ignore:'future.no_silent_downcasting' is deprecated",
     "ignore:The resulting number of chunks is too low.",
@@ -407,3 +430,52 @@ def test_run_monitoring_handles_batch_and_api_sources(
 
     with pytest.raises(ValueError, match="exactly one"):
         core.run_monitoring(reference_csv=reference_csv)
+
+
+@pytest.mark.unit
+def test_log_monitoring_run_logs_tags_and_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "monitoring_summary_batch.csv"
+    report = core.MonitoringReport(
+        summary=pd.DataFrame(
+            {
+                "model_version": [7, 7],
+                "reference_date": pd.to_datetime(["2026-01-01", "2026-02-01"]),
+            }
+        ),
+        summary_path=report_path,
+    )
+    setup_experiment = MagicMock(return_value="experiment-id")
+    monkeypatch.setattr(
+        "churn_mlops.tracking.setup_local_experiment",
+        setup_experiment,
+    )
+    monkeypatch.setattr(core.mlflow, "start_run", MagicMock())
+    set_tags = MagicMock()
+    log_artifact = MagicMock()
+    log_metrics = MagicMock()
+    monkeypatch.setattr(core.mlflow, "set_tags", set_tags)
+    monkeypatch.setattr(core.mlflow, "log_artifact", log_artifact)
+    monkeypatch.setattr(core.mlflow, "log_metrics", log_metrics)
+
+    core.log_monitoring_run(
+        report,
+        experiment_name="churn-monitoring",
+        run_name="rf__followup",
+        tags={"model_name": "churn-propensity", "model_version": 7},
+        tracking_uri="sqlite:///tracking.db",
+    )
+
+    setup_experiment.assert_called_once_with(
+        experiment_name="churn-monitoring",
+        tracking_uri="sqlite:///tracking.db",
+    )
+    set_tags.assert_called_once_with(
+        {"model_name": "churn-propensity", "model_version": 7}
+    )
+    log_artifact.assert_called_once_with(
+        local_path=str(report_path),
+        artifact_path="monitoring",
+    )

@@ -102,8 +102,8 @@ def log_experiment_result(
     # log additional parameters on training data
     mlflow.log_params(
         {
-            "train_rows": result.metadata["train_rows"],
-            "test_rows": result.metadata["test_rows"],
+            # "train_rows": result.metadata["train_rows"],
+            # "test_rows": result.metadata["test_rows"],
             "feature_count": result.metadata["feature_count"],
         }
     )

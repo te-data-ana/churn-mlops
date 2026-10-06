@@ -1,0 +1,13 @@
+split:
+  name: OOT_26Q2
+  start_date: '2025-04-01'
+  split_date: '2026-04-01'
+  end_date: '2026-06-30'
+
+model:
+  classifier: lr
+  config: lr.yaml
+  config_path: src/config/lr.yaml
+
+tracking:
+  experiment_name: churn-12m-oot

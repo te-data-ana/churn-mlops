@@ -220,14 +220,14 @@ uv run churn-mlops create-split \
 This CLI workflow is separate from the date-enrichment helper above. The split
 outputs are Parquet files consumed directly by the `train` command.
 
-### Reproduce data preparation with DVC
+### Run out-of-time DVC/MLflow experiments
 
-DVC versions the local training and inference inputs and the outputs of the
-existing data preparation workflow. The pipeline assigns reference dates to
-both inputs, creates the combined month-partitioned Parquet dataset, and writes
-the baseline train/test split. These stages use the same project commands
-described above. Apart from DVC MLflow owns experiment tracking and model
-artifacts.
+DVC versions prepared inputs, split outputs, training manifests, and scored
+OOT predictions. MLflow owns training runs, metrics, model artifacts, and
+registered model versions. Optuna tuning remains inside each training run.
+`dvc.yaml` defines the reusable prepare/split/train/score pipeline, while
+`monitoring_pipeline/dvc.yaml` keeps explicitly selected monitoring cohorts
+separate from offline quarterly evaluation.
 
 DVC is included in the `uv` development dependencies. After `uv sync`, first
 make sure the original training and inference CSVs are present under `data/raw`.
@@ -240,11 +240,65 @@ uv run dvc add \
 	data/raw/customer_churn_dataset-inference.csv
 ```
 
-Reproduce the data pipeline and check its state:
+The checked-in `params.yaml` example defines `OOT_26Q1`, a 2025 training year
+and a 2026 Q1 test quarter, with the `rf` classifier. The convention is a
+rolling 12-month training window immediately before the OOT quarter:
+
+| Split | Training window | OOT test window |
+|-------|-----------------|-----------------|
+| `OOT_26Q1` | 2025-01-01 through 2025-12-31 | 2026-01-01 through 2026-03-31 |
+| `OOT_26Q2` | 2025-04-01 through 2026-03-31 | 2026-04-01 through 2026-06-30 |
+
+Date bounds are inclusive. The generated filenames include the split name,
+for example `data/splits/OOT_26Q1_train.parquet` and
+`data/splits/OOT_26Q1_test.parquet`. The DVC experiment scenario name includes
+both classifier and split (for example `rf_OOT_26Q1`), so manifests and
+prediction datasets do not collide across runs.
+
+Reproduce the configured data, split, training, and OOT scoring stages:
 
 ```bash
 uv run dvc repro
 uv run dvc status
+```
+
+Run another quarter/classifier combination as a named DVC experiment:
+
+```bash
+uv run dvc exp run --name churn-12m-oot \
+  --set-param split.name=OOT_26Q2 \
+  --set-param 'split.start_date="2025-04-01"' \
+  --set-param 'split.split_date="2026-04-01"' \
+  --set-param 'split.end_date="2026-06-30"' \
+  --set-param model.classifier=lr \
+  --set-param model.config=lr.yaml \
+  --set-param model.config_path=src/config/lr.yaml \
+  --set-param tracking.experiment_name=churn-12m-oot
+```
+
+To select another classifier, set `model.config` to its YAML filename and
+`model.config_path` to the matching `src/config` path. DVC reuses unchanged
+preparation and split stages from its cache. Each training run registers an
+immutable model version without moving the `candidate` or `champion` aliases.
+The training manifest under `data/manifests/` connects its MLflow run ID and
+exact registered model version to downstream scoring.
+
+The individual steps remain runnable without DVC:
+
+```bash
+uv run churn-mlops prepare-data --input_csv training.csv
+uv run churn-mlops create-split \
+  --dataset_name partitioned \
+  --start_date 2025-01-01 --split_date 2026-01-01 --end_date 2026-03-31 \
+  --split_name OOT_26Q1
+uv run churn-mlops train \
+  --config rf.yaml --split_name OOT_26Q1 \
+  --experiment_name 12M-OOT-26Q1 \
+  --register-model --no-promote-model
+uv run churn-mlops batch-predict \
+  --input_dataset splits/OOT_26Q1_test.parquet \
+  --output_dataset predictions/rf_OOT_26Q1 \
+  --model_manifest manifests/rf_OOT_26Q1.json
 ```
 
 DVC records stage dependencies and output hashes in the Git-tracked
@@ -257,7 +311,10 @@ This setup intentionally has no DVC remote. Data contents stay in the local
 DVC cache and working tree; Git contains only DVC metadata. The cache is not a
 backup and is not available to collaborators or GitHub Actions. A fresh clone
 must be supplied both source CSVs locally, and cannot restore cached data
-unless it is recomputed or a remote is configured later.
+unless it is recomputed or a remote is configured later. Likewise, the
+currently configured SQLite MLflow database and local artifact directory are
+not shared. Cross-machine reproducibility requires both a DVC remote and a
+shared MLflow tracking/registry backend with persistent shared artifact storage.
 
 ### Train a model
 
@@ -265,6 +322,10 @@ Training loads and validates the prepared train/test Parquet files, builds a
 feature and preprocessing pipeline, fits the configured classifier on the
 training split, evaluates it on the test split, and logs the result to MLflow.
 To select a specific MLflow experiment for a run, pass `--experiment_name`.
+Experiment runs may use `--split_name` to select different train/test splits.
+`--register-model` registers an immutable version; `--no-promote-model`
+prevents candidate/champion alias changes. Existing configs retain their
+current registration/promotion defaults when these overrides are omitted.
 
 ```bash
 uv run churn-mlops train \
@@ -309,8 +370,12 @@ cannot be tuned.
 
 Batch inference validates input data, loads the configured registered model,
 and writes the predictions. There are two input data options for scoring.
+For a reproducible experiment, use `--model_manifest` to provide a model
+manifest written by the training step or provide the exact `--model_name` and
+`--model_version`; do not rely on a mutable serving alias. The existing default
+alias behavior remains available for ordinary batch scoring and serving.
 
-1. CSV files:
+CSV input:
 
 ```bash
 uv run churn-mlops batch-predict \
@@ -322,7 +387,7 @@ uv run churn-mlops batch-predict \
 CSV input filenames are resolved from `data/raw`; output filenames are written
 to `output`.
 
-2. Parquet data:
+Parquet input:
 
 ```bash
 uv run churn-mlops batch-predict \
@@ -458,9 +523,25 @@ The helper:
 
 ### Monitor predictions
 
-Monitoring compares a labeled reference CSV scored by a model version with either
-a scored batch CSV or the live API prediction log. Prefer a held-out or
+Monitoring compares labeled reference data scored by a model version with either
+a scored batch data set or the API prediction log. Prefer a held-out or
 out-of-time reference cohort over in-sample training predictions.
+Monitoring cohort selection is intentionally separate from the quarterly OOT
+evaluation. For DVC/MLflow-tracked monitoring, set the `monitoring` values in
+`monitoring_pipeline/params.yaml` to the selected reference and later analysis
+dataset names, exact registered model name/version, cohort labels, and source
+types, then run:
+
+```bash
+uv run dvc repro monitoring_pipeline/dvc.yaml:monitor
+```
+
+This writes a scenario-specific report under `data/monitoring/` and creates a
+separate MLflow monitoring run containing the report artifact, cohort
+identifiers, and model version. The selected model version must be present in
+both cohorts, and the analysis period should be later than the reference period
+for drift calculations. Set each source to `batch` or `api` to match the
+corresponding prediction dataset. Batch cohorts are the default.
 
 Monitor batch predictions:
 

@@ -1,28 +1,18 @@
 import tempfile
-from dataclasses import dataclass
 from textwrap import dedent
 
 import mlflow
 
 from churn_mlops.config.schemas import TrainingConfig
-from churn_mlops.tracking.promotion import PromotionDecision
-from churn_mlops.training import TrainingResult
-
-
-@dataclass(frozen=True)
-class ModelCardContext:
-    model_name: str
-    model_version: int
-    promotion_decision: PromotionDecision | None
+from churn_mlops.tracking.manifest import TrainingManifest
 
 
 class ModelCardBuilder:
     def build(
         self,
         *,
-        result: TrainingResult,
         config: TrainingConfig,
-        context: ModelCardContext,
+        context: TrainingManifest,
     ) -> str:
         """Build a Markdown model card for a trained model.
 
@@ -31,8 +21,6 @@ class ModelCardBuilder:
         evaluation metrics, and promotion decision details when available.
 
         Args:
-            result: Training output containing evaluation metrics, dataset
-                metadata, and classifier configuration information.
             config: Training configuration used to build and evaluate the
                 model, including preprocessing, model, data, and evaluation
                 settings.
@@ -51,22 +39,22 @@ class ModelCardBuilder:
                 decision object.
         """
 
-        metrics = result.metrics
-        metadata = result.metadata
+        metrics = context.metrics
         decision = context.promotion_decision
+        split_metadata = context.split_metadata
 
-        features = "\n".join(f"- {f}" for f in metadata["feature_names_out"])
+        features = "\n".join(f"- {f}" for f in context.feature_names_out)
 
         promotion_section = ""
         if decision:
             champion_metric = (
-                f"{decision.champion_metric:.4f}"
-                if decision.champion_metric is not None
+                f"{decision['champion_metric']:.4f}"
+                if decision["champion_metric"] is not None
                 else "N/A"
             )
             metric_delta = (
-                f"{decision.metric_delta:.4f}"
-                if decision.metric_delta is not None
+                f"{decision['metric_delta']:.4f}"
+                if decision["metric_delta"] is not None
                 else "N/A"
             )
 
@@ -76,13 +64,13 @@ class ModelCardBuilder:
 
                 | Property | Value |
                 |----------|-------|
-                | Candidate ROC AUC | {decision.candidate_metric:.4f} |
+                | Candidate ROC AUC | {decision["candidate_metric"]:.4f} |
                 | Champion ROC AUC | {champion_metric} |
-                | Required Delta | {decision.required_delta:.4f} |
+                | Required Delta | {decision["required_delta"]:.4f} |
                 | Actual Delta | {metric_delta} |
-                | Promoted | {decision.promote} |
+                | Promoted | {decision["promote"]} |
 
-                Reason: {decision.reason}
+                Reason: {decision["reason"]}
                 """
             ).strip()
 
@@ -93,24 +81,31 @@ class ModelCardBuilder:
 
 | Property | Value |
 |----------|-------|
+| MLflow Run ID | {context.run_id} |
+| MLflow Run Name | {context.run_name} |
 | Model Name | {context.model_name} |
-| Version | {context.model_version} |
-| Classifier Alias | {config.model.classifier} |
-| Classifier Name | {result.classifier_config["model_name"]} |
+| Model Version | {context.model_version} |
+| Classifier Name | {context.classifier_name} |
+| Classifier Alias | {context.classifier_alias} |
+| Split Name | {context.split_name} |
 
 ## Intended Use
 
-Predict customer {config.data.target_column} probability.
+Predict customer {context.target_column} probability.
 
 ## Training Dataset
 
-Trained on historical {config.data.target_column} data.
+Trained on historical {context.target_column} data.
 
 | Property | Value |
 |----------|-------|
-| Train Rows | {metadata["train_rows"]} |
-| Test Rows | {metadata["test_rows"]} |
-| Feature Count | {metadata["feature_count"]} |
+| Training Records | {split_metadata["train_rows"]} |
+| Training Start | {split_metadata["train_start"]} |
+| Training End | {split_metadata["train_end"]} |
+| Test Records | {split_metadata["test_rows"]} |
+| Test Start | {split_metadata["test_start"]} |
+| Test End | {split_metadata["test_end"]} |
+| Feature Count | {context.feature_count} |
 
 ## Model Features
 
@@ -137,7 +132,7 @@ Trained on historical {config.data.target_column} data.
 
 ## Threshold
 
-Applied probability threshold: {config.evaluation.threshold}
+Applied probability threshold: {context.threshold}
 
 {promotion_section}
 """

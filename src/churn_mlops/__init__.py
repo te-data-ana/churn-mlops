@@ -109,6 +109,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         required=False,
         help="Experiment name used for MLflow tracking.",
     )
+    train_parser.add_argument(
+        "--register-model",
+        action="store_true",
+        default=None,
+        help="Register this run's model even when the config disables registration.",
+    )
+    train_parser.add_argument(
+        "--promote-model",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable candidate/champion alias updates for this run.",
+    )
 
     batch_parser = subparsers.add_parser(
         "batch-predict",
@@ -154,6 +166,20 @@ def main(argv: Sequence[str] | None = None) -> None:
         type=str,
         default="reference_date",
         help="Timestamp column for partitioned in-/output.",
+    )
+    batch_parser.add_argument(
+        "--model_name",
+        help="Registered model name (defaults to the configured serving model).",
+    )
+    batch_parser.add_argument(
+        "--model_version",
+        type=int,
+        help="Exact registered model version; mutually exclusive with a manifest.",
+    )
+    batch_parser.add_argument(
+        "--model_manifest",
+        type=Path,
+        help="Path of model manifest in configured data directory.",
     )
 
     serve_parser = subparsers.add_parser(
@@ -243,6 +269,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     monitor_parser.add_argument("--index_col", default="customerid")
     monitor_parser.add_argument("--timestamp_column", default="reference_date")
+    monitor_parser.add_argument("--model_name")
+    monitor_parser.add_argument("--model_version", type=int)
+    monitor_parser.add_argument("--mlflow_experiment_name")
+    monitor_parser.add_argument("--run_name")
+    monitor_parser.add_argument("--reference_name")
+    monitor_parser.add_argument("--analysis_name")
     monitor_parser.add_argument(
         "--source_reference",
         choices=("batch", "api"),
@@ -289,16 +321,25 @@ def main(argv: Sequence[str] | None = None) -> None:
             split_name=args.split_name,
         )
 
-        print(split_metadata)
+        logger.info("OOT train/test split created with: %s", split_metadata)
 
         return
 
     if args.command == "train":
         from .train import run_training_job
 
-        training_kwargs = {"config_file": args.config, "split_name": args.split_name}
-        if args.experiment_name is not None:
-            training_kwargs["experiment_name"] = args.experiment_name
+        training_kwargs: dict[str, object] = {
+            "config_file": args.config,
+            "split_name": args.split_name,
+        }
+        optional_kwargs = {
+            "experiment_name": args.experiment_name,
+            "register_model": args.register_model,
+            "promote_model": args.promote_model,
+        }
+        training_kwargs.update(
+            {key: value for key, value in optional_kwargs.items() if value is not None}
+        )
         result = run_training_job(**training_kwargs)
         logger.info(
             "Successfully trained %s model: AUC=%.4f",
@@ -319,6 +360,24 @@ def main(argv: Sequence[str] | None = None) -> None:
             parser.error("Date bounds can only be used with partitioned input.")
         if not is_csv_input and args.index_col is not None:
             parser.error("--index_col can only be used with CSV input.")
+        if args.model_manifest is not None and (
+            args.model_name is not None or args.model_version is not None
+        ):
+            parser.error(
+                "--model_manifest cannot be combined with --model_name or --model_version."
+            )
+        if (args.model_name is None) != (args.model_version is None):
+            parser.error("--model_name and --model_version must be provided together.")
+
+        model_name = args.model_name
+        model_version = args.model_version
+        if args.model_manifest is not None:
+            from .tracking import TrainingManifest
+
+            model_manifest_file = settings.data_dir / args.model_manifest
+            manifest = TrainingManifest.read(model_manifest_file)
+            model_name = manifest.model_name
+            model_version = manifest.model_version
 
         from .batch_predict import run_batch_prediction
 
@@ -331,7 +390,12 @@ def main(argv: Sequence[str] | None = None) -> None:
                 index_col=args.index_col,
                 data_dir=input_dir,
             )
-            df_pred = run_batch_prediction(df=df)
+            prediction_kwargs: dict[str, object] = {"df": df}
+            if model_name is not None:
+                prediction_kwargs["model_name"] = model_name
+            if model_version is not None:
+                prediction_kwargs["model_version"] = model_version
+            df_pred = run_batch_prediction(**prediction_kwargs)
 
             output_path = settings.output_dir / args.output_csv
             settings.output_dir.mkdir(parents=True, exist_ok=True)
@@ -349,7 +413,12 @@ def main(argv: Sequence[str] | None = None) -> None:
                 start=args.start_date,
                 end=args.end_date,
             )
-            df_pred = run_batch_prediction(df=df)
+            prediction_kwargs: dict[str, object] = {"df": df}
+            if model_name is not None:
+                prediction_kwargs["model_name"] = model_name
+            if model_version is not None:
+                prediction_kwargs["model_version"] = model_version
+            df_pred = run_batch_prediction(**prediction_kwargs)
             write_partitioned_dataset(
                 df=df_pred,
                 dataset_name=args.output_dataset,
@@ -432,14 +501,17 @@ def main(argv: Sequence[str] | None = None) -> None:
                 if args.error_dataset is not None
                 else None
             )
-            build_monitoring_report(
-                reference=reference,
-                analysis=analysis,
-                source_reference=args.source_reference or "batch",
-                source_analysis=args.source_analysis or "api",
-                errors=errors,
-                output_dir=output_dir,
-            )
+            report_kwargs: dict[str, object] = {
+                "reference": reference,
+                "analysis": analysis,
+                "source_reference": args.source_reference or "batch",
+                "source_analysis": args.source_analysis or "api",
+                "errors": errors,
+                "output_dir": output_dir,
+            }
+            if args.model_version is not None:
+                report_kwargs["model_version"] = args.model_version
+            report = build_monitoring_report(**report_kwargs)
         else:
             from .monitoring.core import run_monitoring
 
@@ -449,12 +521,44 @@ def main(argv: Sequence[str] | None = None) -> None:
             error_log = args.error_log
             if (args.api or prediction_log is not None) and error_log is None:
                 error_log = settings.error_log_path
-            run_monitoring(
-                reference_csv=args.reference_csv,
-                analysis_csv=args.analysis_csv,
-                prediction_log=prediction_log,
-                error_log=error_log,
-                output_dir=output_dir,
+            report_kwargs = {
+                "reference_csv": args.reference_csv,
+                "analysis_csv": args.analysis_csv,
+                "prediction_log": prediction_log,
+                "error_log": error_log,
+                "output_dir": output_dir,
+            }
+            if args.model_version is not None:
+                report_kwargs["model_version"] = args.model_version
+            report = run_monitoring(**report_kwargs)
+
+        if args.mlflow_experiment_name is not None or args.run_name is not None:
+            from .monitoring.core import log_monitoring_run
+
+            reference_input = args.reference_dataset or str(args.reference_csv)
+            if args.analysis_dataset is not None:
+                analysis_input = args.analysis_dataset
+            elif args.analysis_csv is not None:
+                analysis_input = str(args.analysis_csv)
+            else:
+                analysis_input = str(args.prediction_log or "api")
+            tags = {
+                "reference_input": reference_input,
+                "analysis_input": analysis_input,
+                "reference_name": args.reference_name or "unspecified",
+                "analysis_name": args.analysis_name or "unspecified",
+            }
+            if args.model_name is not None:
+                tags["model_name"] = args.model_name
+            if args.model_version is not None:
+                tags["model_version"] = str(args.model_version)
+            log_monitoring_run(
+                report,
+                experiment_name=(
+                    args.mlflow_experiment_name or settings.mlflow_experiment_name
+                ),
+                run_name=args.run_name or "monitoring",
+                tags=tags,
             )
         return
 

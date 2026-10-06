@@ -25,8 +25,6 @@ def assert_training_result(result) -> None:
 
     metadata = result.metadata
     assert datetime.fromisoformat(metadata["timestamp"])
-    assert metadata["train_rows"] > 0
-    assert metadata["test_rows"] > 0
     assert len(metadata["feature_names_in"]) > 0
     assert len(metadata["feature_names_out"]) > 0
 
@@ -110,7 +108,6 @@ def test_train_returns_reproducible_metrics_for_same_input(
 
     assert result1.metrics["roc_auc"] == result2.metrics["roc_auc"]
     assert result1.metrics["accuracy"] == result2.metrics["accuracy"]
-    assert result1.metadata["train_rows"] == result2.metadata["train_rows"]
 
 
 @pytest.mark.unit

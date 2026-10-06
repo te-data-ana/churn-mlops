@@ -56,7 +56,7 @@ def train_model(
         X_test = test_df.drop(columns=excluded, errors="ignore")
         y_test = test_df[target_col]
         logger.info(
-            "Starting training using prepared train/test split with %d"
+            "Starting training using prepared train/test split with %d "
             "train rows and %d test rows for target '%s'.",
             len(train_df),
             len(test_df),
@@ -111,13 +111,11 @@ def train_model(
             model_pipeline.named_steps["preprocessor"].get_feature_names_out().tolist()
         )
         metadata = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),  # noqa: UP017
             "training_config": config,
-            "train_rows": len(train_df),
-            "test_rows": len(test_df),
             "feature_count": len(feature_names_out),
             "feature_names_in": list(X_train.columns),
             "feature_names_out": feature_names_out,
-            "timestamp": datetime.now(timezone.utc).isoformat(),  # noqa: UP017
         }
         return TrainingResult(
             trained_pipeline=model_pipeline,

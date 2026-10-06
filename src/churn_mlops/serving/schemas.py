@@ -36,7 +36,7 @@ class BaseInferenceEvent(BaseModel):
     latency_ms: float = Field(ge=0)
 
     model_name: str
-    model_alias: str
+    model_alias: str | None
     model_version: int
 
     # Optional feature logging

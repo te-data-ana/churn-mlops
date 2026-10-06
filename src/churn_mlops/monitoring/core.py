@@ -1,11 +1,13 @@
 """Load prediction data, calculate monitoring metrics, and write reports."""
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import reduce
 from pathlib import Path
 from typing import Any
 
+import mlflow
 import nannyml as nml
 import pandas as pd
 from sklearn.metrics import precision_score, recall_score, roc_auc_score
@@ -226,21 +228,6 @@ def _extract_columns(frame: pd.DataFrame, name_set: set) -> list:
         A list of column names whose last suffix is contained in ``name_set``.
     """
     return [column for column in frame.columns if column.split("__")[-1] in name_set]
-
-
-# def _result_details(
-#     result: Any, model_version: int, calculator_name: str
-# ) -> pd.DataFrame:
-#     detail = _flatten_columns(result.to_df())
-#     period_column = _extract_columns(frame=detail, name_set={"period"})[0]
-#     date_column = _extract_columns(frame=detail, name_set={"start_date", "key"})[0]
-#     if period_column:
-#         detail[PERIOD_COLUMN] = detail[period_column]
-#     detail[MODEL_VERSION_COLUMN] = model_version
-#     if date_column:
-#         detail[TIMESTAMP_COLUMN] = pd.to_datetime(detail[date_column], errors="coerce")
-#     detail["calculator"] = calculator_name
-#     return detail
 
 
 def _drift_alert_summary(
@@ -558,6 +545,7 @@ def build_monitoring_report(
     drift: bool = True,
     errors: pd.DataFrame | None = None,
     output_dir: Path | None = None,
+    model_version: int | None = None,
 ) -> MonitoringReport:
     """Build a monitoring report across prediction, performance, and drift KPIs.
 
@@ -570,6 +558,7 @@ def build_monitoring_report(
         errors: Optional API prediction error events to include in operational and
             drift monitoring.
         output_dir: Optional directory where the summary CSV should be written.
+        model_version: Optional exact model version to include in the report.
 
     Returns:
         A MonitoringReport summarizing prediction, observed, operational, and drift
@@ -616,6 +605,17 @@ def build_monitoring_report(
         require_features=drift,
     )
 
+    if model_version is not None:
+        reference_frame = reference_frame.loc[
+            reference_frame[MODEL_VERSION_COLUMN] == model_version
+        ]
+        analysis_frame = analysis_frame.loc[
+            analysis_frame[MODEL_VERSION_COLUMN] == model_version
+        ]
+        errors_frame = errors_frame.loc[
+            errors_frame[MODEL_VERSION_COLUMN] == model_version
+        ]
+
     # Model monitoring reports can be calculated for multiple model versions simultaneously
     # For that purpose, model versions need to be present in both reference and analysis frames
     unique_versions_reference = set(reference_frame[MODEL_VERSION_COLUMN].unique())
@@ -642,11 +642,11 @@ def build_monitoring_report(
             versions_common,
         )
     if versions_only_reference:
-        for model_version in versions_only_reference:
-            logger.warning("No analysis cohort for model version %s.", model_version)
+        for version in versions_only_reference:
+            logger.warning("No analysis cohort for model version %s.", version)
     if versions_only_analysis:
-        for model_version in versions_only_analysis:
-            logger.warning("No reference cohort for model version %s.", model_version)
+        for version in versions_only_analysis:
+            logger.warning("No reference cohort for model version %s.", version)
 
     reference_frame = reference_frame.loc[
         reference_frame[MODEL_VERSION_COLUMN].isin(versions_common), :
@@ -680,21 +680,21 @@ def build_monitoring_report(
     # Data from failed prediction attempts should also be considered.
     alert_frames: list[pd.DataFrame] = []
     if drift:
-        for model_version in versions_common:
+        for version in versions_common:
             version_reference = reference_frame.loc[
-                reference_frame[MODEL_VERSION_COLUMN] == model_version
+                reference_frame[MODEL_VERSION_COLUMN] == version
             ]
             version_analysis = analysis_frame.loc[
-                analysis_frame[MODEL_VERSION_COLUMN] == model_version
+                analysis_frame[MODEL_VERSION_COLUMN] == version
             ]
             version_errors = errors_frame.loc[
-                errors_frame[MODEL_VERSION_COLUMN] == model_version
+                errors_frame[MODEL_VERSION_COLUMN] == version
             ]
             version_alerts = _calculate_version_drift(
                 reference=version_reference,
                 analysis=version_analysis,
                 errors=version_errors,
-                model_version=model_version,
+                model_version=version,
             )
             alert_frames.append(version_alerts)
 
@@ -731,6 +731,7 @@ def run_monitoring(
     prediction_log: Path | None = None,
     error_log: Path | None = None,
     output_dir: Path | None = None,
+    model_version: int | None = None,
 ) -> MonitoringReport:
     """Load monitoring inputs and generate a report for batch or API predictions.
 
@@ -745,6 +746,7 @@ def run_monitoring(
             with ``prediction_log``.
         output_dir: Output directory for the monitoring summary CSV. Defaults to
             the runtime settings output directory.
+        model_version: Optional exact model version to include in the report.
 
     Returns:
         A MonitoringReport summarizing the monitoring results for time periods
@@ -769,6 +771,7 @@ def run_monitoring(
             source_reference="batch",
             source_analysis="batch",
             output_dir=report_dir,
+            model_version=model_version,
         )
     else:
         return build_monitoring_report(
@@ -778,4 +781,39 @@ def run_monitoring(
             source_analysis="api",
             errors=_event_log_to_frame(path=error_log, event="prediction_error"),
             output_dir=report_dir,
+            model_version=model_version,
         )
+
+
+def log_monitoring_run(
+    report: MonitoringReport,
+    *,
+    experiment_name: str,
+    run_name: str,
+    tags: Mapping[str, str],
+    tracking_uri: str | None = None,
+) -> None:
+    """Log a monitoring report artifact and aggregate summary metrics to MLflow.
+
+    Args:
+        report: Generated monitoring report.
+        experiment_name: MLflow experiment receiving the monitoring run.
+        run_name: Name identifying the monitored cohorts and model.
+        tags: Cohort, model, and source metadata for the run.
+        tracking_uri: Optional MLflow tracking URI.
+    """
+    from churn_mlops.tracking import setup_local_experiment
+
+    settings = RuntimeSettings()
+    resolved_tracking_uri = tracking_uri or settings.mlflow_tracking_uri
+    experiment_id = setup_local_experiment(
+        experiment_name=experiment_name,
+        tracking_uri=resolved_tracking_uri,
+    )
+    with mlflow.start_run(experiment_id=experiment_id, run_name=run_name):
+        mlflow.set_tags(dict(tags))
+        if report.summary_path is not None:
+            mlflow.log_artifact(
+                local_path=str(report.summary_path),
+                artifact_path="monitoring",
+            )

@@ -283,18 +283,19 @@ def test_package_main_dispatches_prepare_data(
 @pytest.mark.smoke
 def test_package_main_dispatches_create_split(
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
 ) -> None:
     import churn_mlops
     from churn_mlops.data import splitting
 
     observed: dict[str, object] = {}
-    metadata = {"train_rows": 2, "test_rows": 1}
 
     def fake_create_time_based_split(**kwargs: object) -> dict[str, int]:
         observed.update(kwargs)
-        return metadata
+        return
 
+    settings = SimpleNamespace(data_dir=tmp_path)
+    monkeypatch.setattr(splitting, "RuntimeSettings", lambda: settings)
     monkeypatch.setattr(
         splitting,
         "create_time_based_split",
@@ -313,7 +314,7 @@ def test_package_main_dispatches_create_split(
             "--end_date",
             "2026-06-30",
             "--split_name",
-            "baseline",
+            "pytest",
         ]
     )
 
@@ -323,9 +324,8 @@ def test_package_main_dispatches_create_split(
         "start_date": "2026-01-01",
         "split_date": "2026-04-01",
         "end_date": "2026-06-30",
-        "split_name": "baseline",
+        "split_name": "pytest",
     }
-    assert capsys.readouterr().out.strip() == str(metadata)
 
 
 @pytest.mark.smoke
