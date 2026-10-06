@@ -33,6 +33,9 @@ def test_package_main_dispatches_train_command(monkeypatch) -> None:
             "train",
             "--config",
             "config.yaml",
+            "--exclude-columns",
+            "customerid",
+            "legacy_id",
             "--experiment_name",
             "my-exp",
         ]
@@ -41,6 +44,7 @@ def test_package_main_dispatches_train_command(monkeypatch) -> None:
     assert observed["kwargs"] == {
         "config_file": "config.yaml",
         "split_name": "default",
+        "exclude_columns": ["customerid", "legacy_id"],
         "experiment_name": "my-exp",
     }
 

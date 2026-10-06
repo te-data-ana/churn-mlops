@@ -111,21 +111,23 @@ def test_train_returns_reproducible_metrics_for_same_input(
 
 
 @pytest.mark.unit
-def test_train_uses_override_and_excludes_temporal_column(
+def test_train_uses_override_and_excludes_columns(
     config_factory: Callable[..., TrainingConfig],
     sample_training_df: pd.DataFrame,
 ) -> None:
     cfg = config_factory(classifier="dt")
     dated_df = sample_training_df.copy()
     dated_df["reference_date"] = pd.date_range("2026-01-01", periods=len(dated_df))
+    dated_df["customerid"] = range(len(dated_df))
 
     result = train_model(
         config=cfg,
         train_df=dated_df.iloc[:7],
         test_df=dated_df.iloc[7:],
         model_params_override={"max_depth": 2},
-        exclude_columns=["reference_date"],
+        exclude_columns=["reference_date", "customerid"],
     )
 
     assert result.classifier_config["max_depth"] == 2
     assert "reference_date" not in result.metadata["feature_names_in"]
+    assert "customerid" not in result.metadata["feature_names_in"]

@@ -38,7 +38,7 @@ def test_run_training_job_resolves_input_arguments(
     config_file = "train.yaml"
     split_name = "temporal"
     load_splits = MagicMock(return_value=(MagicMock(), MagicMock()))
-    training_result = MagicMock()
+    train_model_mock = MagicMock(return_value=MagicMock())
     setup_experiment = MagicMock(return_value="experiment-id")
     mlflow_run = MagicMock()
     get_active_run = train.mlflow.active_run
@@ -47,7 +47,7 @@ def test_run_training_job_resolves_input_arguments(
     monkeypatch.setattr(train, "RuntimeSettings", lambda: settings)
     monkeypatch.setattr(train, "load_config", lambda **_: (config, Path(config_file)))
     monkeypatch.setattr(train, "load_and_validate_training_splits", load_splits)
-    monkeypatch.setattr(train, "train_model", MagicMock(return_value=training_result))
+    monkeypatch.setattr(train, "train_model", train_model_mock)
     monkeypatch.setattr(train, "setup_local_experiment", setup_experiment)
     monkeypatch.setattr(train, "log_experiment_result", MagicMock())
     monkeypatch.setattr(train.mlflow, "get_experiment", MagicMock())
@@ -64,6 +64,7 @@ def test_run_training_job_resolves_input_arguments(
     train.run_training_job(
         config_file=config_file,
         split_name=split_name,
+        exclude_columns=["customerid"],
         experiment_name=provided_name,
         register_model=False,
         write_manifest=False,
@@ -75,6 +76,12 @@ def test_run_training_job_resolves_input_arguments(
     load_splits.assert_called_once_with(
         split_name=split_name,
         split_dir=Path("data") / "splits",
+    )
+    train_model_mock.assert_called_once_with(
+        config=config,
+        train_df=load_splits.return_value[0],
+        test_df=load_splits.return_value[1],
+        exclude_columns=["customerid"],
     )
 
 
@@ -146,6 +153,7 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
     result = train.run_training_job(
         config_file=config_file,
         split_name=split_name,
+        exclude_columns=["customerid"],
         register_model=False,
         write_manifest=False,
     )
@@ -156,13 +164,17 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
         split_dir=Path("data") / "splits",
         preserve_time_column="reference_date",
     )
-    optimizer.assert_called_once_with(config=config, train_df=train_df)
+    optimizer.assert_called_once_with(
+        config=config,
+        train_df=train_df,
+        exclude_columns=["customerid"],
+    )
     train_model.assert_called_once_with(
         config=config,
         train_df=train_df,
         test_df=test_df,
         model_params_override={"n_estimators": 150, "max_depth": None},
-        exclude_columns=["reference_date"],
+        exclude_columns=["customerid", "reference_date"],
     )
     log_params.assert_called_once_with(
         {

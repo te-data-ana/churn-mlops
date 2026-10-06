@@ -1,12 +1,15 @@
 from collections.abc import Callable
 from dataclasses import replace
+from typing import Self
 
+import numpy as np
 import optuna
 import pandas as pd
 import pytest
 
 from churn_mlops.config.schemas import TrainingConfig, TuningConfig
 from churn_mlops.models import MODEL_CATALOG, create_model
+from churn_mlops.training import tuning
 from churn_mlops.training.tuning import (
     _build_expanding_window_folds,
     _suggest_parameters,
@@ -120,6 +123,55 @@ def test_optimize_hyperparameters_returns_reproducible_study_result(
     assert result.n_trials == 2
     assert result.n_splits == 2
     assert result.time_column == "reference_date"
+
+
+@pytest.mark.unit
+def test_optimize_hyperparameters_excludes_requested_columns(
+    monkeypatch: pytest.MonkeyPatch,
+    config_factory: Callable[..., TrainingConfig],
+    sample_training_df: pd.DataFrame,
+) -> None:
+    config = config_factory(classifier="dt")
+    config = replace(
+        config,
+        tuning=TuningConfig(
+            enabled=True,
+            n_trials=1,
+            n_splits=2,
+            time_column="reference_date",
+            metric="roc_auc",
+            random_state=13,
+        ),
+    )
+    train_df = sample_training_df.copy()
+    train_df["customerid"] = range(len(train_df))
+    train_df["reference_date"] = pd.date_range("2026-01-01", periods=len(train_df))
+    observed_columns: list[list[str]] = []
+
+    class PipelineSpy:
+        def fit(self, X: pd.DataFrame, y: pd.Series) -> Self:
+            observed_columns.append(list(X.columns))
+            return self
+
+        def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+            return np.tile([0.5, 0.5], (len(X), 1))
+
+    def build_pipeline(**_: object) -> PipelineSpy:
+        return PipelineSpy()
+
+    monkeypatch.setattr(tuning, "build_classifier_pipeline", build_pipeline)
+
+    optimize_hyperparameters(
+        config,
+        train_df,
+        exclude_columns=["customerid"],
+    )
+
+    assert observed_columns
+    assert all("customerid" not in columns for columns in observed_columns)
+    assert all("reference_date" not in columns for columns in observed_columns)
+    assert all("churn" not in columns for columns in observed_columns)
+    assert all("tenure" in columns for columns in observed_columns)
 
 
 @pytest.mark.unit

@@ -1,6 +1,7 @@
 """Optuna search for classifier hyperparameters using chronological CV."""
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -125,6 +126,7 @@ def _build_expanding_window_folds(
 def optimize_hyperparameters(
     config: TrainingConfig,
     train_df: pd.DataFrame,
+    exclude_columns: Sequence[str] = (),
 ) -> TuningResult:
     """Optimize the configured classifier on chronological CV folds.
 
@@ -132,6 +134,7 @@ def optimize_hyperparameters(
         config: Training configuration with tuning enabled.
         train_df: Validated training split, including the configured time
             column. The held-out test split is deliberately not accepted.
+        exclude_columns: Optional columns to omit from hyperparameter tuning.
 
     Returns:
         Optimized catalog-defined parameters and study metadata.
@@ -170,7 +173,7 @@ def optimize_hyperparameters(
     feature_columns = [
         column
         for column in train_df.columns
-        if column not in {target_column, tuning.time_column}
+        if column not in {target_column, tuning.time_column, *exclude_columns}
     ]
     metric = roc_auc_score if tuning.metric == "roc_auc" else average_precision_score
 

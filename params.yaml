@@ -8,6 +8,7 @@ model:
   classifier: hgb
   config: hgb.yaml
   config_path: src/config/hgb.yaml
+  exclude_columns: customerid
 
 tracking:
   experiment_name: churn-12m-oot-26q2

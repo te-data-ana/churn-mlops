@@ -282,6 +282,9 @@ preparation and split stages from its cache. Each training run registers an
 immutable model version without moving the `candidate` or `champion` aliases.
 The training manifest under `data/manifests/` connects its MLflow run ID and
 exact registered model version to downstream scoring.
+The `model.exclude_columns` parameter defaults to `customerid`, keeping the ID
+out of both tuning and model features. It accepts whitespace-separated column
+names; override it in a DVC experiment to add or change excluded columns.
 
 The individual steps remain runnable without DVC:
 
@@ -326,12 +329,15 @@ Experiment runs may use `--split_name` to select different train/test splits.
 `--register-model` registers an immutable version; `--no-promote-model`
 prevents candidate/champion alias changes. Existing configs retain their
 current registration/promotion defaults when these overrides are omitted.
+Pass one or more names to `--exclude-columns` to keep identifier or other
+non-feature columns out of both hyperparameter tuning and final model fitting.
 
 ```bash
 uv run churn-mlops train \
 	--config sample_training_config.yaml \
 	--experiment_name churn-experiments \
-	--split_name baseline
+	--split_name baseline \
+	--exclude-columns customerid legacy_id
 ```
 
 Training reads `data/splits/{split_name}_train.parquet` and

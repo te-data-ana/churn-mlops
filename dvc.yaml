@@ -72,6 +72,7 @@ stages:
       uv run churn-mlops train
       --config ${model.config}
       --split_name ${split.name}
+      --exclude-columns ${model.exclude_columns}
       --experiment_name ${tracking.experiment_name}
       --register-model
       --no-promote-model
@@ -87,6 +88,7 @@ stages:
       - model.classifier
       - model.config
       - model.config_path
+      - model.exclude_columns
       - split.name
       - tracking.experiment_name
     outs:

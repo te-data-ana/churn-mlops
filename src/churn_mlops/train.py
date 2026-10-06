@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import subprocess
+from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
 
@@ -35,6 +36,7 @@ def run_training_job(
     split_name: str,
     config_dir: Path | None = None,
     split_dir: Path | None = None,
+    exclude_columns: Sequence[str] = (),
     experiment_name: str | None = None,
     tracking_uri: str | None = None,
     artifact_dir: Path | None = None,
@@ -49,6 +51,8 @@ def run_training_job(
         split_name: Prefix of the prepared train/test Parquet split files.
         config_dir: Directory containing the training configuration.
         split_dir: Directory containing the prepared split files.
+        exclude_columns: Optional non-feature columns to exclude from
+            hyperparameter tuning and model fitting.
         experiment_name: Optional MLflow experiment name override. When omitted,
             the ``MLFLOW_EXPERIMENT_NAME`` runtime setting is used.
         tracking_uri: Optional MLflow tracking URI.
@@ -221,6 +225,7 @@ def run_training_job(
                 tuning_result = optimize_hyperparameters(
                     config=config,
                     train_df=train_df,
+                    exclude_columns=exclude_columns,
                 )
                 mlflow.log_params(
                     {
@@ -245,13 +250,17 @@ def run_training_job(
                     train_df=train_df,
                     test_df=test_df,
                     model_params_override=tuning_result.best_params,
-                    exclude_columns=[tuning_result.time_column],
+                    exclude_columns=[
+                        *exclude_columns,
+                        tuning_result.time_column,
+                    ],
                 )
             else:
                 result = train_model(
                     config=config,
                     train_df=train_df,
                     test_df=test_df,
+                    exclude_columns=exclude_columns,
                 )
             model_info = log_experiment_result(
                 result=result,

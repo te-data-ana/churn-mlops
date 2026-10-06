@@ -106,6 +106,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Name prefix of prepared train/test Parquet files in data/splits.",
     )
     train_parser.add_argument(
+        "--exclude-columns",
+        nargs="+",
+        default=(),
+        help="Column names to exclude from model features/training/hyperparameter tuning.",
+    )
+    train_parser.add_argument(
         "--experiment_name",
         required=False,
         help="Experiment name used for MLflow tracking.",
@@ -349,6 +355,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         training_kwargs: dict[str, object] = {
             "config_file": args.config,
             "split_name": args.split_name,
+            "exclude_columns": args.exclude_columns,
         }
         optional_kwargs = {
             "experiment_name": args.experiment_name,
