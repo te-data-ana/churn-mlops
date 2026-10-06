@@ -14,6 +14,7 @@ preprocessing:
 model:
   classifier: nb
   classifier_params:
+    var_smoothing: 0
 
 evaluation:
   threshold: 0.5

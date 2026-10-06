@@ -202,10 +202,6 @@ def optimize_hyperparameters(
             )
         return float(np.mean(fold_scores))
 
-    study = optuna.create_study(
-        direction="maximize",
-        sampler=optuna.samplers.TPESampler(seed=tuning.random_state),
-    )
     logger.info(
         "Starting Optuna study for classifier '%s': %d trials, %d expanding "
         "window folds, metric '%s'.",
@@ -213,6 +209,10 @@ def optimize_hyperparameters(
         tuning.n_trials,
         tuning.n_splits,
         tuning.metric,
+    )
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=optuna.samplers.TPESampler(seed=tuning.random_state),
     )
     study.optimize(func=objective, n_trials=tuning.n_trials)
     logger.info(

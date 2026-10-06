@@ -5,9 +5,9 @@ split:
   end_date: '2026-06-30'
 
 model:
-  classifier: lr
-  config: lr.yaml
-  config_path: src/config/lr.yaml
+  classifier: hgb
+  config: hgb.yaml
+  config_path: src/config/hgb.yaml
 
 tracking:
-  experiment_name: churn-12m-oot
+  experiment_name: churn-12m-oot-26q2
