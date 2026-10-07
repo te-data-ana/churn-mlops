@@ -264,13 +264,22 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Monitor prediction quality based on files or partitioned datasets.",
     )
     monitor_reference = monitor_parser.add_mutually_exclusive_group(required=True)
-    monitor_reference.add_argument("--reference_csv", type=Path)
+    monitor_reference.add_argument(
+        "--reference_csv",
+        type=Path,
+        help="Path to the labeled reference CSV file.",
+    )
     monitor_reference.add_argument(
         "--reference_dataset",
+        type=str,
         help="Name of partitioned reference dataset in configured data directory.",
     )
     monitor_source = monitor_parser.add_mutually_exclusive_group(required=True)
-    monitor_source.add_argument("--analysis_csv", type=Path)
+    monitor_source.add_argument(
+        "--analysis_csv",
+        type=Path,
+        help="Path to the scored analysis CSV file.",
+    )
     monitor_source.add_argument(
         "--prediction_log",
         type=Path,
@@ -283,27 +292,61 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     monitor_source.add_argument(
         "--analysis_dataset",
+        type=str,
         help="Name of partitioned analysis dataset in configured data directory.",
     )
     monitor_errors = monitor_parser.add_mutually_exclusive_group()
-    monitor_errors.add_argument("--error_log", type=Path)
+    monitor_errors.add_argument(
+        "--error_log",
+        type=Path,
+        help="API prediction error JSONL path (API file mode only).",
+    )
     monitor_errors.add_argument(
         "--error_dataset",
+        type=str,
         help="Name of partitioned error dataset in the configured data directory.",
     )
-    monitor_parser.add_argument("--index_col", default="customerid")
-    monitor_parser.add_argument("--timestamp_column", default="reference_date")
-    monitor_parser.add_argument("--model_name")
-    monitor_parser.add_argument("--model_version", type=int)
+    monitor_parser.add_argument(
+        "--timestamp_column",
+        type=str,
+        default="reference_date",
+        help="Timestamp/partition column for partitioned datasets (default: reference_date).",
+    )
+    monitor_parser.add_argument(
+        "--model_name",
+        type=str,
+        help="Registered model name to include in MLflow monitoring tags.",
+    )
+    monitor_parser.add_argument(
+        "--model_version",
+        type=int,
+        help="Exact model version to include in the monitoring report.",
+    )
     monitor_parser.add_argument(
         "--model_manifest",
         type=Path,
         help="Path of model manifest in configured data directory.",
     )
-    monitor_parser.add_argument("--mlflow_experiment_name")
-    monitor_parser.add_argument("--run_name")
-    monitor_parser.add_argument("--reference_name")
-    monitor_parser.add_argument("--analysis_name")
+    monitor_parser.add_argument(
+        "--mlflow_experiment_name",
+        type=str,
+        help="MLflow experiment name for logging the monitoring run.",
+    )
+    monitor_parser.add_argument(
+        "--run_name",
+        type=str,
+        help="MLflow run name (default: monitoring).",
+    )
+    monitor_parser.add_argument(
+        "--reference_name",
+        type=str,
+        help="Reference input label for MLflow monitoring tags.",
+    )
+    monitor_parser.add_argument(
+        "--analysis_name",
+        type=str,
+        help="Analysis input label for MLflow monitoring tags.",
+    )
     monitor_parser.add_argument(
         "--source_reference",
         choices=("batch", "api"),
@@ -314,7 +357,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         choices=("batch", "api"),
         help="Source label for partitioned analysis data (default: api).",
     )
-    monitor_parser.add_argument("--output_dir", type=Path, default=None)
+    monitor_parser.add_argument(
+        "--output_dir",
+        type=Path,
+        default=None,
+        help="Directory for monitoring reports (default: configured output directory).",
+    )
 
     args = parser.parse_args(argv)
 
