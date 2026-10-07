@@ -12,12 +12,12 @@ stages:
       isexec: true
     - path: pyproject.toml
       hash: md5
-      md5: fad41adf707ed423b6d303f5a1fff3c5
+      md5: 36fee045fe2e5b5597b76a0d5f1acc45
       size: 1453
     - path: src/churn_mlops/config
       hash: md5
-      md5: 31567be491eeca97b8760a97572c141a.dir
-      size: 29210
+      md5: 89d8b7c45f4d0a459ff1318420317968.dir
+      size: 29369
       nfiles: 15
     - path: src/churn_mlops/data
       hash: md5
@@ -26,7 +26,7 @@ stages:
       nfiles: 26
     - path: uv.lock
       hash: md5
-      md5: 0cb75082e463dffe0274c213146b6da2
+      md5: 36f55e5195bb0e1538c155d239f9f20a
       size: 377781
     outs:
     - path: data/raw/training.csv
@@ -45,12 +45,12 @@ stages:
       isexec: true
     - path: pyproject.toml
       hash: md5
-      md5: fad41adf707ed423b6d303f5a1fff3c5
+      md5: 36fee045fe2e5b5597b76a0d5f1acc45
       size: 1453
     - path: src/churn_mlops/config
       hash: md5
-      md5: 31567be491eeca97b8760a97572c141a.dir
-      size: 29210
+      md5: 89d8b7c45f4d0a459ff1318420317968.dir
+      size: 29369
       nfiles: 15
     - path: src/churn_mlops/data
       hash: md5
@@ -59,7 +59,7 @@ stages:
       nfiles: 26
     - path: uv.lock
       hash: md5
-      md5: 0cb75082e463dffe0274c213146b6da2
+      md5: 36f55e5195bb0e1538c155d239f9f20a
       size: 377781
     outs:
     - path: data/raw/inference.csv
@@ -81,12 +81,12 @@ stages:
       size: 28260531
     - path: pyproject.toml
       hash: md5
-      md5: fad41adf707ed423b6d303f5a1fff3c5
+      md5: 36fee045fe2e5b5597b76a0d5f1acc45
       size: 1453
     - path: src/churn_mlops/config
       hash: md5
-      md5: 31567be491eeca97b8760a97572c141a.dir
-      size: 29210
+      md5: 89d8b7c45f4d0a459ff1318420317968.dir
+      size: 29369
       nfiles: 15
     - path: src/churn_mlops/data
       hash: md5
@@ -95,12 +95,12 @@ stages:
       nfiles: 26
     - path: uv.lock
       hash: md5
-      md5: 0cb75082e463dffe0274c213146b6da2
+      md5: 36f55e5195bb0e1538c155d239f9f20a
       size: 377781
     outs:
     - path: data/partitioned
       hash: md5
-      md5: 0d7f858376462e1bc876d4077bea2b03.dir
+      md5: 260db69fe557fdeed01234a77606c4ce.dir
       size: 9453558
       nfiles: 42
   create_oot_split:
@@ -110,17 +110,17 @@ stages:
     deps:
     - path: data/partitioned
       hash: md5
-      md5: 0d7f858376462e1bc876d4077bea2b03.dir
+      md5: 260db69fe557fdeed01234a77606c4ce.dir
       size: 9453558
       nfiles: 42
     - path: pyproject.toml
       hash: md5
-      md5: fad41adf707ed423b6d303f5a1fff3c5
+      md5: 36fee045fe2e5b5597b76a0d5f1acc45
       size: 1453
     - path: src/churn_mlops/config
       hash: md5
-      md5: 31567be491eeca97b8760a97572c141a.dir
-      size: 29210
+      md5: 89d8b7c45f4d0a459ff1318420317968.dir
+      size: 29369
       nfiles: 15
     - path: src/churn_mlops/data
       hash: md5
@@ -129,7 +129,7 @@ stages:
       nfiles: 26
     - path: uv.lock
       hash: md5
-      md5: 0cb75082e463dffe0274c213146b6da2
+      md5: 36f55e5195bb0e1538c155d239f9f20a
       size: 377781
     params:
       params.yaml:
@@ -152,8 +152,9 @@ stages:
       md5: d342ef3d1c668f39289fd24497f025f7
       size: 1966768
   train_model:
-    cmd: uv run churn-mlops train --config hgb.yaml --split_name OOT_26Q2
-      --experiment_name churn-12m-oot-26q2 --register-model --no-promote-model
+    cmd: uv run churn-mlops train --config rf.yaml --split_name OOT_26Q2
+      --exclude-columns customerid --experiment_name churn-12m-oot
+      --register-model --no-promote-model
     deps:
     - path: data/splits/OOT_26Q2.json
       hash: md5
@@ -169,66 +170,67 @@ stages:
       size: 1966768
     - path: pyproject.toml
       hash: md5
-      md5: fad41adf707ed423b6d303f5a1fff3c5
+      md5: 36fee045fe2e5b5597b76a0d5f1acc45
       size: 1453
     - path: src/churn_mlops
       hash: md5
-      md5: 9f643de362b9a21ce4ade45facf2f64c.dir
-      size: 611577
+      md5: 9247e8cbab9c834048e92642ebebee48.dir
+      size: 625902
       nfiles: 129
-    - path: src/config/hgb.yaml
+    - path: src/config/rf.yaml
       hash: md5
-      md5: 422849cf59c666deb9d9a1de76dd0474
-      size: 590
+      md5: 25fb06542f3371a0045d86cd1fb7264e
+      size: 589
     - path: uv.lock
       hash: md5
-      md5: 0cb75082e463dffe0274c213146b6da2
+      md5: 36f55e5195bb0e1538c155d239f9f20a
       size: 377781
     params:
       params.yaml:
-        model.classifier: hgb
-        model.config: hgb.yaml
-        model.config_path: src/config/hgb.yaml
+        model.classifier: rf
+        model.config: rf.yaml
+        model.config_path: src/config/rf.yaml
+        model.exclude_columns: customerid
         split.name: OOT_26Q2
-        tracking.experiment_name: churn-12m-oot-26q2
+        tracking.experiment_name: churn-12m-oot
     outs:
-    - path: data/manifests/hgb_OOT_26Q2.json
+    - path: data/manifests/rf_OOT_26Q2.json
       hash: md5
-      md5: 5581c5113abc712499fce65e864a67f6
-      size: 1754
+      md5: 88418e6c27b5086ef91763ccb076a877
+      size: 1705
   batch_predict_oot:
     cmd: uv run churn-mlops batch-predict --input_dataset
-      splits/OOT_26Q2_test.parquet --output_dataset predictions/hgb_OOT_26Q2
-      --model_manifest manifests/hgb_OOT_26Q2.json
+      splits/OOT_26Q2_test.parquet --output_dataset predictions/rf_OOT_26Q2
+      --model_manifest manifests/rf_OOT_26Q2.json
     deps:
-    - path: data/manifests/hgb_OOT_26Q2.json
+    - path: data/manifests/rf_OOT_26Q2.json
       hash: md5
-      md5: 5581c5113abc712499fce65e864a67f6
-      size: 1754
+      md5: 88418e6c27b5086ef91763ccb076a877
+      size: 1705
     - path: data/splits/OOT_26Q2_test.parquet
       hash: md5
       md5: 68d34592cd4c1004454590a36660f546
       size: 394426
     - path: pyproject.toml
       hash: md5
-      md5: fad41adf707ed423b6d303f5a1fff3c5
+      md5: 36fee045fe2e5b5597b76a0d5f1acc45
       size: 1453
     - path: src/churn_mlops
       hash: md5
-      md5: 9f643de362b9a21ce4ade45facf2f64c.dir
-      size: 611577
+      md5: 9247e8cbab9c834048e92642ebebee48.dir
+      size: 625902
       nfiles: 129
     - path: uv.lock
       hash: md5
-      md5: 0cb75082e463dffe0274c213146b6da2
+      md5: 36f55e5195bb0e1538c155d239f9f20a
       size: 377781
     params:
       params.yaml:
-        model.classifier: hgb
+        model.classifier: rf
         split.name: OOT_26Q2
     outs:
-    - path: data/predictions/hgb_OOT_26Q2
+    - path: data/predictions/rf_OOT_26Q2
       hash: md5
-      md5: 76fd8543673c28b610b271c90d5d89fc.dir
-      size: 733427
+      md5: 6158ac86012fbff386bdd48b1bdbdd30.dir
+      size: 739524
       nfiles: 3

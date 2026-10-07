@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import random
 import subprocess
@@ -84,12 +85,14 @@ def predict_samples(
         requests.HTTPError: If any prediction request returns a non-
             successful status code.
     """
+    logger = logging.getLogger(__name__)
 
     predictions = []
 
     url = f"http://{settings.api_host}:{settings.api_port}/predict"
-
-    for _, row in df.iterrows():
+    for index, (_, row) in enumerate(df.iterrows(), start=1):
+        if index % 100 == 0:
+            logger.info("Processed %s/%s samples", index, len(df))
         features = row.to_dict()
         row_reference_date = features.pop("reference_date", None)
 
@@ -217,6 +220,9 @@ def start_api_server(host: str, port: int) -> subprocess.Popen:
             str(port),
             "--no-access-log",
         ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
+        text=True,
     )
 
 
@@ -327,6 +333,27 @@ def custom_parser(settings: ServingSettings) -> argparse.ArgumentParser:
     return parser
 
 
+def configure_model_environment(
+    *,
+    args: argparse.Namespace,
+    settings: ServingSettings | None = None,
+) -> None:
+    """Configure model-related environment variables."""
+
+    if args.model_manifest is not None:
+        from churn_mlops.tracking.manifest import TrainingManifest
+
+        model_manifest_file = settings.data_dir / args.model_manifest
+        manifest = TrainingManifest.read(model_manifest_file)
+
+        os.environ["MODEL_NAME"] = manifest.model_name
+        os.environ["MODEL_VERSION"] = str(manifest.model_version)
+
+    if args.model_name is not None and args.model_version is not None:
+        os.environ["MODEL_NAME"] = args.model_name
+        os.environ["MODEL_VERSION"] = str(args.model_version)
+
+
 def main() -> None:
     """Generate predictions for a random sample of inference data.
 
@@ -359,17 +386,19 @@ def main() -> None:
     if (args.model_name is None) != (args.model_version is None):
         parser.error("--model_name and --model_version must be provided together.")
 
-    if args.model_manifest is not None:
-        from churn_mlops.tracking.manifest import TrainingManifest
+    # if args.model_manifest is not None:
+    #     from churn_mlops.tracking.manifest import TrainingManifest
 
-        model_manifest_file = settings.data_dir / args.model_manifest
-        manifest = TrainingManifest.read(model_manifest_file)
-        os.environ["MODEL_NAME"] = manifest.model_name
-        os.environ["MODEL_VERSION"] = str(manifest.model_version)
+    #     model_manifest_file = settings.data_dir / args.model_manifest
+    #     manifest = TrainingManifest.read(model_manifest_file)
+    #     os.environ["MODEL_NAME"] = manifest.model_name
+    #     os.environ["MODEL_VERSION"] = str(manifest.model_version)
 
-    if args.model_name is not None and args.model_version is not None:
-        os.environ["MODEL_NAME"] = args.model_name
-        os.environ["MODEL_VERSION"] = str(args.model_version)
+    # if args.model_name is not None and args.model_version is not None:
+    #     os.environ["MODEL_NAME"] = args.model_name
+    #     os.environ["MODEL_VERSION"] = str(args.model_version)
+
+    configure_model_environment(args=args, settings=settings)
 
     random_state = int(args.random_state or random.randint(1, 1000))
 
