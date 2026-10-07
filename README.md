@@ -535,8 +535,9 @@ out-of-time reference cohort over in-sample training predictions.
 Monitoring cohort selection is intentionally separate from the quarterly OOT
 evaluation. For DVC/MLflow-tracked monitoring, set the `monitoring` values in
 `monitoring_pipeline/params.yaml` to the selected reference and later analysis
-dataset names, exact registered model name/version, cohort labels, and source
-types, then run:
+dataset names, a training manifest path, and source types, then run. The
+manifest supplies the registered model name and exact version. Cohort labels
+in the MLflow run are derived from the dataset names.
 
 ```bash
 uv run dvc repro monitoring_pipeline/dvc.yaml:monitor
@@ -547,7 +548,8 @@ separate MLflow monitoring run containing the report artifact, cohort
 identifiers, and model version. The selected model version must be present in
 both cohorts, and the analysis period should be later than the reference period
 for drift calculations. Set each source to `batch` or `api` to match the
-corresponding prediction dataset. Batch cohorts are the default.
+corresponding prediction dataset. Keep both source settings explicit because
+the CLI defaults dataset-mode analysis to `api`. Batch cohorts are the default.
 
 Monitor batch predictions:
 

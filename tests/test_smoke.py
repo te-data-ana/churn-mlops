@@ -1,6 +1,7 @@
 import importlib
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -158,6 +159,112 @@ def test_package_main_builds_report_from_partitioned_datasets(
         "errors": datasets["api_errors"],
         "output_dir": Path("reports"),
     }
+
+
+@pytest.mark.smoke
+def test_package_main_uses_monitoring_model_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import churn_mlops
+    from churn_mlops import data
+    from churn_mlops.monitoring import core
+    from churn_mlops.tracking import TrainingManifest
+
+    settings = SimpleNamespace(
+        data_dir=tmp_path,
+        output_dir=tmp_path / "reports",
+        api_host="127.0.0.1",
+        api_port=8000,
+    )
+    manifest = SimpleNamespace(model_name="churn-risk", model_version=11)
+    datasets = {"reference": object(), "analysis": object()}
+    observed_report: dict[str, object] = {}
+    observed_log: dict[str, object] = {}
+
+    monkeypatch.setattr(churn_mlops, "ServingSettings", lambda: settings)
+
+    def fake_read_partitioned_dataset(
+        dataset_name: str, timestamp_column: str
+    ) -> object:
+        return datasets[dataset_name]
+
+    monkeypatch.setattr(data, "read_partitioned_dataset", fake_read_partitioned_dataset)
+    manifest_read = Mock(return_value=manifest)
+    monkeypatch.setattr(TrainingManifest, "read", manifest_read)
+
+    def fake_build_monitoring_report(**kwargs: object) -> str:
+        observed_report.update(kwargs)
+        return "report"
+
+    def fake_log_monitoring_run(report: object, **kwargs: object) -> None:
+        observed_log["report"] = report
+        observed_log.update(kwargs)
+
+    monkeypatch.setattr(core, "build_monitoring_report", fake_build_monitoring_report)
+    monkeypatch.setattr(core, "log_monitoring_run", fake_log_monitoring_run)
+
+    churn_mlops.main(
+        [
+            "monitor",
+            "--reference_dataset",
+            "reference",
+            "--analysis_dataset",
+            "analysis",
+            "--model_manifest",
+            "manifests/hgb_OOT_26Q2.json",
+            "--mlflow_experiment_name",
+            "churn-monitoring",
+        ]
+    )
+
+    manifest_read.assert_called_once_with(tmp_path / "manifests/hgb_OOT_26Q2.json")
+    assert observed_report == {
+        "reference": datasets["reference"],
+        "analysis": datasets["analysis"],
+        "source_reference": "batch",
+        "source_analysis": "api",
+        "errors": None,
+        "output_dir": settings.output_dir,
+        "model_version": 11,
+    }
+    assert observed_log == {
+        "report": "report",
+        "experiment_name": "churn-monitoring",
+        "run_name": "monitoring",
+        "tags": {
+            "reference_input": "reference",
+            "analysis_input": "analysis",
+            "reference_name": "reference",
+            "analysis_name": "analysis",
+            "model_name": "churn-risk",
+            "model_version": "11",
+        },
+    }
+
+
+@pytest.mark.smoke
+def test_package_main_rejects_monitor_manifest_with_explicit_model(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import churn_mlops
+
+    with pytest.raises(SystemExit, match="2"):
+        churn_mlops.main(
+            [
+                "monitor",
+                "--reference_dataset",
+                "reference",
+                "--analysis_dataset",
+                "analysis",
+                "--model_manifest",
+                "manifests/model.json",
+                "--model_version",
+                "11",
+            ]
+        )
+
+    assert "--model_manifest cannot be combined" in capsys.readouterr().err
 
 
 @pytest.mark.smoke

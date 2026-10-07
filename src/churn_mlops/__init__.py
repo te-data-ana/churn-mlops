@@ -295,6 +295,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     monitor_parser.add_argument("--timestamp_column", default="reference_date")
     monitor_parser.add_argument("--model_name")
     monitor_parser.add_argument("--model_version", type=int)
+    monitor_parser.add_argument(
+        "--model_manifest",
+        type=Path,
+        help="Path of model manifest in configured data directory.",
+    )
     monitor_parser.add_argument("--mlflow_experiment_name")
     monitor_parser.add_argument("--run_name")
     monitor_parser.add_argument("--reference_name")
@@ -525,6 +530,22 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "--source_reference and --source_analysis can only be used with "
                 "dataset inputs."
             )
+        if args.model_manifest is not None and (
+            args.model_name is not None or args.model_version is not None
+        ):
+            parser.error(
+                "--model_manifest cannot be combined with --model_name or "
+                "--model_version."
+            )
+
+        model_name = args.model_name
+        model_version = args.model_version
+        if args.model_manifest is not None:
+            from .tracking import TrainingManifest
+
+            manifest = TrainingManifest.read(settings.data_dir / args.model_manifest)
+            model_name = manifest.model_name
+            model_version = manifest.model_version
 
         output_dir = args.output_dir or settings.output_dir
         if dataset_mode:
@@ -555,8 +576,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "errors": errors,
                 "output_dir": output_dir,
             }
-            if args.model_version is not None:
-                report_kwargs["model_version"] = args.model_version
+            if model_version is not None:
+                report_kwargs["model_version"] = model_version
             report = build_monitoring_report(**report_kwargs)
         else:
             from .monitoring.core import run_monitoring
@@ -574,8 +595,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "error_log": error_log,
                 "output_dir": output_dir,
             }
-            if args.model_version is not None:
-                report_kwargs["model_version"] = args.model_version
+            if model_version is not None:
+                report_kwargs["model_version"] = model_version
             report = run_monitoring(**report_kwargs)
 
         if args.mlflow_experiment_name is not None or args.run_name is not None:
@@ -591,13 +612,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             tags = {
                 "reference_input": reference_input,
                 "analysis_input": analysis_input,
-                "reference_name": args.reference_name or "unspecified",
-                "analysis_name": args.analysis_name or "unspecified",
+                "reference_name": args.reference_name or reference_input,
+                "analysis_name": args.analysis_name or analysis_input,
             }
-            if args.model_name is not None:
-                tags["model_name"] = args.model_name
-            if args.model_version is not None:
-                tags["model_version"] = str(args.model_version)
+            if model_name is not None:
+                tags["model_name"] = model_name
+            if model_version is not None:
+                tags["model_version"] = str(model_version)
             log_monitoring_run(
                 report,
                 experiment_name=(

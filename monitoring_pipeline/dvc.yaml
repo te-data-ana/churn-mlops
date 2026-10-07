@@ -6,16 +6,14 @@ stages:
       --analysis_dataset ${monitoring.analysis_dataset}
       --source_reference ${monitoring.source_reference}
       --source_analysis ${monitoring.source_analysis}
+      --model_manifest ${monitoring.model_manifest}
       --output_dir ../data/monitoring/${monitoring.name}
-      --model_name ${monitoring.model_name}
-      --model_version ${monitoring.model_version}
       --mlflow_experiment_name ${monitoring.mlflow_experiment_name}
       --run_name ${monitoring.name}
-      --reference_name ${monitoring.reference_name}
-      --analysis_name ${monitoring.analysis_name}
     deps:
       - ../data/${monitoring.reference_dataset}
       - ../data/${monitoring.analysis_dataset}
+      - ../data/${monitoring.model_manifest}
       - ../src/churn_mlops
       - ../pyproject.toml
       - ../uv.lock

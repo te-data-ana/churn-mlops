@@ -4,8 +4,5 @@ monitoring:
   analysis_dataset: monitor_analysis
   source_reference: batch
   source_analysis: batch
-  model_name: churn-propensity
-  model_version: 1
+  model_manifest: manifests/hgb_OOT_26Q2.json
   mlflow_experiment_name: churn-monitoring
-  reference_name: reference_cohort
-  analysis_name: analysis_cohort
