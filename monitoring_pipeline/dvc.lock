@@ -1,0 +1,52 @@
+schema: '2.0'
+stages:
+  monitor:
+    cmd: uv run churn-mlops monitor --reference_dataset predictions/hgb_OOT_26Q2
+      --analysis_dataset api_predictions --source_reference batch
+      --source_analysis api --model_manifest manifests/hgb_OOT_26Q2.json
+      --output_dir ../data/monitoring/hgb_OOT_26Q2 --mlflow_experiment_name
+      churn_risk-monitoring --run_name hgb_OOT_26Q2
+    deps:
+    - path: ../data/api_predictions
+      hash: md5
+      md5: 855958224c1a3e4a409ec3d798cc6f19.dir
+      size: 911358
+      nfiles: 3
+    - path: ../data/manifests/hgb_OOT_26Q2.json
+      hash: md5
+      md5: 1d59fb87f3a0c0d523f5b5ccbdb78ed4
+      size: 1917
+    - path: ../data/predictions/hgb_OOT_26Q2
+      hash: md5
+      md5: 4713603c38e390f7578207dc22108d59.dir
+      size: 755415
+      nfiles: 3
+    - path: ../pyproject.toml
+      hash: md5
+      md5: 36fee045fe2e5b5597b76a0d5f1acc45
+      size: 1453
+    - path: ../src/churn_mlops
+      hash: md5
+      md5: d7a7a4282ed2476603dfb7a4f10e1430.dir
+      size: 630756
+      nfiles: 129
+    - path: ../uv.lock
+      hash: md5
+      md5: 36f55e5195bb0e1538c155d239f9f20a
+      size: 377781
+    params:
+      params.yaml:
+        monitoring:
+          name: hgb_OOT_26Q2
+          reference_dataset: predictions/hgb_OOT_26Q2
+          analysis_dataset: api_predictions
+          source_reference: batch
+          source_analysis: api
+          model_manifest: manifests/hgb_OOT_26Q2.json
+          mlflow_experiment_name: churn_risk-monitoring
+    outs:
+    - path: ../data/monitoring/hgb_OOT_26Q2
+      hash: md5
+      md5: 417c7a0d4e54e464b195bc8f4a73effa.dir
+      size: 1080
+      nfiles: 1

@@ -109,7 +109,7 @@ class ModelRegistry:
             raise
 
     def update_model_description(
-        self, model_name: str, version: int, description: str
+        self, model_name: str, version: str, description: str
     ) -> ModelVersion:
         """Update the description of a registered model version.
 
@@ -159,7 +159,7 @@ class ModelRegistry:
             alias: Alias identifying the model version and run.
 
         Returns:
-            Logged threshold converted to ``float``.
+            The classification threshold logged by the training run.
         """
         version = self.get_model_version_by_alias(
             model_name=model_name,
@@ -175,28 +175,80 @@ class ModelRegistry:
         )
         return threshold
 
-    def load_model(self, model_name: str, alias: str) -> Pipeline:
-        """Load a scikit-learn model from the MLflow registry.
+    def load_model_by_alias(self, model_name: str, alias: str) -> Pipeline:
+        """Load a trained model pipeline from registered alias.
 
         Args:
             model_name: Registered model name.
             alias: Alias identifying the version to load.
 
         Returns:
-            Loaded scikit-learn pipeline.
+            Trained model pipeline from the registry.
         """
         try:
             logger.info("Loading model '%s' with alias '%s'.", model_name, alias)
             model = mlflow.sklearn.load_model(f"models:/{model_name}@{alias}")
             logger.info(
-                "Model '%s' with alias '%s' loaded successfully.", model_name, alias
+                "Model '%s' with alias '%s' loaded successfully.",
+                model_name,
+                alias,
             )
             return model
         except Exception:
             logger.exception(
-                "Failed to load model '%s' with alias '%s'.", model_name, alias
+                "Failed to load model '%s' with alias '%s'.",
+                model_name,
+                alias,
             )
             raise
+
+    def load_model_by_version(self, model_name: str, version: int) -> Pipeline:
+        """Load a trained model pipeline from an immutable registry version.
+
+        Args:
+            model_name: Registered model name.
+            version: Exact registered version number.
+
+        Returns:
+            Trained model pipeline from the registry.
+        """
+        try:
+            logger.info("Loading model '%s' version %s.", model_name, version)
+            model = mlflow.sklearn.load_model(f"models:/{model_name}/{version}")
+            logger.info(
+                "Model '%s' version %s loaded successfully.",
+                model_name,
+                version,
+            )
+            return model
+        except Exception:
+            logger.exception(
+                "Failed to load model '%s' version %s.",
+                model_name,
+                version,
+            )
+            raise
+
+    def get_threshold_by_version(self, model_name: str, version: int) -> float:
+        """Retrieve the logged classification threshold for an exact version.
+
+        Args:
+            model_name: Registered model name.
+            version: Exact registered version number.
+
+        Returns:
+            The classification threshold logged by the training run.
+        """
+        model_version = self.get_model_version(model_name=model_name, version=version)
+        run = self.client.get_run(model_version.run_id)
+        threshold = float(run.data.params["threshold"])
+        logger.info(
+            "Fetched threshold %.4f for model '%s' version %s.",
+            threshold,
+            model_name,
+            version,
+        )
+        return threshold
 
     def get_champion_version(self, model_name: str) -> ModelVersion | None:
         """Return the model version assigned to ``champion`` if available.

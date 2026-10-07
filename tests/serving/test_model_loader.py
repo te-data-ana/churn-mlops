@@ -13,7 +13,7 @@ def test_load_model_returns_model_with_registry_metadata(
     # Mock MLflow, settings, and registry calls to isolate metadata assembly.
     model = Mock()
     registry = Mock()
-    registry.load_model.return_value = model
+    registry.load_model_by_alias.return_value = model
     registry.get_model_version_by_alias.return_value = SimpleNamespace(version=7)
     registry.get_threshold_by_alias.return_value = 0.6
 
@@ -34,7 +34,36 @@ def test_load_model_returns_model_with_registry_metadata(
     assert loaded_model.metadata.model_alias == "champion"
     assert loaded_model.metadata.model_version == 7
     assert loaded_model.metadata.threshold == 0.6
-    registry.load_model.assert_called_once_with(
+    registry.load_model_by_alias.assert_called_once_with(
         model_name="churn-propensity",
         alias="champion",
+    )
+
+
+@pytest.mark.unit
+def test_load_model_uses_exact_registered_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = Mock()
+    registry = Mock()
+    registry.load_model_by_version.return_value = model
+    registry.get_threshold_by_version.return_value = 0.4
+    settings = SimpleNamespace(
+        model_name="churn-propensity",
+        model_alias="champion",
+        mlflow_tracking_uri="sqlite:///mlflow.db",
+    )
+    monkeypatch.setattr(model_loader, "ModelRegistry", lambda: registry)
+    monkeypatch.setattr(model_loader, "ServingSettings", lambda: settings)
+    monkeypatch.setattr(model_loader.mlflow, "set_tracking_uri", Mock())
+
+    loaded_model = model_loader.load_model(model_version=9)
+
+    assert loaded_model.model is model
+    assert loaded_model.metadata.model_version == 9
+    assert loaded_model.metadata.model_alias is None
+    assert loaded_model.metadata.threshold == 0.4
+    registry.load_model_by_version.assert_called_once_with(
+        model_name="churn-propensity",
+        version=9,
     )

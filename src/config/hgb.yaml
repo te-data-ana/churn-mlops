@@ -20,8 +20,16 @@ evaluation:
   threshold: 0.5
 
 registry:
-  register_model: true
+  register_model: false
   registry_params:
-    model_name: churn-propensity
+    model_name: churn-risk
     alias: candidate
     promotion_delta: 0.005
+
+tuning:
+  enabled: true
+  n_trials: 25
+  n_splits: 4
+  time_column: reference_date
+  metric: roc_auc
+  random_state: 26

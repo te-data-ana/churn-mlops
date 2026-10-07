@@ -33,7 +33,13 @@ dist/
 *.egg-info/
 
 # Data
+data/experiment_runs/
+data/monitoring/
+data/partitioned/
+data/predictions/
+data/splits/
 *.csv
+*.json
 *.parquet
 !*.dvc
 

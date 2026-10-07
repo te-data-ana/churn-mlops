@@ -2,8 +2,10 @@
 
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import pytest
 import yaml
@@ -17,6 +19,47 @@ from churn_mlops.config.schemas import (
     RegistryConfig,
     TrainingConfig,
 )
+from churn_mlops.evaluation import metrics
+from churn_mlops.tracking.manifest import TrainingManifest
+
+
+@pytest.fixture
+def training_manifest_factory() -> Callable[..., TrainingManifest]:
+    def _create(promotion_decision: dict | None = None) -> TrainingManifest:
+
+        evaluation = metrics.evaluate_model(
+            y_true=np.array([0, 0, 1, 1]),
+            y_prob=np.array([0.1, 0.4, 0.6, 0.9]),
+            fit_time_sec=1.2,
+            pred_time_sec=0.3,
+        )
+
+        return TrainingManifest(
+            run_id="run-123",
+            run_name="rf__oot_26q1",
+            model_name="churn-propensity",
+            model_version=4,
+            target_column="churn",
+            classifier_name="clf_name",
+            classifier_alias="clf_alias",
+            split_name="oot_26q1",
+            split_metadata={
+                "train_rows": 100,
+                "test_rows": 25,
+                "train_start": "2025-01-01T00:00:00",
+                "train_end": "2025-12-31T00:00:00",
+                "test_start": "2026-01-01T00:00:00",
+                "test_end": "2026-03-31T00:00:00",
+            },
+            feature_count=2,
+            feature_names_in=["feature_in_1", "feature_in_2"],
+            feature_names_out=["feature_out_1", "feature_out_2"],
+            threshold=0.5,
+            metrics=vars(evaluation),
+            promotion_decision=promotion_decision or {},
+        )
+
+    return _create
 
 
 @pytest.fixture
@@ -198,21 +241,6 @@ def generated_training_csv(tmp_path: Path, generated_training_df: pd.DataFrame) 
 
 
 @pytest.fixture
-def generated_training_splits(
-    tmp_path: Path, generated_training_df: pd.DataFrame
-) -> Path:
-    """Write deterministic train/test Parquet files for training integration tests."""
-    split_dir = tmp_path / "splits"
-    split_dir.mkdir()
-    training_df = generated_training_df.reset_index(drop=True)
-    training_df.iloc[:8].to_parquet(
-        split_dir / "integration_train.parquet", index=False
-    )
-    training_df.iloc[8:].to_parquet(split_dir / "integration_test.parquet", index=False)
-    return split_dir
-
-
-@pytest.fixture
 def generated_inference_csv(
     tmp_path: Path, generated_training_df: pd.DataFrame
 ) -> Path:
@@ -281,12 +309,14 @@ def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
 
 @pytest.fixture
 def registered_model(
+    monkeypatch: pytest.MonkeyPatch,
+    generated_training_df: pd.DataFrame,
     mlflow_test_setup: dict[str, Any],
     sample_config_yaml: Path,
-    generated_training_splits: Path,
 ) -> dict[str, object]:
     """Train and register a model in an isolated temporary MLflow store."""
-    from churn_mlops.train import run_training_job
+    from churn_mlops import train
+    from churn_mlops.data import splitting, storage
 
     tmp_path = mlflow_test_setup["tmp_path"]
     model_name = mlflow_test_setup["model_name"]
@@ -295,14 +325,46 @@ def registered_model(
     tracking_uri = mlflow_test_setup["tracking_uri"]
     artifact_dir = tmp_path / "artifacts"
 
-    result = run_training_job(
-        config_file=sample_config_yaml.name,
+    settings = SimpleNamespace(
         config_dir=tmp_path,
-        split_name="integration",
-        split_dir=generated_training_splits,
+        data_dir=tmp_path,
+        artifact_dir=tmp_path / "artifacts",
+        mlflow_tracking_uri=tracking_uri,
+        mlflow_experiment_name=experiment_name,
+    )
+    monkeypatch.setattr(storage, "RuntimeSettings", lambda: settings)
+    monkeypatch.setattr(splitting, "RuntimeSettings", lambda: settings)
+    monkeypatch.setattr(train, "RuntimeSettings", lambda: settings)
+
+    split_name = "integration"
+
+    df = generated_training_df.copy().reset_index(drop=True)
+    df["reference_date"] = pd.date_range("2026-01-01", periods=len(df))
+
+    storage.write_partitioned_dataset(
+        df=df,
+        dataset_name="integration",
+        timestamp_column="reference_date",
+    )
+
+    _ = splitting.create_time_based_split(
+        dataset_name="integration",
+        timestamp_column="reference_date",
+        start_date="2026-01-01",
+        split_date="2026-01-06",
+        end_date="2026-01-10",
+        split_name=split_name,
+    )
+
+    result = train.run_training_job(
+        config_file=sample_config_yaml.name,
+        split_name=split_name,
+        config_dir=tmp_path,
         experiment_name=experiment_name,
         tracking_uri=tracking_uri,
         artifact_dir=artifact_dir,
+        register_model=True,
+        promote_model=True,
     )
 
     return {

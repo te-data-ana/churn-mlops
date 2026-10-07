@@ -24,8 +24,6 @@ def mock_training_result() -> TrainingResult:
         metrics={},
         classifier_config={},
         metadata={
-            "train_rows": 10,
-            "test_rows": 5,
             "feature_count": 3,
             "feature_names_in": ["a", "b"],
             "feature_names_out": ["a", "b", "c"],

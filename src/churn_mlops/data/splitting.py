@@ -1,3 +1,4 @@
+import json
 import logging
 from pathlib import Path
 from typing import TypedDict
@@ -67,6 +68,7 @@ def create_time_based_split(
     split_date: str | pd.Timestamp,
     end_date: str | pd.Timestamp,
     split_name: str = "default",
+    json_metadata: bool = True,
 ) -> SplitMetadata:
     """
     Create train and test datasets using an out-of-time split and
@@ -84,22 +86,19 @@ def create_time_based_split(
     Args:
         dataset_name:
             Name of the partitioned dataset to read from.
-
         timestamp_column:
             Name of the timestamp column used for filtering and
             splitting.
-
         start_date:
             Inclusive start of the extraction window.
-
         split_date:
             First timestamp that belongs to the test dataset.
-
         end_date:
             Inclusive end of the extraction window.
-
         split_name:
             Prefix used for the generated split filenames.
+        json_metadata:
+            If split metadata should be persisted to JSON file.
 
     Returns:
         Metadata describing the generated split, including row counts
@@ -109,10 +108,8 @@ def create_time_based_split(
         ValueError:
             If ``split_date`` is not strictly later than
             ``start_date``.
-
         ValueError:
             If ``split_date`` is later than ``end_date``.
-
         ValueError:
             If either the training or test dataset is empty.
     """
@@ -163,7 +160,7 @@ def create_time_based_split(
         index=False,
     )
 
-    return SplitMetadata(
+    split_metadata = SplitMetadata(
         train_rows=len(train),
         test_rows=len(test),
         train_start=train[timestamp_column].min(),
@@ -171,3 +168,16 @@ def create_time_based_split(
         test_start=test[timestamp_column].min(),
         test_end=test[timestamp_column].max(),
     )
+
+    if json_metadata:
+        json_file_path = output_dir / f"{split_name}.json"
+        serialized_metadata = {
+            key: value.isoformat() if hasattr(value, "isoformat") else value
+            for key, value in split_metadata.items()
+        }
+        json_file_path.write_text(
+            json.dumps(serialized_metadata, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    return split_metadata

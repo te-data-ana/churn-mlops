@@ -1,0 +1,23 @@
+stages:
+  monitor:
+    cmd: >-
+      uv run churn-mlops monitor
+      --reference_dataset ${monitoring.reference_dataset}
+      --analysis_dataset ${monitoring.analysis_dataset}
+      --source_reference ${monitoring.source_reference}
+      --source_analysis ${monitoring.source_analysis}
+      --model_manifest ${monitoring.model_manifest}
+      --output_dir ../data/monitoring/${monitoring.name}
+      --mlflow_experiment_name ${monitoring.mlflow_experiment_name}
+      --run_name ${monitoring.name}
+    deps:
+      - ../data/${monitoring.reference_dataset}
+      - ../data/${monitoring.analysis_dataset}
+      - ../data/${monitoring.model_manifest}
+      - ../src/churn_mlops
+      - ../pyproject.toml
+      - ../uv.lock
+    params:
+      - monitoring
+    outs:
+      - ../data/monitoring/${monitoring.name}

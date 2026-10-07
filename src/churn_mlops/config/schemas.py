@@ -33,6 +33,7 @@ class EvaluationConfig:
 class RegistryConfig:
     register_model: bool
     registry_params: dict[str, Any]
+    promote_model: bool = True
 
 
 @dataclass(frozen=True)

@@ -1,5 +1,4 @@
 import re
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -8,27 +7,21 @@ import pytest
 from churn_mlops.config.schemas import TrainingConfig
 from churn_mlops.tracking import (
     ModelCardBuilder,
-    ModelCardContext,
     log_model_card,
 )
+from churn_mlops.tracking.manifest import TrainingManifest
 
 
 @pytest.mark.unit
-def test_build_model_card_from_training_result(
-    registered_model: dict[str, object],
+def test_build_model_card_from_training_manifest(
     config_factory: TrainingConfig,
+    training_manifest_factory: TrainingManifest,
 ) -> None:
-    result = registered_model["result"]
     config = config_factory(classifier="lr")
 
-    context = ModelCardContext(
-        model_name="test-model",
-        model_version=1,
-        promotion_decision=None,
-    )
+    context = training_manifest_factory()
 
     markdown = ModelCardBuilder().build(
-        result=result,
         config=config,
         context=context,
     )
@@ -37,39 +30,33 @@ def test_build_model_card_from_training_result(
     assert "## Model Metadata" in markdown
     assert "## Evaluation on Test Set" in markdown
     assert str(context.model_version) in markdown
-    for feature in result.metadata["feature_names_out"]:
+    for feature in context.feature_names_out:
         assert f"- {feature}" in markdown
-    assert f"| Classifier Alias | {config.model.classifier} |" in markdown
-    assert f"| Classifier Name | {result.classifier_config['model_name']} |" in markdown
+    assert f"| Classifier Alias | {context.classifier_alias} |" in markdown
+    assert f"| Classifier Name | {context.classifier_name} |" in markdown
     assert re.search(r"\| ROC AUC \| \d\.\d{4} \|", markdown)
     assert re.search(r"\| Accuracy \| \d\.\d{4} \|", markdown)
 
 
 @pytest.mark.unit
 def test_build_includes_promotion_section(
-    registered_model: dict[str, object],
     config_factory: TrainingConfig,
+    training_manifest_factory: TrainingManifest,
 ) -> None:
-    result = registered_model["result"]
     config = config_factory()
 
-    decision = SimpleNamespace(
-        candidate_metric=0.9123,
-        champion_metric=0.9000,
-        required_delta=0.005,
-        metric_delta=0.0123,
-        promote=True,
-        reason="Candidate beats champion.",
-    )
+    decision = {
+        "candidate_metric": 0.9123,
+        "champion_metric": 0.9000,
+        "metric_delta": 0.0123,
+        "required_delta": 0.005,
+        "promote": True,
+        "reason": "Candidate beats champion.",
+    }
 
-    context = ModelCardContext(
-        model_name="test-model",
-        model_version=2,
-        promotion_decision=decision,
-    )
+    context = training_manifest_factory(decision)
 
     markdown = ModelCardBuilder().build(
-        result=result,
         config=config,
         context=context,
     )
@@ -81,29 +68,23 @@ def test_build_includes_promotion_section(
 
 @pytest.mark.unit
 def test_build_renders_na_for_missing_champion_values(
-    registered_model: dict[str, object],
     config_factory: TrainingConfig,
+    training_manifest_factory: TrainingManifest,
 ) -> None:
-    result = registered_model["result"]
     config = config_factory()
 
-    decision = SimpleNamespace(
-        candidate_metric=0.91,
-        champion_metric=None,
-        required_delta=0.005,
-        metric_delta=None,
-        promote=False,
-        reason="No champion model available.",
-    )
+    decision = {
+        "candidate_metric": 0.91,
+        "champion_metric": None,
+        "metric_delta": None,
+        "required_delta": 0.005,
+        "promote": True,
+        "reason": "No champion model available.",
+    }
 
-    context = ModelCardContext(
-        model_name="test-model",
-        model_version=1,
-        promotion_decision=decision,
-    )
+    context = training_manifest_factory(decision)
 
     markdown = ModelCardBuilder().build(
-        result=result,
         config=config,
         context=context,
     )

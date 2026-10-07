@@ -4,7 +4,7 @@ stages:
       uv run python -m churn_mlops.data.manipulation
       --input_csv customer_churn_dataset-training.csv
       --output_csv training.csv
-      --start_date 2024-01-01
+      --start_date 2023-01-01
       --end_date 2025-12-01
     deps:
       - data/raw/customer_churn_dataset-training.csv
@@ -46,21 +46,67 @@ stages:
       - uv.lock
     outs:
       - data/partitioned
-  create_baseline_split:
+  create_oot_split:
     cmd: >-
       uv run churn-mlops create-split
       --dataset_name partitioned
       --timestamp_column reference_date
-      --start_date 2024-01-01
-      --split_date 2026-01-01
-      --end_date 2026-06-30
-      --split_name baseline
+      --start_date ${split.start_date}
+      --split_date ${split.split_date}
+      --end_date ${split.end_date}
+      --split_name ${split.name}
     deps:
       - data/partitioned
       - src/churn_mlops/config
       - src/churn_mlops/data
       - pyproject.toml
       - uv.lock
+    params:
+      - split
     outs:
-      - data/splits/baseline_test.parquet
-      - data/splits/baseline_train.parquet
+      - data/splits/${split.name}_test.parquet
+      - data/splits/${split.name}_train.parquet
+      - data/splits/${split.name}.json
+  train_model:
+    cmd: >-
+      uv run churn-mlops train
+      --config ${model.config}
+      --split_name ${split.name}
+      --exclude-columns ${model.exclude_columns}
+      --experiment_name ${tracking.experiment_name}
+      --register-model
+      --no-promote-model
+    deps:
+      - data/splits/${split.name}_test.parquet
+      - data/splits/${split.name}_train.parquet
+      - data/splits/${split.name}.json
+      - src/churn_mlops
+      - ${model.config_path}
+      - pyproject.toml
+      - uv.lock
+    params:
+      - model.classifier
+      - model.config
+      - model.config_path
+      - model.exclude_columns
+      - split.name
+      - tracking.experiment_name
+    outs:
+      - data/manifests/${model.classifier}_${split.name}.json
+  batch_predict_oot:
+    cmd: >-
+      uv run churn-mlops batch-predict
+      --input_dataset splits/${split.name}_test.parquet
+      --output_dataset predictions/${model.classifier}_${split.name}
+      --model_manifest manifests/${model.classifier}_${split.name}.json
+    deps:
+      - data/splits/${split.name}_test.parquet
+      - data/manifests/${model.classifier}_${split.name}.json
+      - src/churn_mlops
+      - pyproject.toml
+      - uv.lock
+    params:
+      - model.classifier
+      - split.name
+    outs:
+      - data/predictions/${model.classifier}_${split.name}

@@ -10,7 +10,7 @@ from churn_mlops.tracking import ModelRegistry
 @dataclass
 class ModelMetadata:
     model_name: str
-    model_alias: str
+    model_alias: str | None
     model_version: int
     threshold: float
 
@@ -25,6 +25,7 @@ def load_model(
     tracking_uri: str | None = None,
     model_name: str | None = None,
     model_alias: str | None = None,
+    model_version: int | None = None,
 ) -> LoadedModel:
     """Load the configured serving model and its registry metadata.
 
@@ -36,6 +37,8 @@ def load_model(
             tracking_uri: Optional MLflow tracking URI.
             model_name: Optional registered model name.
             model_alias: Optional registered model alias.
+            model_version: Optional immutable registered model version. When
+                supplied, it takes precedence over the alias.
 
     Raises:
         mlflow.exceptions.MlflowException: If the configured model or alias
@@ -53,29 +56,37 @@ def load_model(
     # initialize model registry
     registry = ModelRegistry()
 
-    # load model from registry
-    model = registry.load_model(
-        model_name=resolved_model_name,
-        alias=resolved_model_alias,
-    )
-
-    # retrieve model version from registry
-    version = registry.get_model_version_by_alias(
-        model_name=resolved_model_name,
-        alias=resolved_model_alias,
-    )
-
-    # retrieve class threshold from registry
-    threshold = registry.get_threshold_by_alias(
-        model_name=resolved_model_name,
-        alias=resolved_model_alias,
-    )
+    if model_version is not None:
+        model = registry.load_model_by_version(
+            model_name=resolved_model_name,
+            version=model_version,
+        )
+        version_number = model_version
+        threshold = registry.get_threshold_by_version(
+            model_name=resolved_model_name,
+            version=model_version,
+        )
+        resolved_model_alias = None
+    else:
+        model = registry.load_model_by_alias(
+            model_name=resolved_model_name,
+            alias=resolved_model_alias,
+        )
+        version = registry.get_model_version_by_alias(
+            model_name=resolved_model_name,
+            alias=resolved_model_alias,
+        )
+        version_number = int(version.version)
+        threshold = registry.get_threshold_by_alias(
+            model_name=resolved_model_name,
+            alias=resolved_model_alias,
+        )
 
     # combine model metadata
     metadata = ModelMetadata(
         model_name=resolved_model_name,
         model_alias=resolved_model_alias,
-        model_version=int(version.version),
+        model_version=version_number,
         threshold=threshold,
     )
 

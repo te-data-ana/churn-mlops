@@ -25,8 +25,6 @@ def assert_training_result(result) -> None:
 
     metadata = result.metadata
     assert datetime.fromisoformat(metadata["timestamp"])
-    assert metadata["train_rows"] > 0
-    assert metadata["test_rows"] > 0
     assert len(metadata["feature_names_in"]) > 0
     assert len(metadata["feature_names_out"]) > 0
 
@@ -110,25 +108,26 @@ def test_train_returns_reproducible_metrics_for_same_input(
 
     assert result1.metrics["roc_auc"] == result2.metrics["roc_auc"]
     assert result1.metrics["accuracy"] == result2.metrics["accuracy"]
-    assert result1.metadata["train_rows"] == result2.metadata["train_rows"]
 
 
 @pytest.mark.unit
-def test_train_uses_override_and_excludes_temporal_column(
+def test_train_uses_override_and_excludes_columns(
     config_factory: Callable[..., TrainingConfig],
     sample_training_df: pd.DataFrame,
 ) -> None:
     cfg = config_factory(classifier="dt")
     dated_df = sample_training_df.copy()
     dated_df["reference_date"] = pd.date_range("2026-01-01", periods=len(dated_df))
+    dated_df["customerid"] = range(len(dated_df))
 
     result = train_model(
         config=cfg,
         train_df=dated_df.iloc[:7],
         test_df=dated_df.iloc[7:],
         model_params_override={"max_depth": 2},
-        exclude_columns=["reference_date"],
+        exclude_columns=["reference_date", "customerid"],
     )
 
     assert result.classifier_config["max_depth"] == 2
     assert "reference_date" not in result.metadata["feature_names_in"]
+    assert "customerid" not in result.metadata["feature_names_in"]

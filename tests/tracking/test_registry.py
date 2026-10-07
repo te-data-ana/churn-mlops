@@ -27,10 +27,40 @@ def test_registry_get_model_version(registry: ModelRegistry) -> None:
         model_name="my_model",
         version=3,
     )
-
     registry.client.get_model_version.assert_called_once_with(
         name="my_model",
         version="3",
+    )
+
+
+@pytest.mark.unit
+def test_registry_loads_an_exact_model_version(
+    registry: ModelRegistry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    load_model = Mock(return_value=object())
+    monkeypatch.setattr(
+        "churn_mlops.tracking.registry.mlflow.sklearn.load_model", load_model
+    )
+
+    registry.load_model_by_version(model_name="my_model", version=7)
+
+    load_model.assert_called_once_with("models:/my_model/7")
+
+
+@pytest.mark.unit
+def test_registry_get_threshold_by_version(registry: ModelRegistry) -> None:
+    model_version = Mock()
+    model_version.run_id = "run-7"
+    registry.get_model_version = Mock(return_value=model_version)
+    registry.client.get_run.return_value.data.params = {"threshold": "0.35"}
+
+    threshold = registry.get_threshold_by_version(model_name="my_model", version=7)
+
+    assert threshold == 0.35
+    registry.get_model_version.assert_called_once_with(
+        model_name="my_model",
+        version=7,
     )
 
 
@@ -41,7 +71,7 @@ def test_registry_update_model_description(registry: ModelRegistry) -> None:
 
     result = registry.update_model_description(
         model_name="my_model",
-        version=3,
+        version="3",
         description="Updated model card.",
     )
 

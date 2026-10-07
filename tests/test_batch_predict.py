@@ -8,6 +8,7 @@ import pytest
 import churn_mlops
 from churn_mlops import batch_predict, data
 from churn_mlops.data import storage
+from churn_mlops.tracking.manifest import TrainingManifest
 
 
 @pytest.mark.unit
@@ -94,6 +95,87 @@ def test_run_batch_prediction_validates_and_returns_prediction_dataframe(
     )
     predictor.predict_batch.assert_called_once_with(df=validated_df)
     pd.testing.assert_frame_equal(result, prediction_df)
+
+
+@pytest.mark.unit
+def test_run_batch_prediction_uses_exact_model_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+
+    load_model = Mock(return_value=Mock())
+    predictor = Mock()
+    predictor.predict_batch.return_value = pd.DataFrame(
+        {"predicted_probability": [0.7]}
+    )
+
+    monkeypatch.setattr(
+        batch_predict,
+        "ServingSettings",
+        lambda: SimpleNamespace(
+            mlflow_tracking_uri="uri",
+            model_name="configured-model",
+            model_alias="champion",
+        ),
+    )
+    monkeypatch.setattr(batch_predict, "validate_data", lambda df: df)
+    monkeypatch.setattr(batch_predict, "load_model", load_model)
+    monkeypatch.setattr(batch_predict, "Predictor", Mock(return_value=predictor))
+
+    batch_predict.run_batch_prediction(
+        df=pd.DataFrame({"age": [30]}),
+        model_name="churn-propensity",
+        model_version=8,
+    )
+
+    load_model.assert_called_once_with(
+        tracking_uri="uri",
+        model_name="churn-propensity",
+        model_alias="champion",
+        model_version=8,
+    )
+
+
+@pytest.mark.unit
+def test_batch_predict_cli_reads_model_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    training_manifest_factory: TrainingManifest,
+) -> None:
+    from churn_mlops import tracking
+
+    settings = SimpleNamespace(
+        data_dir=tmp_path,
+        output_dir=tmp_path,
+        api_host="127.0.0.1",
+        api_port=8000,
+    )
+    input_df = pd.DataFrame({"age": [35]})
+    prediction_df = pd.DataFrame({"predicted_probability": [0.7]})
+    manifest = training_manifest_factory()
+    predict = Mock(return_value=prediction_df)
+
+    monkeypatch.setattr(churn_mlops, "ServingSettings", lambda: settings)
+    monkeypatch.setattr(data, "load_raw_data", Mock(return_value=input_df))
+    monkeypatch.setattr(tracking.TrainingManifest, "read", Mock(return_value=manifest))
+    monkeypatch.setattr(batch_predict, "run_batch_prediction", predict)
+
+    churn_mlops.main(
+        [
+            "batch-predict",
+            "--input_csv",
+            "inference.csv",
+            "--output_csv",
+            "scored.csv",
+            "--model_manifest",
+            str(tmp_path / "manifest.json"),
+        ]
+    )
+
+    predict.assert_called_once_with(
+        df=input_df,
+        model_name="churn-propensity",
+        model_version=4,
+    )
 
 
 @pytest.mark.unit

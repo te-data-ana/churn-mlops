@@ -1,5 +1,5 @@
 outs:
-- md5: 55289b95d9b4310f554778c725097c5b  # pragma: allowlist secret
+- md5: 55289b95d9b4310f554778c725097c5b
   size: 3282220
   isexec: true
   hash: md5
