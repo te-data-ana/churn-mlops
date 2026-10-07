@@ -1,8 +1,8 @@
 monitoring:
-  name: selected_model_followup
-  reference_dataset: monitor_reference
-  analysis_dataset: monitor_analysis
+  name: hgb_OOT_26Q2
+  reference_dataset: predictions/hgb_OOT_26Q2
+  analysis_dataset: api_predictions
   source_reference: batch
-  source_analysis: batch
+  source_analysis: api
   model_manifest: manifests/hgb_OOT_26Q2.json
-  mlflow_experiment_name: churn-monitoring
+  mlflow_experiment_name: churn_risk-monitoring
