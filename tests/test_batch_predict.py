@@ -123,13 +123,13 @@ def test_run_batch_prediction_uses_exact_model_version(
 
     batch_predict.run_batch_prediction(
         df=pd.DataFrame({"age": [30]}),
-        model_name="churn-propensity",
+        model_name="churn-risk",
         model_version=8,
     )
 
     load_model.assert_called_once_with(
         tracking_uri="uri",
-        model_name="churn-propensity",
+        model_name="churn-risk",
         model_alias="champion",
         model_version=8,
     )
@@ -173,7 +173,7 @@ def test_batch_predict_cli_reads_model_manifest(
 
     predict.assert_called_once_with(
         df=input_df,
-        model_name="churn-propensity",
+        model_name="churn-risk",
         model_version=4,
     )
 

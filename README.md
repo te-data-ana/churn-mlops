@@ -1,21 +1,12 @@
 # Churn MLOps
 
-An end-to-end customer churn prediction project for preparing data, training,
-evaluating, monitoring, registering, and serving tabular machine-learning
-models.
+A local-first, end-to-end customer churn prediction project. It demonstrates
+data preparation, time-based evaluation, model training and promotion, batch
+and HTTP inference, and model, data, and service monitoring.
 
-The project supports workflows to:
-
-- prepare raw datasets, write partitioned Parquet data, and create time-based splits;
-- train and evaluate configurable churn prediction models;
-- generate batch predictions from CSV and partitioned datasets;
-- serve predictions through a FastAPI application;
-- score sample inference data through the HTTP API;
-- ingest API prediction and error logs into partitioned datasets; and
-- monitor model performance, data drift, and operational metrics.
-
-Experiments, model artifacts, model cards, and promotion decisions are tracked
-locally with MLflow.
+The project uses scikit-learn pipelines for feature engineering and prediction,
+MLflow for experiments and the model registry, DVC for reproducible data and
+evaluation pipelines, and FastAPI for serving.
 
 ## Quick start
 
@@ -24,245 +15,103 @@ locally with MLflow.
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/)
 
-Install dependencies:
+Install the project and its development dependencies, then check the CLI:
 
 ```bash
 uv sync
+uv run churn-mlops --help
 ```
 
-Run the tests:
+Run the test suite:
 
 ```bash
 uv run pytest
 ```
 
-Use the package entry point for the supported local workflows:
+Training requires prepared files at
+`data/splits/{split_name}_train.parquet` and
+`data/splits/{split_name}_test.parquet`. Follow the data preparation and
+training workflows below to create them. The repository does not include the
+raw CSV contents; see [DVC experiments](#reproduce-an-out-of-time-experiment)
+for how to obtain and track those local inputs.
 
-```bash
-uv run churn-mlops --help
-```
+## Workflows
 
-Train a model with the sample configuration:
+### Prepare data and create a time-based split
 
-```bash
-uv run churn-mlops train \
-	--config sample_training_config.yaml
-```
-
-Generate batch predictions from CSV input:
-
-```bash
-uv run churn-mlops batch-predict \
-	--input_csv inference.csv \
-	--output_csv predictions_inference.csv \
-	--index_col customerid
-```
-
-Generate and store predictions from month-partitioned dataset:
-
-```bash
-uv run churn-mlops batch-predict \
-	--input_dataset partitioned \
-	--start_date 2026-01-01 \
-	--end_date 2026-06-30
-```
-
-Date bounds are optional as a pair; omitting both reads all available partitions.
-The default timestamp is `reference_date`, and output is written to the
-partitioned `batch_predictions` dataset with matching month partitions replaced.
-
-Serve the FastAPI application:
-
-```bash
-uv run churn-mlops serve --host 127.0.0.1 --port 8000 --reload
-```
-
-Training reads configuration files from `src/config` and input data from `data/raw`. By default, local MLflow state is stored in `tracking_local/mlflow.db`, run artifacts in `artifacts_local`, and API logs in `logs_local`.
-
-## Containerized local stack
-
-Docker Compose provides a reproducible local runtime using the same CLI and
-SQLite-backed MLflow registry. The API container binds to `0.0.0.0:8000` and
-persists its registry state, model artifacts, and batch outputs on the host.
-
-Requirements:
-
-- Docker Engine with the Compose plugin
-
-Build and start the API:
-
-```bash
-cp .env.example .env
-docker compose up --build -d
-```
-
-The container starts successfully even when no model is available. In that
-case `/health` returns `200`, while `/ready` returns `503` until a model has
-been trained, registered, and can be loaded from MLflow.
-
-The image entrypoint is the project CLI (`churn-mlops`) and the default command
-is `serve`. CLI commands can be invoked inside the container by overriding the
-default command. For example:
-
-```bash
-docker compose run --rm api train --config sample_training_config.yaml
-docker compose run --rm api batch-predict ...
-docker compose run --rm api monitor ...
-```
-
-Verify the container and endpoints:
-
-```bash
-docker compose ps
-curl http://127.0.0.1:8000/health
-curl -i http://127.0.0.1:8000/ready
-```
-
-Train and register a model in the same Compose environment with:
-
-```bash
-docker compose run --rm api train --config sample_training_config.yaml
-```
-
-Run batch prediction through the container:
-
-```bash
-docker compose run --rm api batch-predict \
-	--input_dataset partitioned \
-	--start_date 2026-01-01 \
-	--end_date 2026-06-30
-```
-
-Monitoring can be run against batch prediction outputs or the API inference
-logs produced by the container:
-
-```bash
-docker compose run --rm api monitor \
-    --reference_csv output/predictions_training.csv \
-    --analysis_csv output/predictions_inference.csv
-```
-
-```bash
-docker compose run --rm api monitor \
-    --reference_csv output/predictions_training.csv \
-    --api
-```
-
-Prediction logs, error logs, batch prediction outputs, and monitoring reports
-are persisted on the host through the mounted `logs/` and `output/` directories.
-
-The Compose service mounts `data/`, `tracking/`, `artifacts/`, and `output/` as
-writable directories, and mounts `src/config` read-only. The data mount maps the
-host data tree to `/app/data`, so raw CSVs are available under `/app/data/raw`
-and partitioned datasets and splits can be written beneath `/app/data`. Keep
-the MLflow database and artifacts together: the database contains registry
-metadata while the artifacts contain the registered model files. Recreating
-the API container does not remove these host directories.
-
-Stop the stack with:
-
-```bash
-docker compose down
-```
-
-Run the image without Docker Compose:
-
-After building the image, the FastAPI prediction service can be started directly:
-
-```bash
-docker run -p 8000:8000 churn-mlops:local
-```
-
-## User workflows
-
-### Prepare raw data with reference dates
-
-The project includes a data-preparation helper that validates raw CSV inputs, adds a generated `reference_date` column, and writes the enriched dataset back to disk. This is useful when you want to simulate time-based splits or create training/inference data with a consistent date range.
+Raw input CSVs belong in `data/raw`. The helper below assigns dates from the
+requested range to rows and writes an enriched CSV in `data/raw`. Prepare both
+training and inference cohorts so the partitioned dataset covers the full
+out-of-time window:
 
 ```bash
 uv run python -m churn_mlops.data.manipulation \
-	--input_csv customer_churn_dataset-inference.csv \
-	--output_csv inference.csv \
-	--start_date 2026-01-01 \
-	--end_date 2026-06-01
+  --input_csv customer_churn_dataset-training.csv \
+  --output_csv training.csv \
+  --start_date 2025-01-01 \
+  --end_date 2025-12-01
+
+uv run python -m churn_mlops.data.manipulation \
+  --input_csv customer_churn_dataset-inference.csv \
+  --output_csv inference.csv \
+  --start_date 2026-01-01 \
+  --end_date 2026-06-01
 ```
 
-The same helper is also used by [scripts/create_data_with_ref_dates.sh](scripts/create_data_with_ref_dates.sh) to generate both training and inference datasets for the repository examples.
-
-### Prepare partitioned data and create time splits
-
-The `prepare-data` command validates a raw CSV and writes it as a month-partitioned
-Parquet dataset. The input is a filename under `data/raw`; by default the data is
-partitioned using `reference_date` and written under `data/partitioned`. Existing
-partitions for months in the input are replaced.
+`prepare-data` validates a CSV and writes it as a month-partitioned Parquet
+dataset under `data/partitioned`. The input argument is a filename under
+`data/raw`. Prepare both enriched files:
 
 ```bash
-uv run churn-mlops prepare-data \
-	--input_csv training.csv
+uv run churn-mlops prepare-data --input_csv training.csv
+uv run churn-mlops prepare-data --input_csv inference.csv
 ```
 
-Use `create-split` to extract a date range from a partitioned dataset and divide
-it into train and test Parquet files. The start and end dates are inclusive;
-records before `split_date` go to train, and records on or after it go to test.
-The timestamp column defaults to `reference_date` and the filename prefix to
-`default`. Output files are written under `data/splits` as
-`{split_name}_train.parquet` and `{split_name}_test.parquet`.
+Create train and test files from an inclusive date range. Rows before
+`split_date` go to training; rows on or after it go to test. By default, the
+command reads the `reference_date` column and writes files under `data/splits`.
 
 ```bash
 uv run churn-mlops create-split \
-	--dataset_name partitioned \
-	--start_date 2025-01-01 \
-	--split_date 2026-01-01 \
-	--end_date 2026-06-30 \
-	--split_name baseline
+  --dataset_name partitioned \
+  --start_date 2025-04-01 \
+  --split_date 2026-04-01 \
+  --end_date 2026-06-30 \
+  --split_name OOT_26Q2
 ```
 
-This CLI workflow is separate from the date-enrichment helper above. The split
-outputs are Parquet files consumed directly by the `train` command.
+This creates `OOT_26Q2_train.parquet`, `OOT_26Q2_test.parquet`, and split
+metadata in `data/splits`.
 
-### Run out-of-time DVC/MLflow experiments
+### Reproduce an out-of-time experiment
 
-DVC versions prepared inputs, split outputs, training manifests, and scored
-OOT predictions. MLflow owns training runs, metrics, model artifacts, and
-registered model versions. Optuna tuning remains inside each training run.
-`dvc.yaml` defines the reusable prepare/split/train/score pipeline, while
-`monitoring_pipeline/dvc.yaml` keeps explicitly selected monitoring cohorts
-separate from offline quarterly evaluation.
+The root [dvc.yaml](dvc.yaml) defines a pipeline that adds reference dates,
+prepares partitioned data, creates a time split, trains and registers a model,
+then scores the held-out cohort. DVC tracks stage inputs and outputs;
+MLflow stores runs, metrics, model artifacts, and registered versions.
+Optuna tuning, when enabled in the training config, runs as part of training.
 
-DVC is included in the `uv` development dependencies. After `uv sync`, first
-make sure the original training and inference CSVs are present under `data/raw`.
-To start tracking these local inputs with DVC, run this once and commit the
-generated `.dvc` pointers, not the CSV files:
-
-```bash
-uv run dvc add \
-	data/raw/customer_churn_dataset-training.csv \
-	data/raw/customer_churn_dataset-inference.csv
-```
-
-The checked-in `params.yaml` example defines `OOT_26Q1`, a 2025 training year
-and a 2026 Q1 test quarter, with the `rf` classifier. The convention is a
-rolling 12-month training window immediately before the OOT quarter:
-
-| Split | Training window | OOT test window |
-|-------|-----------------|-----------------|
-| `OOT_26Q1` | 2025-01-01 through 2025-12-31 | 2026-01-01 through 2026-03-31 |
-| `OOT_26Q2` | 2025-04-01 through 2026-03-31 | 2026-04-01 through 2026-06-30 |
-
-Date bounds are inclusive. The generated filenames include the split name,
-for example `data/splits/OOT_26Q1_train.parquet` and
-`data/splits/OOT_26Q1_test.parquet`. The DVC experiment scenario name includes
-both classifier and split (for example `rf_OOT_26Q1`), so manifests and
-prediction datasets do not collide across runs.
-
-Reproduce the configured data, split, training, and OOT scoring stages:
+The checked-in [params.yaml](params.yaml) configures `OOT_26Q2`: training from
+2025-04-01 through 2026-03-31 and testing from 2026-04-01 through 2026-06-30,
+using the `rf` classifier. Date bounds are inclusive. Provide the original
+training and inference CSVs under `data/raw` before running the pipeline:
 
 ```bash
 uv run dvc repro
 uv run dvc status
 ```
 
-Run another quarter/classifier combination as a named DVC experiment:
+To add or update the local source files tracked by DVC, run:
+
+```bash
+uv run dvc add \
+  data/raw/customer_churn_dataset-training.csv \
+  data/raw/customer_churn_dataset-inference.csv
+```
+
+Commit the generated `.dvc` pointers, not the CSV contents.
+
+To run another quarter/classifier combination as a named DVC experiment:
 
 ```bash
 uv run dvc exp run --name churn-12m-oot \
@@ -276,78 +125,39 @@ uv run dvc exp run --name churn-12m-oot \
   --set-param tracking.experiment_name=churn-12m-oot
 ```
 
-To select another classifier, set `model.config` to its YAML filename and
-`model.config_path` to the matching `src/config` path. DVC reuses unchanged
-preparation and split stages from its cache. Each training run registers an
-immutable model version without moving the `candidate` or `champion` aliases.
-The training manifest under `data/manifests/` connects its MLflow run ID and
-exact registered model version to downstream scoring.
-The `model.exclude_columns` parameter defaults to `customerid`, keeping the ID
-out of both tuning and model features. It accepts whitespace-separated column
-names; override it in a DVC experiment to add or change excluded columns.
+When selecting another classifier, set `model.config` and `model.config_path`
+to its YAML file. Each DVC training stage registers a specific model version
+without changing the `candidate` or `champion` aliases. Its manifest under
+`data/manifests` identifies that version for scoring.
 
-The individual steps remain runnable without DVC:
+The source CSVs are represented in Git by `.dvc` pointer files, not by their
+contents. This repository has no DVC remote, so a fresh clone must be supplied
+with the CSVs locally; `dvc pull` cannot retrieve them. Likewise, the SQLite
+MLflow database and artifact directory are local. Cross-machine reproduction
+requires sharing both DVC data and MLflow tracking/artifacts.
 
-```bash
-uv run churn-mlops prepare-data --input_csv training.csv
-uv run churn-mlops create-split \
-  --dataset_name partitioned \
-  --start_date 2025-01-01 --split_date 2026-01-01 --end_date 2026-03-31 \
-  --split_name OOT_26Q1
-uv run churn-mlops train \
-  --config rf.yaml --split_name OOT_26Q1 \
-  --experiment_name 12M-OOT-26Q1 \
-  --register-model --no-promote-model
-uv run churn-mlops batch-predict \
-  --input_dataset splits/OOT_26Q1_test.parquet \
-  --output_dataset predictions/rf_OOT_26Q1 \
-  --model_manifest manifests/rf_OOT_26Q1.json
-```
+### Train and evaluate a model
 
-DVC records stage dependencies and output hashes in the Git-tracked
-`dvc.yaml`/`dvc.lock` files. Use `uv run dvc checkout` to restore cached
-inputs/outputs for the checked-out Git revision when they are available in
-your local DVC cache. If outputs are missing but the source CSV and cache are
-available, `uv run dvc repro` can recreate them.
-
-This setup intentionally has no DVC remote. Data contents stay in the local
-DVC cache and working tree; Git contains only DVC metadata. The cache is not a
-backup and is not available to collaborators or GitHub Actions. A fresh clone
-must be supplied both source CSVs locally, and cannot restore cached data
-unless it is recomputed or a remote is configured later. Likewise, the
-currently configured SQLite MLflow database and local artifact directory are
-not shared. Cross-machine reproducibility requires both a DVC remote and a
-shared MLflow tracking/registry backend with persistent shared artifact storage.
-
-### Train a model
-
-Training loads and validates the prepared train/test Parquet files, builds a
-feature and preprocessing pipeline, fits the configured classifier on the
-training split, evaluates it on the test split, and logs the result to MLflow.
-To select a specific MLflow experiment for a run, pass `--experiment_name`.
-Experiment runs may use `--split_name` to select different train/test splits.
-`--register-model` registers an immutable version; `--no-promote-model`
-prevents candidate/champion alias changes. Existing configs retain their
-current registration/promotion defaults when these overrides are omitted.
-Pass one or more names to `--exclude-columns` to keep identifier or other
-non-feature columns out of both hyperparameter tuning and final model fitting.
+Training reads prepared Parquet files from `data/splits`, builds and fits the
+configured pipeline, evaluates it on the test split, and logs the run to
+MLflow.
 
 ```bash
 uv run churn-mlops train \
-	--config sample_training_config.yaml \
-	--experiment_name churn-experiments \
-	--split_name baseline \
-	--exclude-columns customerid legacy_id
+  --config rf.yaml \
+  --split_name OOT_26Q2 \
+  --experiment_name churn-experiments \
+  --exclude-columns customerid
 ```
 
-Training reads `data/splits/{split_name}_train.parquet` and
-`data/splits/{split_name}_test.parquet`. The default split name is `default`,
-matching the default output from `create-split`. Configuration filenames are
-resolved under `src/config` by default.
+Configuration filenames resolve under `src/config` by default. The default
+split name is `default`. Training configuration controls the target,
+engineered features, preprocessing, classifier, evaluation threshold,
+optional tuning, and model registration/promotion. See
+[Model and tracking reference](#model-and-tracking-reference).
 
-Optuna tuning is disabled by default. To enable it, select a classifier with a
-search space in the model catalog (for example `rf`) and add this section to
-its YAML configuration:
+Optuna tuning is disabled by default. To enable it, choose a classifier with a
+catalog search space and set tuning options in its YAML configuration:
 
 ```yaml
 tuning:
@@ -359,348 +169,201 @@ tuning:
   random_state: 26
 ```
 
-The catalog defines the parameter ranges for each tunable classifier. Tuning
-uses deterministic expanding-window cross-validation ordered by the configured
-timestamp (currently `reference_date`), keeping rows with the same timestamp
-together. Each fold fits its own preprocessing/model pipeline. The timestamp is
-used only for fold ordering, not as a model feature. The configured training
-split must retain that timestamp and contain enough distinct dates and both
-target classes in each fold. Tuning only sees the training split. After
-selecting the best parameters, the workflow fits once on the full training
-split and evaluates once on the untouched test split. The final MLflow run
-records the best parameters, CV metric, trial/fold settings, timestamp column,
-and random seed. The `dc` dummy-classifier baseline has no search space and
-cannot be tuned.
+Tuning uses deterministic expanding-window cross-validation on the training
+split only. Rows with the same timestamp stay in the same fold. The configured
+time column must be present in the training split, and every fold must contain
+both target classes. The test split is held out until final evaluation.
 
 ### Generate batch predictions
 
-Batch inference validates input data, loads the configured registered model,
-and writes the predictions. There are two input data options for scoring.
-For a reproducible experiment, use `--model_manifest` to provide a model
-manifest written by the training step or provide the exact `--model_name` and
-`--model_version`; do not rely on a mutable serving alias. The existing default
-alias behavior remains available for ordinary batch scoring and serving.
+Batch prediction validates input data and loads a registered model. Use a
+training manifest or an explicit model name and version when the exact model
+version matters; otherwise the configured model alias is used.
 
-CSV input:
+For CSV input, the input filename is resolved under `data/raw` and the output
+is written under `output`:
 
 ```bash
 uv run churn-mlops batch-predict \
-	--input_csv inference.csv \
-	--output_csv predictions_inference.csv \
-	--index_col customerid
+  --input_csv inference.csv \
+  --output_csv predictions_inference.csv \
+  --index_col customerid
 ```
 
-CSV input filenames are resolved from `data/raw`; output filenames are written
-to `output`.
-
-Parquet input:
+For a partitioned dataset, input and output dataset names are relative to
+`DATA_DIR`. Date bounds must be provided together or omitted together; a
+date-only end bound includes that calendar day. Existing output partitions for
+the months in the result are replaced.
 
 ```bash
 uv run churn-mlops batch-predict \
-	--input_dataset partitioned \
-	--start_date 2026-06-01 \
-	--end_date 2026-06-30 \
-	--output_dataset batch_predictions
+  --input_dataset partitioned \
+  --start_date 2026-06-01 \
+  --end_date 2026-06-30 \
+  --output_dataset batch_predictions
 ```
 
-Partitioned inputs and outputs are resolved under `DATA_DIR`. The output
-dataset defaults to `batch_predictions`, uses `reference_date` as its
-timestamp column by default, and replaces existing output partitions for
-the months represented in the prediction result. Providing both date bounds
-is optional. A date-only end bound includes that entire calendar day. To
-process the full input dataset, omit both date bounds.
+The default timestamp column is `reference_date`; the default output dataset
+is `batch_predictions`. The result includes the input features and
+`predicted_probability`, `predicted_class`, `threshold`, and `model_version`.
 
-The output contains:
-
-| Column | Description |
-| --- | --- |
-| `predicted_probability` | Estimated probability of churn |
-| `predicted_class` | Class derived from the configured threshold |
-| `threshold` | Threshold used for classification |
-| `model_version` | Registered model version used for prediction |
-
-
-Batch prediction can also be applied for prepared train/test splits.
-For instance, the results of
+To score a specific model version, pass both its registered name and version.
+Alternatively, pass a manifest path relative to `DATA_DIR`:
 
 ```bash
 uv run churn-mlops batch-predict \
-	--input_dataset splits/baseline_train.parquet \
-	--output_dataset train_predictions
+  --input_dataset splits/OOT_26Q2_test.parquet \
+  --output_dataset predictions/rf_OOT_26Q2 \
+  --model_manifest manifests/rf_OOT_26Q2.json
 ```
 
-and
+The manifest option cannot be combined with `--model_name` or
+`--model_version`.
 
-```bash
-uv run churn-mlops batch-predict \
-	--input_dataset splits/baseline_test.parquet \
-	--output_dataset test_predictions
-```
+### Serve predictions over HTTP
 
-can be used as reference and analysis data to calculate and compare
-model metrics (see also monitoring).
-
-### Serve predictions through HTTP
-
-Start the FastAPI application through the package CLI:
+Start the FastAPI service locally:
 
 ```bash
 uv run churn-mlops serve --host 127.0.0.1 --port 8000 --reload
 ```
 
-The equivalent direct Uvicorn command is still:
-
-```bash
-uv run uvicorn churn_mlops.serving.api:app --reload
-```
-
-Check service health:
+The service loads the configured registered model once per process. Its
+`/health` endpoint is a liveness check; `/ready` reports whether a model loaded
+successfully. If model loading fails, the process remains live, but `/ready`
+and `/predict` return `503` until it is restarted with a valid model
+configuration.
 
 ```bash
 curl http://127.0.0.1:8000/health
-```
-
-```json
-{"status":"healthy"}
-```
-
-The `/health` endpoint is a liveness check. Use `/ready` to verify that the
-configured model loaded successfully:
-
-```bash
 curl -i http://127.0.0.1:8000/ready
 ```
 
-The API loads the configured model once during startup and reuses it for
-subsequent requests. This happens once per Uvicorn worker process. If the
-configured model alias is unavailable, the process stays alive, `/health`
-continues to return `200`, and `/ready` and `/predict` return `503` until the
-service is restarted with a valid model configuration.
-
-Send one customer record for prediction:
+Send a customer record to `/predict`:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/predict \
-	-H "Content-Type: application/json" \
-	-d '{
-		"age": 42,
-		"tenure": 18,
-		"usage_frequency": 12,
-		"support_calls": 2,
-		"payment_delay": 0,
-		"last_interaction": 7,
-		"total_spend": 1250.50,
-		"gender": "Female",
-		"subscription_type": "Standard",
-		"contract_length": "Annual"
-	}'
+  -H "Content-Type: application/json" \
+  -d '{
+    "age": 42,
+    "tenure": 18,
+    "usage_frequency": 12,
+    "support_calls": 2,
+    "payment_delay": 0,
+    "last_interaction": 7,
+    "total_spend": 1250.50,
+    "gender": "Female",
+    "subscription_type": "Standard",
+    "contract_length": "Annual"
+  }'
 ```
 
-The API requires a registered model with the configured alias. By default it loads model `churn-propensity` using the `champion` alias from the MLflow registry.
+The API uses the `MODEL_NAME` and `MODEL_ALIAS` settings (or an explicit model
+version) to load a registered model. The interactive API reference is available
+at <http://127.0.0.1:8000/docs>.
 
-Access the interactive API docs under http://127.0.0.1:8000/docs, when the FastAPI application is running.
-
-### Generate sample predictions through the API
-
-For operational checks, smoke tests, or monitoring validation, the project can
-sample records from the inference dataset, send them to the prediction API, and
-persist the resulting predictions together with the original input features.
-This functionality is implemented in
-[src/churn_mlops/serving/serve_samples.py](src/churn_mlops/serving/serve_samples.py)
-and can also be invoked through [scripts/serve_samples.sh](scripts/serve_samples.sh).
+For sample-based API checks, the helper reads and samples the inference CSV,
+sends each row to the service, and writes predictions with the input features
+to the configured output directory:
 
 ```bash
 uv run python -m churn_mlops.serving.serve_samples \
-    --sample_size 5000 \
-    --random_state 42 \
-    --reference_date 2026-07-01T00:00:00 \
-    --drop_columns churn reference_date
+  --sample_size 1000 \
+  --random_state 42 \
+  --drop_columns churn reference_date
 ```
 
-The helper:
+### Monitor model and service behavior
 
-- loads the inference dataset and validates it against the inference schema;
-- draws a reproducible random sample;
-- optionally removes specified columns before scoring;
-- submits each sampled record to the prediction API;
-- optionally uses a fixed reference date for all prediction requests;
-- combines the sampled input data with the prediction results; and
-- writes the output to a CSV file named `0042_sample_predictions.csv` (based on the random state) in the configured output directory.
+The `monitor` command compares labeled reference data with scored batch data or
+API prediction logs. It calculates monthly metrics for model versions present
+in both cohorts. Prefer a held-out or out-of-time reference cohort over
+in-sample training predictions.
 
-### Monitor predictions
+Monitor scored CSV files:
 
-Monitoring compares labeled reference data scored by a model version with either
-a scored batch data set or the API prediction log. Prefer a held-out or
-out-of-time reference cohort over in-sample training predictions.
-Monitoring cohort selection is intentionally separate from the quarterly OOT
-evaluation. For DVC/MLflow-tracked monitoring, set the `monitoring` values in
-`monitoring_pipeline/params.yaml` to the selected reference and later analysis
-dataset names, a training manifest path, and source types, then run. The
-manifest supplies the registered model name and exact version. Cohort labels
-in the MLflow run are derived from the dataset names.
+```bash
+uv run churn-mlops monitor \
+  --reference_csv output/predictions_training.csv \
+  --analysis_csv output/predictions_inference.csv
+```
+
+Monitor the configured API prediction and error logs:
+
+```bash
+uv run churn-mlops monitor \
+  --reference_csv output/predictions_training.csv \
+  --api
+```
+
+Reports are written under `output` by default. Use `--output_dir` to choose
+another location. API logs can be selected explicitly with `--prediction_log`
+and `--error_log`.
+
+Monitoring can also use already-scored partitioned datasets under `DATA_DIR`:
+
+```bash
+uv run churn-mlops monitor \
+  --reference_dataset train_predictions \
+  --analysis_dataset api_predictions \
+  --error_dataset api_errors \
+  --source_reference batch \
+  --source_analysis api \
+  --output_dir output/monitoring
+```
+
+Dataset names are relative to `DATA_DIR`. Supply both reference and analysis
+datasets, and set each source to `batch` or `api`; the default analysis source
+is `api`. The datasets must already contain prediction columns,
+`model_version`, and the `reference_date` (or selected timestamp column).
+Reference labels are needed for measured performance; model features are
+needed for drift analysis. Error datasets are optional.
+
+Monitoring reports include prediction counts, average probability, and
+predicted-positive rate. Depending on available data, they also include:
+
+- measured precision, recall, ROC AUC, and observed positive rate when labels
+  are available;
+- NannyML confidence-based performance estimates when analysis labels are
+  unavailable and the reference data is labeled;
+- feature drift alert counts when the required features are present and the
+  reference and analysis periods do not overlap; and
+- API request counts, error rates, and successful/failed request latency
+  percentiles for API-based analysis.
+
+The CSV report is named `monitoring_summary_batch.csv` or
+`monitoring_summary_api.csv`, depending on the analysis source.
+
+For repeatable cohort selection and MLflow tracking, the separate
+[monitoring pipeline](monitoring_pipeline/dvc.yaml) uses settings from
+[monitoring_pipeline/params.yaml](monitoring_pipeline/params.yaml):
 
 ```bash
 uv run dvc repro monitoring_pipeline/dvc.yaml:monitor
 ```
 
-This writes a scenario-specific report under `data/monitoring/` and creates a
-separate MLflow monitoring run containing the report artifact, cohort
-identifiers, and model version. The selected model version must be present in
-both cohorts, and the analysis period should be later than the reference period
-for drift calculations. Set each source to `batch` or `api` to match the
-corresponding prediction dataset. Keep both source settings explicit because
-the CLI defaults dataset-mode analysis to `api`. Batch cohorts are the default.
+This writes a scenario-specific report under `data/monitoring` and logs the
+report, cohort names, and model version as an MLflow monitoring run. Choose
+non-overlapping time periods when drift metrics are required.
 
-Monitor batch predictions:
+API prediction and error logs can be converted into month-partitioned Parquet
+datasets. By default, these commands read the configured JSONL logs and write
+to `data/api_predictions` and `data/api_errors`:
 
 ```bash
-uv run churn-mlops monitor \
-	--reference_csv output/predictions_training.csv \
-	--analysis_csv output/predictions_inference.csv
+uv run churn-mlops ingest-prediction-logs
+uv run churn-mlops ingest-error-logs
 ```
 
-Monitor the configured live API prediction and error logs:
+Re-ingestion replaces existing partitions for the months represented in the
+logs. Use `--dataset_name` or `--timestamp_column` to change the destination
+dataset or partition timestamp.
 
-```bash
-uv run churn-mlops monitor \
-	--reference_csv output/predictions_training.csv \
-	--api
-```
+## Data contract
 
-Batch mode writes `monitoring_summary_batch.csv`; API mode writes
-`monitoring_summary_api.csv`. Reports are written under `output` by default;
-use `--output_dir` to choose another directory. API mode reads the configured
-prediction and error logs. You can select explicit log paths with
-`--prediction_log` and `--error_log`:
+Training and inference data use the following customer features:
 
-```bash
-uv run churn-mlops monitor \
-	--reference_csv output/predictions_training.csv \
-	--prediction_log logs_local/predictions.jsonl \
-	--error_log logs_local/prediction_errors.jsonl \
-	--output_dir output/monitoring
-```
-
-Monitoring can also load already-scored reference, analysis, and optional error
-data from the partitioned Parquet datasets under the configured data directory:
-
-```bash
-uv run churn-mlops monitor \
-	--reference_dataset train_predictions \
-	--analysis_dataset api_predictions \
-	--error_dataset api_errors \
-	--source_reference batch \
-	--source_analysis api \
-	--output_dir output/monitoring
-```
-
-Dataset names are relative to the configured data directory (for example,
-`api_predictions` refers to `data/api_predictions`). The datasets are passed
-directly to report generation; they are not scored or transformed by the
-monitoring command. Ensure the reference dataset already includes the required
-prediction, target, model-version, timestamp, and (when drift monitoring is
-enabled) model feature columns. API analysis datasets should include scored
-prediction columns, and error datasets should contain the API error records.
-Use `--timestamp_column` when the datasets use a partition timestamp other than
-`reference_date`. `--source_reference` and `--source_analysis` can each be set
-to `batch` or `api`; the latter controls whether API operational metrics are
-included.
-
-The monitoring summary is produced at a monthly granularity and separately for
-each model version that exists in both the reference and analysis datasets.
-The report includes:
-
-- prediction_count
-- avg_predicted_probability
-- predicted_positive_rate
-
-When ground-truth labels are available, the report additionally contains realized
-performance metrics:
-
-- observed_positive_rate
-- realized_precision
-- realized_recall
-- realized_roc_auc
-
-When analysis labels are unavailable and the reference dataset contains labels,
-NannyML Confidence-Based Performance Estimation (CBPE) provides estimated
-performance metrics:
-
-- cbpe_precision
-- cbpe_recall
-- cbpe_roc_auc
-
-Feature monitoring includes monthly drift analysis of the model input features
-and reports:
-
-- reconstruction_drift_alert_count
-- univariate_drift_alert_count
-
-Drift calculations are automatically skipped when the reference and analysis
-periods overlap because a proper baseline and monitoring period separation is
-required.
-
-For API-based monitoring, operational metrics are also reported:
-
-- api_request_count
-- api_error_rate
-- prediction_latency_p50_ms
-- prediction_latency_p95_ms
-- api_error_latency_p50_ms
-- api_error_latency_p95_ms
-
-Prediction-error events are incorporated into operational reporting and,
-when feature data is available, drift monitoring.
-
-Monitoring is only calculated for model versions present in both reference
-and analysis data.
-
-#### Monitoring summary metrics
-
-Depending on the available inputs, the report contains a subset of
-the following columns:
-
-| Column | Description |
-|----------|-------------|
-| period | Indicates whether the record belongs to the reference or analysis dataset |
-| model_version | Registered model version being monitored |
-| reference_date | Month represented by the monitoring record |
-| prediction_count | Number of predictions in the period |
-| avg_predicted_probability | Average predicted churn probability |
-| predicted_positive_rate | Fraction of predictions classified as churn |
-| observed_positive_rate | Actual churn rate (only when labels are available) |
-| realized_precision | Measured precision based on observed labels |
-| realized_recall | Measured recall based on observed labels |
-| realized_roc_auc | Measured ROC AUC based on observed labels |
-| cbpe_precision | NannyML estimated precision |
-| cbpe_recall | NannyML estimated recall |
-| cbpe_roc_auc | NannyML estimated ROC AUC |
-| reconstruction_drift_alert_count | Number of reconstruction-drift alerts triggered for the period |
-| univariate_drift_alert_count | Number of feature-level drift alerts triggered for the period |
-| api_request_count | Total API requests (successful and failed) |
-| api_error_rate | Ratio of failed API requests |
-| prediction_latency_p50_ms | Median latency of successful prediction requests |
-| prediction_latency_p95_ms | 95th percentile latency of successful prediction requests |
-| api_error_latency_p50_ms | Median latency of failed prediction requests |
-| api_error_latency_p95_ms | 95th percentile latency of failed prediction requests |
-
-Notes:
-
-- Monitoring is performed independently for each model version.
-- Monitoring is only performed for model versions that exist in both reference
-  and analysis datasets.
-- Realized metrics require ground-truth labels.
-- CBPE metrics are available only when the reference dataset contains labels.
-- Drift metrics are unavailable when reference and analysis periods overlap.
-- API-specific metrics are populated only when monitoring API inference logs, otherwise they are omitted.
-
-## Input data contract
-
-Training and inference data must contain these customer features:
-
-### Numeric fields
-
-| Field | Constraint |
+| Field | Type and constraints |
 | --- | --- |
 | `age` | Integer from 18 to 115 |
 | `tenure` | Non-negative integer |
@@ -709,42 +372,28 @@ Training and inference data must contain these customer features:
 | `payment_delay` | Non-negative integer |
 | `last_interaction` | Non-negative integer |
 | `total_spend` | Non-negative number |
+| `gender` | `Female` or `Male` |
+| `subscription_type` | `Basic`, `Standard`, or `Premium` |
+| `contract_length` | `Monthly`, `Quarterly`, or `Annual` |
 
-### Categorical fields
+Training data also requires a binary `churn` target (`0` or `1`). Depending on
+the workflow, data may also contain `customerid` and `reference_date`. CSV
+loading normalizes column names; `customerid` can be selected as the CSV index.
+Data files are validated with Pandera, and HTTP request features with Pydantic.
+See the [data schema](src/churn_mlops/data/schemas.py) and
+[API schema](src/churn_mlops/serving/schemas.py).
 
-| Field | Accepted values |
-| --- | --- |
-| `gender` | `Female`, `Male` |
-| `subscription_type` | `Basic`, `Standard`, `Premium` |
-| `contract_length` | `Monthly`, `Quarterly`, `Annual` |
+## Model and tracking reference
 
-Training data must additionally contain a binary `churn` target with values `0` or `1`. CSV data uses `customerid` as its index column when supplied. Pandera validation is applied before training and inference; API requests are validated with Pydantic.
+### Configuration and classifiers
 
-See [data schemas](src/churn_mlops/data/schemas.py) and [API schemas](src/churn_mlops/serving/schemas.py).
+Training configurations are YAML files under [src/config](src/config). They
+define the target, feature-engineering parameters, preprocessing strategies,
+classifier parameters, decision threshold, optional tuning, and registry
+behavior. Example configurations are provided for `dc`, `dt`, `hgb`, `lr`,
+`nb`, and `rf`.
 
-## Machine-learning workflow
-
-### Configuration
-
-Training is controlled by YAML files in [src/config](src/config). A configuration contains sections for:
-
-- `data`: target column;
-- `feature_builder`: engineered-feature parameters;
-- `preprocessing`: numeric and categorical imputation strategies;
-- `model`: classifier alias and estimator parameters;
-- `evaluation`: prediction threshold;
-- `tuning`: optional Optuna search settings (disabled by default); and
-- `registry`: model registration and promotion settings.
-
-The repository includes configurations files for `dc`, `dt`, `hgb`, `lr`, `nb`, and `rf`, along with a [sample_training_config.yaml](src/config/sample_training_config.yaml).
-
-### Feature engineering and preprocessing
-
-The pipeline combines domain features with standard preprocessing. Engineered features include contract commitment, relative tenure, engagement, average yearly spend, average yearly support calls, late-payer status, and inactive-customer status.
-
-Numeric values are imputed, categorical values are imputed and one-hot encoded, and scaling is enabled where appropriate for estimator families that benefit from it. Pipeline construction is implemented under [src/churn_mlops/models](src/churn_mlops/models).
-
-### Supported classifiers
+The model catalog currently supports:
 
 | Alias | Estimator |
 | --- | --- |
@@ -754,213 +403,152 @@ Numeric values are imputed, categorical values are imputed and one-hot encoded, 
 | `lda` | `LinearDiscriminantAnalysis` |
 | `qda` | `QuadraticDiscriminantAnalysis` |
 | `knn` | `KNeighborsClassifier` |
-| `lsvc` | `LinearSVC` |
-| `svc` | `SVC(kernel="rbf")` |
+| `lsvc` | Calibrated `LinearSVC` |
+| `svc` | Calibrated RBF `SVC` |
 | `dt` | `DecisionTreeClassifier` |
 | `ada` | `AdaBoostClassifier` |
 | `et` | `ExtraTreesClassifier` |
 | `rf` | `RandomForestClassifier` |
 | `hgb` | `HistGradientBoostingClassifier` |
 
-The list of supported classifiers can be extended easily, by extending the model catalog [src/churn_mlops/models/catalog.py](src/churn_mlops/models/catalog.py).
+Classifier implementations and tuning search spaces are defined in the
+[model catalog](src/churn_mlops/models/catalog.py). The feature pipeline adds
+contract commitment, relative tenure, engagement, yearly spend and support
+call rates, late-payer status, and inactive-customer status before
+preprocessing and classification.
 
-### Evaluation
+### Evaluation, registry, and model cards
 
-Each run records ROC AUC, PR AUC, accuracy, precision, recall, F1, Brier score, model fit time, and prediction time.
+Training records ROC AUC, PR AUC, accuracy, precision, recall, F1, Brier score,
+fit time, and prediction time. The configured threshold determines the
+predicted class; ROC AUC is used for model promotion.
 
-ROC AUC is the metric used for model-promotion decisions. The configured probability threshold controls `predicted_class` in both batch and online inference.
+When enabled by configuration, a run registers an immutable model version.
+Promotion compares candidate ROC AUC with the current champion and changes the
+`champion` alias only when the configured improvement threshold is exceeded.
+The prior champion is retained under `former_champion`. CLI options can force
+registration with `--register-model` or control promotion with
+`--promote-model` / `--no-promote-model`.
 
-## MLOps capabilities
+Training also writes a manifest linking the MLflow run and exact model version
+to its split and evaluation results. Use the manifest for reproducible batch
+scoring instead of relying on a mutable alias. MLflow runs also include a
+Markdown model card with model, data, feature, evaluation, and promotion
+details. See the [tracking package](src/churn_mlops/tracking).
 
-### Experiment tracking and artifacts
+## Runtime configuration
 
-MLflow is configured for local tracking:
+Environment variables can override the runtime defaults:
 
-- tracking database: `tracking_local/mlflow.db`;
-- artifact directory: `artifacts_local`; and
-- local experiment metadata and run results stored by MLflow.
-
-Runs capture the training configuration, model parameters, evaluation metrics, serialized scikit-learn pipeline, feature names, and pipeline metadata.
-
-### Model registry and promotion
-
-When enabled in the training configuration, the workflow registers a candidate model and evaluates it against the current `champion`.
-
-Promotion requires the candidate ROC AUC to improve on the champion by more than the configured `promotion_delta`. When promotion succeeds, the candidate receives the `champion` alias and the previous champion receives the `former_champion` alias.
-
-The same tracking flow also logs a Markdown model card as an MLflow artifact. The model card summarizes the model metadata, dataset characteristics, feature list, preprocessing choices, evaluation metrics, and the promotion decision when one exists. See [src/churn_mlops/tracking/model_card.py](src/churn_mlops/tracking/model_card.py).
-
-See [tracking implementation](src/churn_mlops/tracking).
-
-### Inference logging and observability
-
-Structured inference logs are collected for every API request to support operational monitoring, debugging, and auditability.
-
-**Prediction events** capture
-
-- request identifier and reference date timestamps,
-- prediction latency in milliseconds,
-- model name, alias, and registry version,
-- predicted probability and predicted class,
-- classification threshold used during inference and
-- optionally, the validated input features used for prediction.
-
-**Prediction error events** additionally record
-
-- exception type and message and
-- full traceback information,
-
-besides request ID, timestamp, latency and (optional) input features.
-
-Example prediction event:
-
-```json
-{
-	"request_id": "687afb9b-1b20-45ec-8fac-ac53efe4941a",
-	"reference_date": "2026-09-23T19:54:19.548767Z",
-	"latency_ms": 98.97,
-	"features": {"age": 42, "tenure": 18, "usage_frequency": 12, "support_calls": 2, "payment_delay": 0, "last_interaction": 7, "total_spend": 1250.5, "gender": "Female", "subscription_type": "Standard", "contract_length": "Annual"},
-	"event": "prediction",
-	"model_name": "churn-propensity",
-	"model_alias": "champion",
-	"model_version": 3,
-	"predicted_class": 0,
-	"predicted_probability": 0.29,
-	"threshold": 0.5
-}
-```
-
-### Ingest API logs
-
-Convert the configured API JSONL files into month-partitioned Parquet datasets:
-
-```bash
-uv run churn-mlops ingest-prediction-logs
-uv run churn-mlops ingest-error-logs
-```
-
-By default, prediction events are read from `logs_local/predictions.jsonl` and
-written under `data/api_predictions`; error events are read from
-`logs_local/prediction_errors.jsonl` and written under `data/api_errors`.
-The timestamp column defaults to `reference_date`. Re-ingesting data replaces
-existing partitions for the months present in the log. Use `--dataset_name` to
-change the destination dataset name or `--timestamp_column` to select another
-partition timestamp.
-
-## Configuration and environment
-
-Runtime and serving defaults can be overridden with environment variables:
-
-| Variable | Default | Purpose |
+| Variable | Local default | Purpose |
 | --- | --- | --- |
-| `MLFLOW_TRACKING_URI` | Project-local SQLite URI | MLflow tracking and registry backend |
-| `MLFLOW_EXPERIMENT_NAME` | `test` | MLflow experiment used for training runs |
-| `MODEL_NAME` | `churn-risk` | Registered model name |
-| `MODEL_ALIAS` | `champion` | Alias used to load the serving model |
-| `MODEL_VERSION` | `None` | Version number used to load the serving model |
-| `API_HOST` | `127.0.0.1` | Host interface for the `serve` command |
-| `API_PORT` | `8000` | Port for the `serve` command |
-| `REQUEST_ID_HEADER` | `X-Request-ID` | HTTP header used to propagate request IDs for tracing |
-| `LOG_FEATURES` | `True` | Controls whether input features are logged |
+| `MLFLOW_TRACKING_URI` | SQLite at `tracking_local/mlflow.db` | MLflow tracking and registry |
+| `MLFLOW_EXPERIMENT_NAME` | `test` | Default training experiment |
+| `MODEL_NAME` | `churn-risk` | Registered model name for serving |
+| `MODEL_ALIAS` | `champion` | Alias used to load a serving model |
+| `MODEL_VERSION` | Unset | Optional exact model version |
+| `API_HOST` | `127.0.0.1` | Host interface for `serve` |
+| `API_PORT` | `8000` | Port for `serve` |
+| `REQUEST_ID_HEADER` | `X-Request-ID` | Header used to pass request IDs |
+| `LOG_FEATURES` | `True` | Whether validated features are written to API logs |
 | `LOG_LEVEL` | Application default | Logging verbosity |
 
-Runtime directory overrides are also supported. In the container, these
-default to the mounted paths shown below:
+Runtime directories can also be overridden:
 
-| Variable | Default in the image | Purpose |
+| Variable | Local default | Container default |
 | --- | --- | --- |
-| `ARTIFACT_DIR` | `/app/artifacts` | MLflow run artifacts and model files |
-| `DATA_DIR` | `/app/data` | Raw CSVs, partitioned datasets, and time splits |
-| `LOGGING_DIR` | `/app/logs` | JSONL prediction and error event logs |
-| `OUTPUT_DIR` | `/app/output` | Batch prediction output |
-| `CONFIG_DIR` | `/app/src/config` | Training YAML files |
-| `TRACKING_DIR` | `/app/tracking` | SQLite MLflow database |
+| `DATA_DIR` | `data` | `/app/data` |
+| `CONFIG_DIR` | `src/config` | `/app/src/config` |
+| `ARTIFACT_DIR` | `artifacts_local` | `/app/artifacts` |
+| `TRACKING_DIR` | `tracking_local` | `/app/tracking` |
+| `LOGGING_DIR` | `logs_local` | `/app/logs` |
+| `OUTPUT_DIR` | `output` | `/app/output` |
 
-Without Docker, the defaults are `data` for `DATA_DIR`, `src/config` for
-`CONFIG_DIR`, `artifacts_local` for `ARTIFACT_DIR`, `tracking_local` for
-`TRACKING_DIR`, `logs_local` for `LOGGING_DIR`, and `output` for `OUTPUT_DIR`.
-`.env.example` contains the container defaults and can be copied to `.env` for
-Docker Compose.
+By default, the MLflow SQLite database is created inside `TRACKING_DIR`.
+`LOG_FEATURES=False` disables feature values in inference logs while retaining
+prediction and operational telemetry.
 
-An explicit experiment name passed to the training function or CLI takes
-precedence over `MLFLOW_EXPERIMENT_NAME`.
+## Run with Docker Compose
 
-### Serving observability configuration
+The Compose service builds the API image and mounts data, registry state,
+artifacts, logs, and outputs from the repository. It mounts `src/config`
+read-only. Docker Engine and the Compose plugin are required.
 
-The prediction service supports configurable request tracing and inference-event
-logging through environment variables. Every request is assigned a request ID,
-either from the configured request header or generated automatically. The
-service persists structured prediction and prediction-error events as JSONL
-records in the configured logging directory.
+```bash
+cp .env.example .env
+docker compose up --build -d
+docker compose ps
+curl http://127.0.0.1:8000/health
+curl -i http://127.0.0.1:8000/ready
+```
 
-When `LOG_FEATURES` is enabled, validated request features are included in
-prediction/error logs to support debugging and audit scenarios. For privacy-sensitive
-deployments, feature logging can be disabled while retaining latency,
-prediction, model-version, and error telemetry.
+The process can start without a registered model: `/health` returns `200`,
+while `/ready` and `/predict` return `503` until the configured model can be
+loaded. Because the Compose health check uses `/ready`, the container remains
+unhealthy until a model is available. After preparing input data and train/test
+splits under the mounted `data/` directory, train a model in the same Compose
+environment with:
+
+```bash
+docker compose run --rm api train --config rf.yaml --split_name OOT_26Q2
+```
+
+Other CLI commands are available by overriding the default `serve` command,
+for example:
+
+```bash
+docker compose run --rm api batch-predict \
+  --input_dataset partitioned \
+  --start_date 2026-01-01 \
+  --end_date 2026-06-30
+```
+
+Stop the service with `docker compose down`. The mounted host directories
+remain in place.
 
 ## Development
 
-Run tests with coverage:
+Run tests and Ruff checks:
 
 ```bash
 uv run pytest
-```
-
-Run Ruff checks:
-
-```bash
 uv run ruff check .
 uv run ruff format --check .
 ```
 
-Install the pre-commit hooks:
-
-```bash
-uv run pre-commit install
-```
-
-CI runs the locked dependency installation, Ruff lint and format checks, and
-the full pytest suite. Integration tests generate temporary input data and
-isolated MLflow state, so they do not require committed datasets or local
-developer artifacts.
+Install the repository's pre-commit hooks with `uv run pre-commit install`.
+CI installs locked dependencies, runs Ruff lint and format checks, and runs
+the full test suite. Tests generate their own temporary data and isolated
+MLflow state.
 
 ## Repository layout
 
 ```text
-src/churn_mlops/
-├── config/		# configuration helpers
-├── data/		# ingestion, validation, and preprocessing
-├── evaluation/	# metrics and model evaluation
-├── models/		# feature engineering and classifiers
-├── monitoring/ # drift, performance, and operational monitoring
-├── serving/	# FastAPI application and inference services
-├── tracking/	# MLflow integration and model registry
-├── training/	# training pipelines and orchestration
-├── batch_predict.py
-├── train.py
-└── __init__.py
-src/config/		# YAML training configurations
-artifacts_local/	# local MLflow run artifacts
-data/raw/			# input CSV datasets
-data/partitioned/	# month-partitioned Parquet datasets
-data/splits/		# train and test Parquet files
-logs_local/			# local API prediction and error logs
-notebooks/			# exploratory notebooks
-output/				# generated sample and batch prediction outputs
-scripts/			# helper scripts for data prep and sample-serving workflows
-tests/				# unit and integration tests
-tracking_local/		# local MLflow state
+src/churn_mlops/       Application package
+  config/              Runtime and training configuration
+  data/                Loading, validation, partitioning, and splitting
+  evaluation/          Model metrics
+  models/              Feature engineering and classifier catalog
+  monitoring/          Performance, drift, and operational reports
+  serving/             FastAPI service and inference logging
+  tracking/            MLflow integration, registry, and manifests
+  training/            Training and hyperparameter tuning
+src/config/            YAML training configurations
+data/raw/              Local input CSVs (not stored in Git)
+data/partitioned/      Month-partitioned Parquet data
+data/splits/           Train/test Parquet files
+monitoring_pipeline/    DVC pipeline for selected monitoring cohorts
+notebooks/              Exploratory and analysis notebooks
+scripts/                Data preparation and serving helpers
+tests/                  Unit and integration tests
+compose.yaml            Local container stack
+dvc.yaml                Data preparation, training, and scoring pipeline
+params.yaml             Parameters for the root DVC pipeline
 ```
 
-## Current limitations
+## Scope and limitations
 
-This project is designed as a local-first MLOps example. It currently does not provide:
-
-- a remote MLflow tracking server or cloud artifact store;
-- Kubernetes, or cloud deployment configuration;
-- automated production CD configuration;
-- authentication, authorization, or CORS configuration;
-- support for arbitrary input schemas.
-
-Paths are resolved relative to the project root, and the serving API requires
-the configured model alias to exist before prediction requests can succeed.
+This repository is a local-first MLOps example. It does not include a shared
+MLflow service or artifact store, cloud or Kubernetes deployment configuration,
+automated production CD, authentication or authorization, CORS configuration,
+or support for arbitrary input schemas.

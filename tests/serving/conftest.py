@@ -74,7 +74,7 @@ def sample_dict(sample_input: InputFeatures) -> dict[str, Any]:
 @pytest.fixture
 def sample_metadata() -> ModelMetadata:
     return ModelMetadata(
-        model_name="churn-propensity",
+        model_name="churn-risk",
         model_alias="champion",
         model_version=5,
         threshold=0.5,
@@ -99,7 +99,7 @@ def mock_model_factory() -> Callable[..., LoadedModel]:
                 return np.array([[1 - proba, proba]])
 
         metadata = ModelMetadata(
-            model_name="churn-propensity",
+            model_name="churn-risk",
             model_alias="champion",
             model_version=5,
             threshold=threshold,

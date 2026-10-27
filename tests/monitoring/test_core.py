@@ -464,7 +464,7 @@ def test_log_monitoring_run_logs_tags_and_artifact(
         report,
         experiment_name="churn-monitoring",
         run_name="rf__followup",
-        tags={"model_name": "churn-propensity", "model_version": 7},
+        tags={"model_name": "churn-risk", "model_version": 7},
         tracking_uri="sqlite:///tracking.db",
     )
 
@@ -472,9 +472,7 @@ def test_log_monitoring_run_logs_tags_and_artifact(
         experiment_name="churn-monitoring",
         tracking_uri="sqlite:///tracking.db",
     )
-    set_tags.assert_called_once_with(
-        {"model_name": "churn-propensity", "model_version": 7}
-    )
+    set_tags.assert_called_once_with({"model_name": "churn-risk", "model_version": 7})
     log_artifact.assert_called_once_with(
         local_path=str(report_path),
         artifact_path="monitoring",
