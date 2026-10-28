@@ -15,10 +15,11 @@ evaluation pipelines, and FastAPI for serving.
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/)
 
-Install the project and its development dependencies, then check the CLI:
+Install the project and its development dependencies, then check the CLI.
+Include the notebook group to run the included analysis notebooks:
 
 ```bash
-uv sync
+uv sync --group notebooks
 uv run churn-mlops --help
 ```
 
@@ -382,6 +383,28 @@ loading normalizes column names; `customerid` can be selected as the CSV index.
 Data files are validated with Pandera, and HTTP request features with Pydantic.
 See the [data schema](src/churn_mlops/data/schemas.py) and
 [API schema](src/churn_mlops/serving/schemas.py).
+
+### Adapting to another binary-classification problem
+
+The training pipeline is reusable when the input data contract and
+domain-specific feature engineering are adapted:
+
+- Set `data.target_column` in the training YAML to the new binary target.
+- Replace the churn-specific fields and checks in the
+  [data schema](src/churn_mlops/data/schemas.py), and update its validation
+  tests.
+- Replace or extend the churn-derived features in
+  [FeatureBuilder](src/churn_mlops/models/features.py); configure its
+  thresholds under `feature_builder.feature_params`.
+- If HTTP serving is needed, align the
+  [request schema](src/churn_mlops/serving/schemas.py) with the new input
+  features. Batch prediction and model preprocessing infer numeric and
+  categorical columns from their data types.
+- Select a classifier from the [model catalog](src/churn_mlops/models/catalog.py)
+  and set its parameters in the training YAML.
+
+The validation and HTTP schemas are intentionally explicit for this churn
+example; they are not generated from the training YAML.
 
 ## Model and tracking reference
 
