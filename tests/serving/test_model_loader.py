@@ -18,7 +18,7 @@ def test_load_model_returns_model_with_registry_metadata(
     registry.get_threshold_by_alias.return_value = 0.6
 
     settings = SimpleNamespace(
-        model_name="churn-propensity",
+        model_name="churn-risk",
         model_alias="champion",
         mlflow_tracking_uri="sqlite:///mlflow.db",
     )
@@ -30,12 +30,12 @@ def test_load_model_returns_model_with_registry_metadata(
     loaded_model = model_loader.load_model()
 
     assert loaded_model.model is model
-    assert loaded_model.metadata.model_name == "churn-propensity"
+    assert loaded_model.metadata.model_name == "churn-risk"
     assert loaded_model.metadata.model_alias == "champion"
     assert loaded_model.metadata.model_version == 7
     assert loaded_model.metadata.threshold == 0.6
     registry.load_model_by_alias.assert_called_once_with(
-        model_name="churn-propensity",
+        model_name="churn-risk",
         alias="champion",
     )
 
@@ -49,7 +49,7 @@ def test_load_model_uses_exact_registered_version(
     registry.load_model_by_version.return_value = model
     registry.get_threshold_by_version.return_value = 0.4
     settings = SimpleNamespace(
-        model_name="churn-propensity",
+        model_name="churn-risk",
         model_alias="champion",
         mlflow_tracking_uri="sqlite:///mlflow.db",
     )
@@ -64,6 +64,6 @@ def test_load_model_uses_exact_registered_version(
     assert loaded_model.metadata.model_alias is None
     assert loaded_model.metadata.threshold == 0.4
     registry.load_model_by_version.assert_called_once_with(
-        model_name="churn-propensity",
+        model_name="churn-risk",
         version=9,
     )

@@ -23,7 +23,7 @@ def test_predict_returns_probability_class_and_metadata(
     assert result.predicted_class == 1
     assert result.predicted_probability == 0.8
     assert result.metadata == loaded_model.metadata
-    assert result.metadata.model_name == "churn-propensity"
+    assert result.metadata.model_name == "churn-risk"
     assert result.metadata.model_alias == "champion"
     assert result.metadata.threshold == 0.5
 

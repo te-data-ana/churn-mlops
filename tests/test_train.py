@@ -202,7 +202,7 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
         registry=SimpleNamespace(
             register_model=False,
             promote_model=True,
-            registry_params={"model_name": "churn-propensity", "alias": "candidate"},
+            registry_params={"model_name": "churn-risk", "alias": "candidate"},
         ),
         tuning=TuningConfig(),
     )
@@ -215,7 +215,7 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
     )
     training_result = SimpleNamespace(
         metrics={"roc_auc": 0.84},
-        classifier_config={"model_name": "churn-propensity"},
+        classifier_config={"model_name": "churn-risk"},
         metadata={
             "feature_count": 2,
             "feature_names_in": ["feature_in_1", "feature_in_2"],
@@ -276,7 +276,7 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
     assert result is training_result
     registry.register_model.assert_called_once_with(
         model_uri="runs:/training-run/model",
-        model_name="churn-propensity",
+        model_name="churn-risk",
     )
     registry.set_alias.assert_not_called()
     registry.get_champion_version.assert_not_called()
@@ -284,7 +284,7 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
     from churn_mlops.tracking import TrainingManifest
 
     manifest = TrainingManifest.read(manifest_file)
-    assert manifest.model_name == "churn-propensity"
+    assert manifest.model_name == "churn-risk"
     assert manifest.model_version == 7
     assert manifest.run_id == "training-run"
     assert manifest.run_name == run_name
