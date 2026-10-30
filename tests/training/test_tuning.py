@@ -10,8 +10,8 @@ import pytest
 from churn_mlops.config.schemas import TrainingConfig, TuningConfig
 from churn_mlops.models import MODEL_CATALOG, create_model
 from churn_mlops.training import tuning
+from churn_mlops.training.calibration import make_temporal_cv_splits
 from churn_mlops.training.tuning import (
-    _build_expanding_window_folds,
     _suggest_parameters,
     optimize_hyperparameters,
 )
@@ -44,7 +44,7 @@ def test_catalog_search_space_suggestions_build_each_model(
 
 
 @pytest.mark.unit
-def test_expanding_window_folds_keep_equal_timestamps_together(
+def test_temporal_cv_splits_keep_equal_timestamps_together(
     sample_training_df: pd.DataFrame,
 ) -> None:
     train_df = sample_training_df.copy()
@@ -64,7 +64,7 @@ def test_expanding_window_folds_keep_equal_timestamps_together(
         ]
     )
 
-    folds = _build_expanding_window_folds(
+    folds = make_temporal_cv_splits(
         train_df,
         target_column="churn",
         time_column="reference_date",
@@ -81,12 +81,12 @@ def test_expanding_window_folds_keep_equal_timestamps_together(
 
 
 @pytest.mark.unit
-def test_expanding_window_folds_reject_missing_time_column(
+def test_temporal_cv_splits_reject_missing_time_column(
     sample_training_df: pd.DataFrame,
 ) -> None:
-    with pytest.raises(ValueError, match="requires time column"):
-        _build_expanding_window_folds(
-            sample_training_df,
+    with pytest.raises(ValueError, match="time column 'reference_date' is missing"):
+        make_temporal_cv_splits(
+            df=sample_training_df,
             target_column="churn",
             time_column="reference_date",
             n_splits=2,
@@ -96,7 +96,7 @@ def test_expanding_window_folds_reject_missing_time_column(
 @pytest.mark.unit
 def test_optimize_hyperparameters_returns_reproducible_study_result(
     config_factory: Callable[..., TrainingConfig],
-    sample_training_df: pd.DataFrame,
+    temporal_sample_training_df: pd.DataFrame,
 ) -> None:
     config: TrainingConfig = config_factory(classifier="dt")
     config = replace(
@@ -105,13 +105,11 @@ def test_optimize_hyperparameters_returns_reproducible_study_result(
             enabled=True,
             n_trials=2,
             n_splits=2,
-            time_column="reference_date",
             metric="roc_auc",
             random_state=13,
         ),
     )
-    train_df = sample_training_df.copy()
-    train_df["reference_date"] = pd.date_range("2026-01-01", periods=len(train_df))
+    train_df = temporal_sample_training_df.copy()
 
     result = optimize_hyperparameters(config, train_df)
 
@@ -129,7 +127,7 @@ def test_optimize_hyperparameters_returns_reproducible_study_result(
 def test_optimize_hyperparameters_excludes_requested_columns(
     monkeypatch: pytest.MonkeyPatch,
     config_factory: Callable[..., TrainingConfig],
-    sample_training_df: pd.DataFrame,
+    temporal_sample_training_df: pd.DataFrame,
 ) -> None:
     config = config_factory(classifier="dt")
     config = replace(
@@ -138,14 +136,12 @@ def test_optimize_hyperparameters_excludes_requested_columns(
             enabled=True,
             n_trials=1,
             n_splits=2,
-            time_column="reference_date",
             metric="roc_auc",
             random_state=13,
         ),
     )
-    train_df = sample_training_df.copy()
+    train_df = temporal_sample_training_df.copy()
     train_df["customerid"] = range(len(train_df))
-    train_df["reference_date"] = pd.date_range("2026-01-01", periods=len(train_df))
     observed_columns: list[list[str]] = []
 
     class PipelineSpy:
@@ -172,6 +168,47 @@ def test_optimize_hyperparameters_excludes_requested_columns(
     assert all("reference_date" not in columns for columns in observed_columns)
     assert all("churn" not in columns for columns in observed_columns)
     assert all("tenure" in columns for columns in observed_columns)
+
+
+@pytest.mark.unit
+def test_optimize_hyperparameters_uses_decision_function_for_svm(
+    monkeypatch: pytest.MonkeyPatch,
+    config_factory: Callable[..., TrainingConfig],
+    temporal_sample_training_df: pd.DataFrame,
+) -> None:
+    config = config_factory(classifier="lsvc")
+    config = replace(
+        config,
+        tuning=TuningConfig(
+            enabled=True,
+            n_trials=1,
+            n_splits=2,
+            metric="roc_auc",
+            random_state=13,
+        ),
+    )
+    train_df = temporal_sample_training_df.copy()
+    decision_scores: list[np.ndarray] = []
+
+    class DecisionFunctionPipeline:
+        def fit(self, X: pd.DataFrame, y: pd.Series) -> Self:
+            return self
+
+        def decision_function(self, X: pd.DataFrame) -> np.ndarray:
+            scores = np.arange(len(X), dtype=float)
+            decision_scores.append(scores)
+            return scores
+
+    monkeypatch.setattr(
+        tuning,
+        "build_classifier_pipeline",
+        lambda **_: DecisionFunctionPipeline(),
+    )
+
+    result = optimize_hyperparameters(config, train_df)
+
+    assert result.n_trials == 1
+    assert decision_scores
 
 
 @pytest.mark.unit

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 import mlflow
-from sklearn.pipeline import Pipeline
+from sklearn.base import BaseEstimator
 
 from churn_mlops.config import ServingSettings
 from churn_mlops.tracking import ModelRegistry
@@ -17,7 +17,7 @@ class ModelMetadata:
 
 @dataclass
 class LoadedModel:
-    model: Pipeline
+    model: BaseEstimator
     metadata: ModelMetadata
 
 

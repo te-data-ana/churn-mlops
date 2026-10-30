@@ -1,6 +1,6 @@
 [project]
 name = "churn-mlops"
-version = "0.4.0"
+version = "0.5.0"
 description = "MLops project based on churn propensity use case, to evolve and demonstrate my ML engineering skills"
 readme = "README.md"
 # fixing to earlier verison, as required packages are not compatible with newer versions
@@ -10,6 +10,7 @@ dependencies = [
     # Temporary pin required because uv resolves kaleido 0.2.1.post1,
     # which currently lacks a compatible wheel for Linux x86_64.
     "kaleido==0.2.1",
+    "matplotlib>=3.10",
     "mlflow>=3.16.0",
     "nannyml>=0.13.1",
     "optuna>=5.0.0",
@@ -43,7 +44,6 @@ dev = [
 notebooks = [
     "jupyter>=1.1.1",
     "jupyterlab>=4.6.3",
-    "matplotlib>=3.11.1",
     "seaborn>=0.13.2",
 ]
 

@@ -1,5 +1,6 @@
 import json
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TypedDict
 
@@ -25,7 +26,7 @@ class SplitMetadata(TypedDict):
 def load_and_validate_training_splits(
     split_name: str = "default",
     split_dir: Path | None = None,
-    preserve_time_column: str | None = None,
+    preserve_time_column: str | Sequence[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load and validate the prepared train and test Parquet files.
 
@@ -33,8 +34,8 @@ def load_and_validate_training_splits(
         split_name: Prefix shared by the train and test split filenames.
         split_dir: Directory containing the split files. Defaults to the
             configured ``data/splits`` directory.
-        preserve_time_column: Optional timestamp column to retain for temporal
-            cross-validation. ``reference_date`` is dropped by default.
+        preserve_time_column: Optional timestamp column(s) to retain for
+            temporal evaluation. ``reference_date`` is dropped by default.
 
     Returns:
         Validated training and test DataFrames, in that order.
@@ -52,8 +53,13 @@ def load_and_validate_training_splits(
         logger.info("Loading %s split from '%s'.", split, split_file)
         df = pd.read_parquet(split_file)
         df.columns = normalize_strings(df.columns)
+        preserved_columns = (
+            {preserve_time_column}
+            if isinstance(preserve_time_column, str)
+            else set(preserve_time_column or ())
+        )
         columns_to_drop = (
-            ["reference_date"] if preserve_time_column != "reference_date" else []
+            ["reference_date"] if "reference_date" not in preserved_columns else []
         )
         df.drop(columns=columns_to_drop, errors="ignore", inplace=True)
         split_data[split] = validate_data(df.convert_dtypes())

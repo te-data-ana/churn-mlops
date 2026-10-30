@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -79,10 +80,13 @@ def log_experiment_result(
     resolved_artifact_dir = artifact_dir or RuntimeSettings().artifact_dir
 
     # log all parameters required for reproducibility
+    # log classifier and its hyper-parameters
+    mlflow.log_params(result.classifier_config)
     # log data parameters
     mlflow.log_params(
         {
             "target_column": config.data.target_column,
+            "time_column": config.data.time_column,
         }
     )
     # log feature enginnering hyper-parameters
@@ -94,30 +98,63 @@ def log_experiment_result(
             "categorical_imputer": config.preprocessing.categorical_impute_strategy,
         }
     )
-    # log classifier and its hyper-parameters
-    mlflow.log_params(result.classifier_config)
-    # log model evaluation parameters required for reproducibility
-    mlflow.log_param("threshold", config.evaluation.threshold)
-
-    # log additional parameters on training data
-    mlflow.log_params(
-        {
-            # "train_rows": result.metadata["train_rows"],
-            # "test_rows": result.metadata["test_rows"],
-            "feature_count": result.metadata["feature_count"],
+    # log calibration parameters
+    calibration_parameters: dict[str, str | int] = {
+        "calibration_method": config.calibration.method,
+        "calibration_n_splits": config.calibration.n_splits,
+        "calibration_n_bins": config.calibration.n_bins,
+    }
+    mlflow.log_params(calibration_parameters)
+    # log threshold parameters
+    threshold_parameters: dict[str, str | float | int] = {
+        "threshold": result.threshold,
+        "threshold_strategy": config.threshold.strategy,
+        "threshold_data": result.threshold_data,
+    }
+    mlflow.log_params(threshold_parameters)
+    # log promotion parameters
+    if config.promotion.promote_model:
+        promotion_parameters = {
+            f"promotion_weight_{metric}": weight
+            for metric, weight in config.promotion.metric_weights.items()
         }
-    )
-    # log a relevant tags
+        promotion_parameters["promotion_min_delta"] = config.promotion.min_delta
+        mlflow.log_params(promotion_parameters)
+
+    # log relevant tags
     mlflow.set_tags(
         {
-            "pipeline_steps": list(result.trained_pipeline.named_steps.keys()),
-            # "git_branch": current_branch,
-            # "git_commit": commit_hash,
+            "calibration": config.calibration.method,
+            "threshold_data": result.threshold_data,
         }
     )
+    mlflow.log_param("feature_count", len(result.feature_names_out))
 
-    # log all model metrics from churn_mlops.evaluation import evaluate_model
+    # log all model metrics
     mlflow.log_metrics(result.metrics)
+    mlflow.log_figure(
+        result.calibration_figure,
+        artifact_file="calibration/reliability_diagram.png",
+    )
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        threshold_path = Path(temporary_directory) / "decision_threshold.json"
+        threshold_path.write_text(
+            json.dumps(
+                {
+                    "calibration_method": config.calibration.method,
+                    "threshold_strategy": config.threshold.strategy,
+                    "threshold_data": result.threshold_data,
+                    "threshold": result.threshold,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        mlflow.log_artifact(
+            threshold_path,
+            artifact_path="evaluation",
+        )
 
     # log trained model pipeline artifact
     model_info = mlflow.sklearn.log_model(
@@ -130,6 +167,7 @@ def log_experiment_result(
             "sklearn.compose._column_transformer.make_column_selector",
             "sklearn.calibration._CalibratedClassifier",
             "sklearn.calibration._SigmoidCalibration",
+            "sklearn.isotonic.IsotonicRegression",
             "sklearn.tree._tree.Tree",
             "sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor",
         ],
@@ -141,8 +179,8 @@ def log_experiment_result(
     with open(feature_names_path, "w") as f:
         json.dump(
             {
-                "input": result.metadata["feature_names_in"],
-                "output": result.metadata["feature_names_out"],
+                "input": result.feature_names_in,
+                "output": result.feature_names_out,
             },
             f,
         )

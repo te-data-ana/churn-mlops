@@ -3,6 +3,7 @@
 from unittest.mock import Mock
 
 import pytest
+from matplotlib.figure import Figure
 from sklearn.pipeline import Pipeline
 
 from churn_mlops.models.features import FeatureBuilder
@@ -23,9 +24,9 @@ def mock_training_result() -> TrainingResult:
         trained_pipeline=Pipeline(steps=[("features", FeatureBuilder())]),
         metrics={},
         classifier_config={},
-        metadata={
-            "feature_count": 3,
-            "feature_names_in": ["a", "b"],
-            "feature_names_out": ["a", "b", "c"],
-        },
+        feature_names_in=["a", "b"],
+        feature_names_out=["a", "b", "c"],
+        threshold=0.4,
+        threshold_data="out_of_time_test",
+        calibration_figure=Figure(),
     )

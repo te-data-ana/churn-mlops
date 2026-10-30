@@ -1,4 +1,3 @@
-from sklearn.calibration import CalibratedClassifierCV
 from sklearn.discriminant_analysis import (
     LinearDiscriminantAnalysis,
     QuadraticDiscriminantAnalysis,
@@ -15,32 +14,6 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC, LinearSVC
 from sklearn.tree import DecisionTreeClassifier
-
-
-def lin_svc(**kwargs):
-    return CalibratedClassifierCV(
-        estimator=LinearSVC(
-            C=kwargs.get("C", 1.0),
-            random_state=kwargs.get("random_state", DEFAULT_RANDOM_STATE),
-        ),
-        method=kwargs.get("method", "sigmoid"),
-        cv=kwargs.get("cv", 5),
-        ensemble=False,
-    )
-
-
-def rbf_svc(**kwargs):
-    return CalibratedClassifierCV(
-        estimator=SVC(
-            kernel="rbf",
-            C=kwargs.get("C", 1.0),
-            random_state=kwargs.get("random_state", DEFAULT_RANDOM_STATE),
-        ),
-        method=kwargs.get("method", "sigmoid"),
-        cv=kwargs.get("cv", 5),
-        ensemble=False,
-    )
-
 
 # default model parameters
 DEFAULT_RANDOM_STATE = 26
@@ -73,7 +46,7 @@ MODEL_CATALOG = {
         },
     },
     "lsvc": {
-        "clf": lin_svc,
+        "clf": LinearSVC,
         "default_params": {
             "random_state": DEFAULT_RANDOM_STATE,
         },
@@ -82,9 +55,10 @@ MODEL_CATALOG = {
         },
     },
     "svc": {
-        "clf": rbf_svc,
+        "clf": SVC,
         "default_params": {
             "random_state": DEFAULT_RANDOM_STATE,
+            "kernel": "rbf",
         },
         "search_space": {
             "C": {"type": "float", "low": 1e-4, "high": 1e2, "log": True},

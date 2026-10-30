@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["main"]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 
 def main(argv: Sequence[str] | None = None) -> None:

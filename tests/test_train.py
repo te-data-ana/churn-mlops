@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import ANY, MagicMock
 
+import pandas as pd
 import pytest
 
 from churn_mlops import train
@@ -31,14 +32,35 @@ def test_run_training_job_resolves_input_arguments(
         mlflow_experiment_name=configured_name,
     )
     config = SimpleNamespace(
+        data=SimpleNamespace(time_column="reference_date"),
         model=SimpleNamespace(classifier="lr"),
-        evaluation=SimpleNamespace(threshold=0.5),
+        threshold=SimpleNamespace(
+            strategy="max_f1",
+        ),
+        promotion=SimpleNamespace(
+            promote_model=True,
+            metric_weights={
+                "roc_auc": 0.2,
+                "pr_auc": 0.2,
+                "f1": 0.2,
+                "brier_score": 0.2,
+                "calibration_error": 0.2,
+            },
+        ),
         registry=SimpleNamespace(register_model=False),
     )
     config_file = "train.yaml"
     split_name = "temporal"
     load_splits = MagicMock(return_value=(MagicMock(), MagicMock()))
-    train_model_mock = MagicMock(return_value=MagicMock())
+    training_result = MagicMock()
+    training_result.metrics = {
+        "roc_auc": 0.8,
+        "pr_auc": 0.8,
+        "f1": 0.8,
+        "brier_score": 0.2,
+        "calibration_error": 0.1,
+    }
+    train_model_mock = MagicMock(return_value=training_result)
     setup_experiment = MagicMock(return_value="experiment-id")
     mlflow_run = MagicMock()
     get_active_run = train.mlflow.active_run
@@ -76,6 +98,7 @@ def test_run_training_job_resolves_input_arguments(
     load_splits.assert_called_once_with(
         split_name=split_name,
         split_dir=Path("data") / "splits",
+        preserve_time_column="reference_date",
     )
     train_model_mock.assert_called_once_with(
         config=config,
@@ -90,14 +113,25 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = SimpleNamespace(
+        data=SimpleNamespace(time_column="reference_date"),
         model=SimpleNamespace(classifier="rf"),
-        evaluation=SimpleNamespace(threshold=0.5),
+        calibration=SimpleNamespace(method="sigmoid"),
+        threshold=SimpleNamespace(strategy="max_f1"),
+        promotion=SimpleNamespace(
+            promote_model=True,
+            metric_weights={
+                "roc_auc": 0.2,
+                "pr_auc": 0.2,
+                "f1": 0.2,
+                "brier_score": 0.2,
+                "calibration_error": 0.2,
+            },
+        ),
         registry=SimpleNamespace(register_model=False),
         tuning=TuningConfig(
             enabled=True,
             n_trials=3,
             n_splits=2,
-            time_column="reference_date",
             metric="roc_auc",
             random_state=19,
         ),
@@ -111,8 +145,14 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
         mlflow_tracking_uri="sqlite:///tracking.db",
         mlflow_experiment_name="experiment",
     )
-    train_df = MagicMock()
-    test_df = MagicMock()
+    train_df = pd.DataFrame(
+        {
+            "reference_date": pd.date_range("2026-01-01", periods=10),
+            "churn": [0, 1] * 5,
+            "feature": range(10),
+        }
+    )
+    test_df = pd.DataFrame({"churn": [0, 1], "feature": [10, 11]})
     load_splits = MagicMock(return_value=(train_df, test_df))
     optimizer = MagicMock(
         return_value=TuningResult(
@@ -126,6 +166,13 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
         )
     )
     final_training = MagicMock()
+    final_training.metrics = {
+        "roc_auc": 0.8,
+        "pr_auc": 0.8,
+        "f1": 0.8,
+        "brier_score": 0.2,
+        "calibration_error": 0.1,
+    }
     train_model = MagicMock(return_value=final_training)
     mlflow_run = MagicMock()
     log_params = MagicMock()
@@ -164,11 +211,13 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
         split_dir=Path("data") / "splits",
         preserve_time_column="reference_date",
     )
-    optimizer.assert_called_once_with(
-        config=config,
-        train_df=train_df,
-        exclude_columns=["customerid"],
-    )
+    assert optimizer.call_count == 1
+    assert optimizer.call_args.kwargs["config"] is config
+    assert optimizer.call_args.kwargs["train_df"].equals(train_df)
+    assert optimizer.call_args.kwargs["exclude_columns"] == [
+        "customerid",
+        "reference_date",
+    ]
     train_model.assert_called_once_with(
         config=config,
         train_df=train_df,
@@ -196,13 +245,25 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
     tmp_path: Path,
 ) -> None:
     config = SimpleNamespace(
-        data=SimpleNamespace(target_column="churn"),
+        data=SimpleNamespace(target_column="churn", time_column="reference_date"),
         model=SimpleNamespace(classifier="rf"),
-        evaluation=SimpleNamespace(threshold=0.5),
+        calibration=SimpleNamespace(method="sigmoid"),
+        threshold=SimpleNamespace(strategy="max_f1"),
+        promotion=SimpleNamespace(
+            promote_model=True,
+            min_delta=0.005,
+            metric_weights={
+                "roc_auc": 0.2,
+                "pr_auc": 0.2,
+                "f1": 0.2,
+                "brier_score": 0.2,
+                "calibration_error": 0.2,
+            },
+        ),
         registry=SimpleNamespace(
             register_model=False,
-            promote_model=True,
-            registry_params={"model_name": "churn-risk", "alias": "candidate"},
+            model_name="churn-risk",
+            alias="candidate",
         ),
         tuning=TuningConfig(),
     )
@@ -214,13 +275,18 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
         mlflow_experiment_name="experiment",
     )
     training_result = SimpleNamespace(
-        metrics={"roc_auc": 0.84},
-        classifier_config={"model_name": "churn-risk"},
-        metadata={
-            "feature_count": 2,
-            "feature_names_in": ["feature_in_1", "feature_in_2"],
-            "feature_names_out": ["feature_out_1", "feature_out_2"],
+        metrics={
+            "roc_auc": 0.84,
+            "pr_auc": 0.82,
+            "f1": 0.75,
+            "brier_score": 0.18,
+            "calibration_error": 0.09,
         },
+        classifier_config={"model_name": "churn-risk"},
+        feature_names_in=["feature_in_1", "feature_in_2"],
+        feature_names_out=["feature_out_1", "feature_out_2"],
+        threshold_data="out_of_time_test",
+        threshold=0.42,
     )
     registered_version = SimpleNamespace(version=7, run_id="training-run")
     registry = MagicMock()

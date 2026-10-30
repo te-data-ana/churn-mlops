@@ -9,10 +9,10 @@ import numpy as np
 import optuna
 import pandas as pd
 from sklearn.metrics import average_precision_score, roc_auc_score
-from sklearn.model_selection import TimeSeriesSplit
 
 from churn_mlops.config.schemas import TrainingConfig
 from churn_mlops.models import MODEL_CATALOG, build_classifier_pipeline, create_model
+from churn_mlops.training.calibration import make_temporal_cv_splits
 
 logger = logging.getLogger(__name__)
 
@@ -66,63 +66,6 @@ def _suggest_parameters(
     return suggestions
 
 
-def _build_expanding_window_folds(
-    train_df: pd.DataFrame,
-    target_column: str,
-    time_column: str,
-    n_splits: int,
-) -> list[tuple[np.ndarray, np.ndarray]]:
-    """Create expanding-window folds that keep equal timestamps together."""
-    if time_column not in train_df.columns:
-        raise ValueError(
-            f"Temporal tuning requires time column '{time_column}' in the "
-            "training split."
-        )
-    if target_column not in train_df.columns:
-        raise ValueError(f"Training split is missing target column '{target_column}'.")
-    if time_column == target_column:
-        raise ValueError("The temporal tuning column cannot be the target column.")
-    if n_splits < 2:
-        raise ValueError("Tuning n_splits must be at least 2.")
-
-    timestamps = pd.to_datetime(train_df[time_column], errors="coerce", utc=True)
-    if timestamps.isna().any():
-        raise ValueError(
-            f"Temporal tuning column '{time_column}' contains missing or invalid "
-            "timestamps."
-        )
-
-    unique_timestamps = pd.Index(timestamps.unique()).sort_values()
-    if len(unique_timestamps) <= n_splits:
-        raise ValueError(
-            f"Temporal tuning requires more than {n_splits} distinct timestamps "
-            f"in '{time_column}', found {len(unique_timestamps)}."
-        )
-
-    splitter = TimeSeriesSplit(n_splits=n_splits)
-    labels = train_df[target_column].reset_index(drop=True)
-    folds: list[tuple[np.ndarray, np.ndarray]] = []
-    for train_times, validation_times in splitter.split(unique_timestamps):
-        train_mask = timestamps.isin(unique_timestamps[train_times]).to_numpy()
-        validation_mask = timestamps.isin(
-            unique_timestamps[validation_times]
-        ).to_numpy()
-        train_indices = np.flatnonzero(train_mask)
-        validation_indices = np.flatnonzero(validation_mask)
-        if labels.iloc[train_indices].nunique() < 2:
-            raise ValueError(
-                "An expanding-window training fold contains fewer than two "
-                "target classes."
-            )
-        if labels.iloc[validation_indices].nunique() < 2:
-            raise ValueError(
-                "An expanding-window validation fold contains fewer than two "
-                "target classes; ROC AUC and PR AUC require both classes."
-            )
-        folds.append((train_indices, validation_indices))
-    return folds
-
-
 def optimize_hyperparameters(
     config: TrainingConfig,
     train_df: pd.DataFrame,
@@ -132,8 +75,9 @@ def optimize_hyperparameters(
 
     Args:
         config: Training configuration with tuning enabled.
-        train_df: Validated training split, including the configured time
-            column. The held-out test split is deliberately not accepted.
+        train_df: Training data split, including the configured time column.
+            A separate out-of-time test split should be kept aside for final
+            evaluation.
         exclude_columns: Optional columns to omit from hyperparameter tuning.
 
     Returns:
@@ -164,16 +108,17 @@ def optimize_hyperparameters(
         )
 
     target_column = config.data.target_column
-    folds = _build_expanding_window_folds(
-        train_df=train_df,
+    time_column = config.data.time_column
+    folds = make_temporal_cv_splits(
+        df=train_df,
         target_column=target_column,
-        time_column=tuning.time_column,
+        time_column=time_column,
         n_splits=tuning.n_splits,
     )
     feature_columns = [
         column
         for column in train_df.columns
-        if column not in {target_column, tuning.time_column, *exclude_columns}
+        if column not in {target_column, time_column, *exclude_columns}
     ]
     metric = roc_auc_score if tuning.metric == "roc_auc" else average_precision_score
 
@@ -197,11 +142,18 @@ def optimize_hyperparameters(
                 X=fold_train.loc[:, feature_columns],
                 y=fold_train[target_column],
             )
-            probabilities = pipeline.predict_proba(
-                X=fold_validation.loc[:, feature_columns]
-            )[:, 1]
+            validation_features = fold_validation.loc[:, feature_columns]
+            if hasattr(pipeline, "predict_proba"):
+                ranking_scores = pipeline.predict_proba(validation_features)[:, 1]
+            elif hasattr(pipeline, "decision_function"):
+                ranking_scores = pipeline.decision_function(validation_features)
+            else:
+                raise ValueError(
+                    f"Classifier '{config.model.classifier}' supports neither "
+                    "predict_proba nor decision_function for ranking metrics."
+                )
             fold_scores.append(
-                float(metric(fold_validation[target_column], probabilities))
+                float(metric(fold_validation[target_column], ranking_scores))
             )
         return float(np.mean(fold_scores))
 
@@ -230,6 +182,6 @@ def optimize_hyperparameters(
         metric=tuning.metric,
         n_trials=tuning.n_trials,
         n_splits=tuning.n_splits,
-        time_column=tuning.time_column,
+        time_column=time_column,
         random_state=tuning.random_state,
     )

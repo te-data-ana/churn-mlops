@@ -11,12 +11,14 @@ import pytest
 import yaml
 
 from churn_mlops.config.schemas import (
+    CalibrationConfig,
     ClassifierConfig,
     DataConfig,
-    EvaluationConfig,
     FeatureBuilderConfig,
     PreprocessingConfig,
+    PromotionConfig,
     RegistryConfig,
+    ThresholdConfig,
     TrainingConfig,
 )
 from churn_mlops.evaluation import metrics
@@ -30,6 +32,7 @@ def training_manifest_factory() -> Callable[..., TrainingManifest]:
         evaluation = metrics.evaluate_model(
             y_true=np.array([0, 0, 1, 1]),
             y_prob=np.array([0.1, 0.4, 0.6, 0.9]),
+            threshold=0.5,
             fit_time_sec=1.2,
             pred_time_sec=0.3,
         )
@@ -54,6 +57,9 @@ def training_manifest_factory() -> Callable[..., TrainingManifest]:
             feature_count=2,
             feature_names_in=["feature_in_1", "feature_in_2"],
             feature_names_out=["feature_out_1", "feature_out_2"],
+            calibration="none",
+            threshold_strategy="max_f1",
+            threshold_data="out_of_time_test",
             threshold=0.5,
             metrics=vars(evaluation),
             promotion_decision=promotion_decision or {},
@@ -87,10 +93,14 @@ def config_factory() -> Callable[..., TrainingConfig]:
                     "random_state": 42,
                 },
             ),
-            evaluation=EvaluationConfig(
-                threshold=0.5,
+            registry=RegistryConfig(
+                register_model=False,
+                model_name="churn-risk",
+                alias="candidate",
             ),
-            registry=RegistryConfig(register_model=False, registry_params={}),
+            calibration=CalibrationConfig(),
+            threshold=ThresholdConfig(),
+            promotion=PromotionConfig(),
         )
 
         for key, value in overrides.items():
@@ -128,6 +138,14 @@ def sample_training_df() -> pd.DataFrame:
         }
     )
     df["contract_length"] = df["contract_length"].astype("str")
+    return df
+
+
+@pytest.fixture
+def temporal_sample_training_df(sample_training_df: pd.DataFrame) -> pd.DataFrame:
+    """Return sample training data with a chronological reference date."""
+    df = sample_training_df.copy()
+    df["reference_date"] = pd.date_range("2026-01-01", periods=len(df))
     return df
 
 
@@ -276,6 +294,7 @@ def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
             {
                 "data": {
                     "target_column": "churn",
+                    "time_column": "reference_date",
                 },
                 "feature_builder": {
                     "feature_params": {
@@ -292,14 +311,29 @@ def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
                     "classifier": "lr",
                     "classifier_params": {"random_state": 42},
                 },
-                "evaluation": {"threshold": 0.5},
+                "calibration": {
+                    "method": "none",
+                    "n_splits": 3,
+                    "n_bins": 10,
+                },
+                "threshold": {
+                    "strategy": "max_f1",
+                },
+                "promotion": {
+                    "promote_model": True,
+                    "min_delta": 0.005,
+                    "metric_weights": {
+                        "roc_auc": 0.2,
+                        "pr_auc": 0.2,
+                        "f1": 0.2,
+                        "brier_score": 0.2,
+                        "calibration_error": 0.2,
+                    },
+                },
                 "registry": {
                     "register_model": True,
-                    "registry_params": {
-                        "model_name": model_name,
-                        "alias": model_alias,
-                        "promotion_delta": 0.005,
-                    },
+                    "model_name": model_name,
+                    "alias": model_alias,
                 },
             }
         )

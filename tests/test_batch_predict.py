@@ -9,6 +9,7 @@ import churn_mlops
 from churn_mlops import batch_predict, data
 from churn_mlops.data import storage
 from churn_mlops.tracking.manifest import TrainingManifest
+from churn_mlops.tracking.registry import ModelRegistry
 
 
 @pytest.mark.unit
@@ -329,5 +330,9 @@ def test_batch_prediction_uses_registered_model(
     assert len(predictions) == len(pd.read_csv(generated_inference_csv))
     assert predictions["predicted_probability"].between(0, 1).all()
     assert predictions["predicted_class"].isin([0, 1]).all()
-    assert (predictions["threshold"] == 0.5).all()
+    threshold = ModelRegistry().get_threshold_by_alias(
+        model_name=str(registered_model["model_name"]),
+        alias=str(registered_model["model_alias"]),
+    )
+    assert (predictions["threshold"] == threshold).all()
     assert predictions["model_version"].notna().all()

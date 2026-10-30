@@ -31,12 +31,9 @@ class ModelCardBuilder:
             A Markdown-formatted string representing the model card.
 
         Raises:
-            KeyError: If required keys are missing from
-                ``result.metrics``, ``result.metadata``, or
-                ``result.classifier_config``.
+            KeyError: If required metric or promotion-decision keys are missing.
             AttributeError: If any required attributes are missing from
-                ``result``, ``config``, ``context``, or the promotion
-                decision object.
+                ``config``, ``context``, or the promotion decision object.
         """
 
         metrics = context.metrics
@@ -48,13 +45,13 @@ class ModelCardBuilder:
         promotion_section = ""
         if decision:
             champion_metric = (
-                f"{decision['champion_metric']:.4f}"
-                if decision["champion_metric"] is not None
+                f"{decision['champion_score']:.4f}"
+                if decision["champion_score"] is not None
                 else "N/A"
             )
             metric_delta = (
-                f"{decision['metric_delta']:.4f}"
-                if decision["metric_delta"] is not None
+                f"{decision['score_delta']:.4f}"
+                if decision["score_delta"] is not None
                 else "N/A"
             )
 
@@ -64,9 +61,9 @@ class ModelCardBuilder:
 
                 | Property | Value |
                 |----------|-------|
-                | Candidate ROC AUC | {decision["candidate_metric"]:.4f} |
-                | Champion ROC AUC | {champion_metric} |
-                | Required Delta | {decision["required_delta"]:.4f} |
+                | Weighted Candidate Score | {decision["candidate_score"]:.4f} |
+                | Weighted Champion Score | {champion_metric} |
+                | Required Delta | {decision["min_delta"]:.4f} |
                 | Actual Delta | {metric_delta} |
                 | Promoted | {decision["promote"]} |
 
@@ -118,7 +115,18 @@ Trained on historical {context.target_column} data.
 | Numeric | {config.preprocessing.numeric_impute_strategy} |
 | Categorical | {config.preprocessing.categorical_impute_strategy} |
 
-## Evaluation on Test Set
+## Probability Calibration and Threshold
+
+| Property | Value |
+|----------|-------|
+| Calibration Method | {context.calibration} |
+| Threshold Selection Strategy | {context.threshold_strategy} |
+| Threshold Selection Data | {context.threshold_data} |
+| Optimal Class Threshold | {context.threshold:.6f} |
+
+Note: The decision threshold was selected by maximizing F1 on the out-of-time test set.
+
+## Evaluation on Out-of-Time Test Set
 
 | Metric | Value |
 |--------|-------|
@@ -129,10 +137,7 @@ Trained on historical {context.target_column} data.
 | Recall | {metrics["recall"]:.4f} |
 | F1 | {metrics["f1"]:.4f} |
 | Brier Score | {metrics["brier_score"]:.4f} |
-
-## Threshold
-
-Applied probability threshold: {context.threshold}
+| Calibration Error (ECE) | {metrics["calibration_error"]:.4f} |
 
 {promotion_section}
 """
