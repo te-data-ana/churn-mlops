@@ -22,6 +22,7 @@ def test_evaluate_model_with_perfect_predictions_returns_perfect_metrics() -> No
     evaluation = metrics.evaluate_model(
         y_true=np.array([0, 0, 1, 1]),
         y_prob=np.array([0.1, 0.4, 0.6, 0.9]),
+        threshold=0.5,
         fit_time_sec=1.2,
         pred_time_sec=0.3,
     )
@@ -34,6 +35,7 @@ def test_evaluate_model_with_perfect_predictions_returns_perfect_metrics() -> No
     assert evaluation.recall == pytest.approx(1.0)
     assert evaluation.f1 == pytest.approx(1.0)
     assert evaluation.brier_score == pytest.approx(0.085)
+    assert evaluation.calibration_error == pytest.approx(0.25)
     assert evaluation.fit_time_sec == 1.2
     assert evaluation.pred_time_sec == 0.3
 

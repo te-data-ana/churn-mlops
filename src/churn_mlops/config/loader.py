@@ -3,12 +3,14 @@ from pathlib import Path
 import yaml
 
 from churn_mlops.config.schemas import (
+    CalibrationConfig,
     ClassifierConfig,
     DataConfig,
-    EvaluationConfig,
     FeatureBuilderConfig,
     PreprocessingConfig,
+    PromotionConfig,
     RegistryConfig,
+    ThresholdConfig,
     TrainingConfig,
     TuningConfig,
 )
@@ -46,7 +48,9 @@ def load_config(
         feature_builder=FeatureBuilderConfig(**raw["feature_builder"]),
         preprocessing=PreprocessingConfig(**raw["preprocessing"]),
         model=ClassifierConfig(**raw["model"]),
-        evaluation=EvaluationConfig(**raw["evaluation"]),
+        calibration=CalibrationConfig(**raw.get("calibration", {})),
+        threshold=ThresholdConfig(**raw.get("threshold", {})),
+        promotion=PromotionConfig(**raw.get("promotion", {})),
         registry=RegistryConfig(**raw["registry"]),
         tuning=TuningConfig(**raw.get("tuning", {})),
     ), config_file_path

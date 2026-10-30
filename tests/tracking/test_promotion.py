@@ -7,87 +7,115 @@ from churn_mlops.tracking.promotion import PromotionDecision, PromotionService
 
 
 @pytest.mark.unit
-def test_promotion_decision_positive_without_champion() -> None:
-    decision = PromotionDecision(
-        candidate_metric=0.82,
-        champion_metric=None,
-        metric_delta=None,
-        required_delta=0.01,
-        reason="No champion.",
+def test_weighted_promotion_allows_first_champion() -> None:
+    decision = PromotionService().evaluate_weighted_candidate(
+        candidate_metrics={"roc_auc": 0.8},
+        champion_metrics=None,
+        metric_weights={"roc_auc": 1.0},
+        min_delta=0.02,
     )
 
-    assert decision.promote is True
+    assert decision.promote
+    assert decision.candidate_score == pytest.approx(0.8)
+    assert decision.champion_score is None
+    assert decision.score_delta is None
+    assert decision.min_delta == pytest.approx(0.02)
 
 
 @pytest.mark.unit
-def test_promotion_decision_positive_if_required_delta_exeeded() -> None:
-    decision = PromotionDecision(
-        candidate_metric=0.86,
-        champion_metric=0.84,
-        metric_delta=0.02,
-        required_delta=0.01,
-        reason="better",
-    )
+def test_weighted_promotion_requires_strict_score_improvement() -> None:
+    service = PromotionService()
+    common = {
+        "candidate_metrics": {"roc_auc": 0.9},
+        "champion_metrics": {"roc_auc": 0.8},
+        "metric_weights": {"roc_auc": 1.0},
+        "min_delta": 0.1,
+    }
 
-    assert decision.promote is True
+    equal_decision = service.evaluate_weighted_candidate(**common)
+    assert not equal_decision.promote
+    assert equal_decision.score_delta == pytest.approx(0.1)
+
+    above_decision = service.evaluate_weighted_candidate(
+        **(common | {"min_delta": 0.099})
+    )
+    assert above_decision.promote
 
 
 @pytest.mark.unit
-def test_promotion_decision_rejection_below_required_delta() -> None:
-    decision = PromotionDecision(
-        candidate_metric=0.845,
-        champion_metric=0.84,
-        metric_delta=0.005,
-        required_delta=0.02,
-        reason="not enough",
+def test_weighted_promotion_rejects_insufficient_improvement() -> None:
+    decision = PromotionService().evaluate_weighted_candidate(
+        candidate_metrics={"roc_auc": 0.81},
+        champion_metrics={"roc_auc": 0.8},
+        metric_weights={"roc_auc": 1.0},
+        min_delta=0.02,
     )
 
-    assert decision.promote is False
+    assert not decision.promote
+    assert decision.score_delta == pytest.approx(0.01)
 
 
 @pytest.mark.unit
-def test_evaluate_candidate_promotes_without_champion() -> None:
-    decision = PromotionService().evaluate_candidate(
-        candidate_metric=0.80,
-        champion_metric=None,
-        promotion_delta=0.02,
+def test_weighted_promotion_rewards_calibration_and_ranking_metrics() -> None:
+    weights = {
+        "roc_auc": 0.2,
+        "pr_auc": 0.2,
+        "f1": 0.2,
+        "brier_score": 0.2,
+        "calibration_error": 0.2,
+    }
+    candidate_metrics = {
+        "roc_auc": 0.95,
+        "pr_auc": 0.9,
+        "f1": 0.8,
+        "brier_score": 0.1,
+        "calibration_error": 0.05,
+    }
+    champion_metrics = {
+        "roc_auc": 0.9,
+        "pr_auc": 0.9,
+        "f1": 0.8,
+        "brier_score": 0.2,
+        "calibration_error": 0.1,
+    }
+
+    decision = PromotionService().evaluate_weighted_candidate(
+        candidate_metrics=candidate_metrics,
+        champion_metrics=champion_metrics,
+        metric_weights=weights,
+        min_delta=0.01,
     )
 
-    assert decision.promote is True
-    assert decision.metric_delta is None
+    assert decision.promote
+    assert decision.candidate_score == pytest.approx(0.9)
+    assert decision.champion_score == pytest.approx(0.86)
+    assert decision.score_delta == pytest.approx(0.04)
 
 
 @pytest.mark.unit
-def test_evaluate_candidate_promotes_sufficient_improvement() -> None:
-    decision = PromotionService().evaluate_candidate(
-        candidate_metric=0.90,
-        champion_metric=0.80,
-        promotion_delta=0.02,
+def test_weighted_promotion_blocks_champion_missing_required_metrics() -> None:
+    decision = PromotionService().evaluate_weighted_candidate(
+        candidate_metrics={"roc_auc": 0.9, "calibration_error": 0.1},
+        champion_metrics={"roc_auc": 0.88},
+        metric_weights={"roc_auc": 0.5, "calibration_error": 0.5},
+        min_delta=0.01,
     )
 
-    assert decision.promote is True
-    assert decision.metric_delta == decision.candidate_metric - decision.champion_metric
-
-
-@pytest.mark.unit
-def test_evaluate_candidate_rejects_insufficient_improvement() -> None:
-    decision = PromotionService().evaluate_candidate(
-        candidate_metric=0.81,
-        champion_metric=0.80,
-        promotion_delta=0.02,
-    )
-
-    assert decision.promote is False
+    assert not decision.promote
+    assert decision.champion_score is None
+    assert decision.score_delta is None
+    assert "missing required metrics" in decision.reason
 
 
 @pytest.mark.unit
 def test_promote_candidate_first_champion() -> None:
     registry = Mock()
     decision = PromotionDecision(
-        candidate_metric=0.8,
-        champion_metric=None,
-        metric_delta=None,
-        required_delta=0.01,
+        candidate_score=0.8,
+        champion_score=None,
+        score_delta=None,
+        min_delta=0.01,
+        promote=True,
         reason="first champion",
     )
 
@@ -110,14 +138,14 @@ def test_promote_candidate_replaces_champion() -> None:
     registry = Mock()
     registry.get_champion_version.return_value = SimpleNamespace(version=2)
     decision = PromotionDecision(
-        candidate_metric=0.77,
-        champion_metric=0.75,
-        metric_delta=0.02,
-        required_delta=0.01,
+        candidate_score=0.77,
+        champion_score=0.75,
+        score_delta=0.02,
+        min_delta=0.01,
+        promote=True,
         reason="better",
     )
 
-    # Retire the current champion before assigning the candidate as champion.
     PromotionService().promote_candidate(
         decision=decision,
         registry=registry,
@@ -125,7 +153,6 @@ def test_promote_candidate_replaces_champion() -> None:
         candidate_version=4,
     )
 
-    assert registry.set_alias.call_count == 2
     assert registry.set_alias.call_args_list == [
         call(
             model_name="my_model",
@@ -143,10 +170,11 @@ def test_promote_candidate_replaces_champion() -> None:
 @pytest.mark.unit
 def test_promote_candidate_rejection() -> None:
     decision = PromotionDecision(
-        candidate_metric=0.81,
-        champion_metric=0.80,
-        metric_delta=0.01,
-        required_delta=0.02,
+        candidate_score=0.81,
+        champion_score=0.8,
+        score_delta=0.01,
+        min_delta=0.02,
+        promote=False,
         reason="rejected",
     )
 

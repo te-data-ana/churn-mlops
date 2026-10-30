@@ -28,13 +28,19 @@ def test_build_model_card_from_training_manifest(
 
     assert "# Model Card" in markdown
     assert "## Model Metadata" in markdown
-    assert "## Evaluation on Test Set" in markdown
+    assert "## Evaluation on Out-of-Time Test Set" in markdown
     assert str(context.model_version) in markdown
     for feature in context.feature_names_out:
         assert f"- {feature}" in markdown
     assert f"| Classifier Alias | {context.classifier_alias} |" in markdown
     assert f"| Classifier Name | {context.classifier_name} |" in markdown
+    assert "| Calibration Method | none |" in markdown
+    assert "| Threshold Selection Strategy | max_f1 |" in markdown
+    assert "| Threshold Selection Data | out_of_time_test |" in markdown
+    assert "maximizing F1 on the out-of-time test set" in markdown
+    assert f"{context.threshold:.6f}" in markdown
     assert re.search(r"\| ROC AUC \| \d\.\d{4} \|", markdown)
+    assert re.search(r"\| Calibration Error \(ECE\) \| \d\.\d{4} \|", markdown)
     assert re.search(r"\| Accuracy \| \d\.\d{4} \|", markdown)
 
 
@@ -46,10 +52,10 @@ def test_build_includes_promotion_section(
     config = config_factory()
 
     decision = {
-        "candidate_metric": 0.9123,
-        "champion_metric": 0.9000,
-        "metric_delta": 0.0123,
-        "required_delta": 0.005,
+        "candidate_score": 0.9123,
+        "champion_score": 0.9000,
+        "score_delta": 0.0123,
+        "min_delta": 0.005,
         "promote": True,
         "reason": "Candidate beats champion.",
     }
@@ -74,10 +80,10 @@ def test_build_renders_na_for_missing_champion_values(
     config = config_factory()
 
     decision = {
-        "candidate_metric": 0.91,
-        "champion_metric": None,
-        "metric_delta": None,
-        "required_delta": 0.005,
+        "candidate_score": 0.91,
+        "champion_score": None,
+        "score_delta": None,
+        "min_delta": 0.005,
         "promote": True,
         "reason": "No champion model available.",
     }
@@ -89,7 +95,7 @@ def test_build_renders_na_for_missing_champion_values(
         context=context,
     )
 
-    assert "| Champion ROC AUC | N/A |" in markdown
+    assert "| Weighted Champion Score | N/A |" in markdown
     assert "| Actual Delta | N/A |" in markdown
 
 

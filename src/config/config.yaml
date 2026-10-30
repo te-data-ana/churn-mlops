@@ -1,5 +1,11 @@
+model:
+  classifier: dc
+  classifier_params:
+    random_state: 26
+
 data:
   target_column: churn
+  time_column: reference_date
 
 feature_builder:
   feature_params:
@@ -11,17 +17,25 @@ preprocessing:
   numeric_impute_strategy: median
   categorical_impute_strategy: most_frequent
 
-model:
-  classifier: dc
-  classifier_params:
-    random_state: 26
+calibration:
+  method: sigmoid
+  n_splits: 3
+  n_bins: 10
 
-evaluation:
-  threshold: 0.5
+threshold:
+  strategy: max_f1
 
 registry:
   register_model: false
-  registry_params:
-    model_name: churn-risk
-    alias: candidate
-    promotion_delta: 0.01
+  model_name: churn-risk
+  alias: candidate
+
+promotion:
+  promote_model: false
+  min_delta: 0.01
+  metric_weights:
+    roc_auc: 0.2
+    pr_auc: 0.2
+    f1: 0.2
+    brier_score: 0.2
+    calibration_error: 0.2

@@ -105,6 +105,23 @@ def test_registry_get_metric_by_alias(registry: ModelRegistry) -> None:
 
 
 @pytest.mark.unit
+def test_registry_get_metrics_by_alias(registry: ModelRegistry) -> None:
+    version = Mock()
+    version.run_id = "abc"
+    run = Mock()
+    run.data.metrics = {"roc_auc": 0.84, "calibration_error": 0.09}
+    registry.get_model_version_by_alias = Mock(return_value=version)
+    registry.client.get_run.return_value = run
+
+    metrics = registry.get_metrics_by_alias(
+        model_name="my_model",
+        alias="champion",
+    )
+
+    assert metrics == {"roc_auc": 0.84, "calibration_error": 0.09}
+
+
+@pytest.mark.unit
 def test_registry_get_threshold_by_alias(registry: ModelRegistry) -> None:
     version = Mock()
     version.run_id = "abc"

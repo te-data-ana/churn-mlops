@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -24,4 +25,18 @@ def test_training_manifest_rejects_missing_fields(tmp_path: Path) -> None:
     path.write_text('{"run_id": "run-123"}', encoding="utf-8")
 
     with pytest.raises(ValueError, match="missing fields"):
+        TrainingManifest.read(path)
+
+
+@pytest.mark.unit
+def test_training_manifest_requires_current_metadata_fields(
+    tmp_path: Path,
+    training_manifest_factory: TrainingManifest,
+) -> None:
+    payload = training_manifest_factory().to_dict()
+    del payload["calibration"]
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="calibration"):
         TrainingManifest.read(path)

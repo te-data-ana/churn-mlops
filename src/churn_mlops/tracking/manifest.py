@@ -22,6 +22,9 @@ class TrainingManifest:
     feature_count: int
     feature_names_in: list[str]
     feature_names_out: list[str]
+    calibration: str
+    threshold_strategy: str
+    threshold_data: str
     threshold: float
     metrics: dict[str, float]
     promotion_decision: dict
@@ -57,6 +60,9 @@ class TrainingManifest:
             "feature_count": self.feature_count,
             "feature_names_in": self.feature_names_in,
             "feature_names_out": self.feature_names_out,
+            "calibration": self.calibration,
+            "threshold_strategy": self.threshold_strategy,
+            "threshold_data": self.threshold_data,
             "threshold": self.threshold,
             "metrics": self.metrics,
             "promotion_decision": self.promotion_decision,
@@ -90,6 +96,9 @@ class TrainingManifest:
             "feature_count",
             "feature_names_in",
             "feature_names_out",
+            "calibration",
+            "threshold_strategy",
+            "threshold_data",
             "threshold",
             "metrics",
             "promotion_decision",
@@ -124,6 +133,9 @@ class TrainingManifest:
                 "classifier_alias",
                 "split_name",
                 "run_name",
+                "calibration",
+                "threshold_strategy",
+                "threshold_data",
             )
         ):
             raise TypeError(f"Training manifest '{path}' has invalid text fields.")
@@ -173,6 +185,9 @@ class TrainingManifest:
             feature_count=payload["feature_count"],
             feature_names_in=payload["feature_names_in"],
             feature_names_out=payload["feature_names_out"],
+            calibration=payload["calibration"],
+            threshold_strategy=payload["threshold_strategy"],
+            threshold_data=payload["threshold_data"],
             threshold=payload["threshold"],
             metrics=metrics,
             promotion_decision=payload["promotion_decision"],

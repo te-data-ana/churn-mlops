@@ -65,7 +65,7 @@ def run_training_job(
 
     Returns:
         TrainingResult containing the fitted pipeline, metrics, classifier
-        configuration, and training metadata.
+        configuration, feature names, and selected threshold.
 
     Raises:
         FileNotFoundError: If the configuration or training data file is not
@@ -95,7 +95,7 @@ def run_training_job(
             file=config_file, path=resolved_config_dir
         )
         classifier_alias = config.model.classifier
-        eval_threshold = config.evaluation.threshold
+        threshold_strategy = config.threshold.strategy
 
         run_name = f"{classifier_alias}_{split_name}"
         manifest_file = settings.data_dir / f"manifests/{run_name}.json"
@@ -103,9 +103,7 @@ def run_training_job(
             config.registry.register_model if register_model is None else register_model
         )
         resolved_promote_model = (
-            getattr(config.registry, "promote_model", True)
-            if promote_model is None
-            else promote_model
+            config.promotion.promote_model if promote_model is None else promote_model
         )
 
         split_metadata: dict[str, str | int] = {}
@@ -143,9 +141,9 @@ def run_training_job(
 
         logger.info("Loaded training configuration from '%s'.", config_file_path)
         logger.info(
-            "Configured model alias '%s' with evaluation threshold %.4f.",
+            "Configured model alias '%s' with threshold strategy '%s'.",
             classifier_alias,
-            eval_threshold,
+            threshold_strategy,
         )
 
         experiment_id = setup_local_experiment(
@@ -163,17 +161,11 @@ def run_training_job(
         logger.info("Experiment metadata: %s", experiment)
 
         tuning_config = getattr(config, "tuning", TuningConfig())
-        if tuning_config.enabled:
-            train_df, test_df = load_and_validate_training_splits(
-                split_name=split_name,
-                split_dir=resolved_split_dir,
-                preserve_time_column=tuning_config.time_column,
-            )
-        else:
-            train_df, test_df = load_and_validate_training_splits(
-                split_name=split_name,
-                split_dir=resolved_split_dir,
-            )
+        train_df, test_df = load_and_validate_training_splits(
+            split_name=split_name,
+            split_dir=resolved_split_dir,
+            preserve_time_column=config.data.time_column,
+        )
 
         # Start an MLflow run for the training job and log the results
         with mlflow.start_run(
@@ -225,7 +217,10 @@ def run_training_job(
                 tuning_result = optimize_hyperparameters(
                     config=config,
                     train_df=train_df,
-                    exclude_columns=exclude_columns,
+                    exclude_columns=[
+                        *exclude_columns,
+                        config.data.time_column,
+                    ],
                 )
                 mlflow.log_params(
                     {
@@ -262,24 +257,21 @@ def run_training_job(
                     test_df=test_df,
                     exclude_columns=exclude_columns,
                 )
+            result.metrics["promotion_score"] = (
+                PromotionService.calculate_weighted_score(
+                    result.metrics,
+                    config.promotion.metric_weights,
+                )
+            )
             model_info = log_experiment_result(
                 result=result,
                 config=config,
                 config_file_path=config_file_path,
                 artifact_dir=resolved_artifact_dir,
             )
-            result.metadata.update(
-                {
-                    "mlflow_run_id": run_id,
-                    "run_name": run_name,
-                    "split_name": split_name,
-                    "split_metadata": split_metadata,
-                }
-            )
-
         # Register the candidate model and evaluate it for promotion to champion if enabled
         if resolved_register_model:
-            model_name = config.registry.registry_params["model_name"]
+            model_name = config.registry.model_name
             registry = ModelRegistry()
             registered_version = registry.register_model(
                 model_uri=model_info.model_uri,
@@ -291,16 +283,9 @@ def run_training_job(
                 model_name,
                 registered_model_version,
             )
-            result.metadata.update(
-                {
-                    "model_name": model_name,
-                    "model_version": registered_model_version,
-                }
-            )
-
             promotion_decision_dict = {}
             if resolved_promote_model:
-                model_alias = config.registry.registry_params["alias"]
+                model_alias = config.registry.alias
                 registry.set_alias(
                     model_name=model_name,
                     alias=model_alias,
@@ -308,41 +293,36 @@ def run_training_job(
                 )
                 champion = registry.get_champion_version(model_name=model_name)
 
-                candidate_metric = result.metrics["roc_auc"]
                 if champion:
                     logger.info("Retrieving metric for current champion model.")
-                    champion_metric = registry.get_metric_by_alias(
+                    champion_metrics = registry.get_metrics_by_alias(
                         model_name=model_name,
                         alias="champion",
-                        metric_name="roc_auc",
                     )
                 else:
                     logger.info(
                         "No champion model exists in registry for '%s'.",
                         model_name,
                     )
-                    champion_metric = None
+                    champion_metrics = None
 
-                # Promotion requires a strict improvement over the configured delta.
-                promotion_delta = config.registry.registry_params["promotion_delta"]
+                # Promotion requires a strict weighted-score improvement.
                 promotion_service = PromotionService()
-                promotion_decision = promotion_service.evaluate_candidate(
-                    candidate_metric=candidate_metric,
-                    champion_metric=champion_metric,
-                    promotion_delta=promotion_delta,
+                promotion_decision = promotion_service.evaluate_weighted_candidate(
+                    candidate_metrics=result.metrics,
+                    champion_metrics=champion_metrics,
+                    metric_weights=config.promotion.metric_weights,
+                    min_delta=config.promotion.min_delta,
                 )
-                promotion_decision_dict = {
-                    **asdict(promotion_decision),
-                    "promote": promotion_decision.promote,
-                }
+                promotion_decision_dict = asdict(promotion_decision)
 
                 if promotion_decision.promote:
                     logger.info("Decision to promote candidate model to champion:")
                     logger.info(promotion_decision.reason)
-                    if promotion_decision.metric_delta:
+                    if promotion_decision.score_delta is not None:
                         logger.info(
-                            "The AUC delta was '%.4f'.",
-                            promotion_decision.metric_delta,
+                            "The weighted quality score delta was '%.4f'.",
+                            promotion_decision.score_delta,
                         )
                     promotion_service.promote_candidate(
                         decision=promotion_decision,
@@ -372,10 +352,13 @@ def run_training_job(
                 classifier_alias=classifier_alias,
                 split_name=split_name,
                 split_metadata=split_metadata,
-                feature_count=result.metadata["feature_count"],
-                feature_names_in=result.metadata["feature_names_in"],
-                feature_names_out=result.metadata["feature_names_out"],
-                threshold=eval_threshold,
+                feature_count=len(result.feature_names_out),
+                feature_names_in=result.feature_names_in,
+                feature_names_out=result.feature_names_out,
+                calibration=config.calibration.method,
+                threshold_strategy=config.threshold.strategy,
+                threshold_data=result.threshold_data,
+                threshold=result.threshold,
                 metrics=result.metrics,
                 promotion_decision=promotion_decision_dict,
             )

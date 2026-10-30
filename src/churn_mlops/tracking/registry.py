@@ -3,7 +3,7 @@ import logging
 import mlflow
 from mlflow import MlflowClient, MlflowException
 from mlflow.entities.model_registry import ModelVersion
-from sklearn.pipeline import Pipeline
+from sklearn.base import BaseEstimator
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +151,23 @@ class ModelRegistry:
         )
         return run.data.metrics[metric_name]
 
+    def get_metrics_by_alias(self, model_name: str, alias: str) -> dict[str, float]:
+        """Retrieve all logged metrics for the run associated with an alias.
+
+        Args:
+            model_name: Registered model name.
+            alias: Alias identifying the model version and run.
+
+        Returns:
+            The metric names and values logged by the model's training run.
+        """
+        version = self.get_model_version_by_alias(
+            model_name=model_name,
+            alias=alias,
+        )
+        run = self.client.get_run(version.run_id)
+        return {name: float(value) for name, value in run.data.metrics.items()}
+
     def get_threshold_by_alias(self, model_name: str, alias: str) -> float:
         """Retrieve the logged classification threshold for an alias.
 
@@ -175,7 +192,7 @@ class ModelRegistry:
         )
         return threshold
 
-    def load_model_by_alias(self, model_name: str, alias: str) -> Pipeline:
+    def load_model_by_alias(self, model_name: str, alias: str) -> BaseEstimator:
         """Load a trained model pipeline from registered alias.
 
         Args:
@@ -202,7 +219,7 @@ class ModelRegistry:
             )
             raise
 
-    def load_model_by_version(self, model_name: str, version: int) -> Pipeline:
+    def load_model_by_version(self, model_name: str, version: int) -> BaseEstimator:
         """Load a trained model pipeline from an immutable registry version.
 
         Args:

@@ -152,28 +152,31 @@ uv run churn-mlops train \
 ```
 
 Configuration filenames resolve under `src/config` by default. The default
-split name is `default`. Training configuration controls the target,
-engineered features, preprocessing, classifier, evaluation threshold,
-optional tuning, and model registration/promotion. See
-[Model and tracking reference](#model-and-tracking-reference).
+split name is `default`. The training configuration controls the classifier,
+data columns, feature engineering, preprocessing, calibration, threshold
+selection, tuning, and model registration/promotion. See the
+[model configuration and tracking reference](#model-configuration-and-tracking-reference)
+for configuration details and model behavior.
 
-Optuna tuning is disabled by default. To enable it, choose a classifier with a
-catalog search space and set tuning options in its YAML configuration:
+#### Tune hyperparameters
+
+Optuna tuning is disabled by default. To enable it, choose a classifier with
+a catalog search space and set tuning options in its YAML configuration:
 
 ```yaml
 tuning:
   enabled: true
   n_trials: 50
   n_splits: 4
-  time_column: reference_date
   metric: roc_auc
   random_state: 26
 ```
 
-Tuning uses deterministic expanding-window cross-validation on the training
-split only. Rows with the same timestamp stay in the same fold. The configured
-time column must be present in the training split, and every fold must contain
-both target classes. The test split is held out until final evaluation.
+Tuning uses deterministic expanding-window cross-validation across the full
+training split. Rows with the same timestamp stay in the same fold. The
+configured `data.time_column` must be present in the training split, and every
+fold must contain both target classes. The out-of-time test data is held out
+from hyperparameter tuning.
 
 ### Generate batch predictions
 
@@ -406,15 +409,15 @@ domain-specific feature engineering are adapted:
 The validation and HTTP schemas are intentionally explicit for this churn
 example; they are not generated from the training YAML.
 
-## Model and tracking reference
+## Model configuration and tracking reference
 
 ### Configuration and classifiers
 
 Training configurations are YAML files under [src/config](src/config). They
-define the target, feature-engineering parameters, preprocessing strategies,
-classifier parameters, decision threshold, optional tuning, and registry
-behavior. Example configurations are provided for `dc`, `dt`, `hgb`, `lr`,
-`nb`, and `rf`.
+define the data columns, feature-engineering parameters, preprocessing
+strategies, classifier parameters, calibration and threshold-selection
+strategy, optional tuning, and registry behavior. Example configurations are
+provided for `dc`, `dt`, `hgb`, `lr`, `nb`, and `rf`.
 
 The model catalog currently supports:
 
@@ -426,8 +429,8 @@ The model catalog currently supports:
 | `lda` | `LinearDiscriminantAnalysis` |
 | `qda` | `QuadraticDiscriminantAnalysis` |
 | `knn` | `KNeighborsClassifier` |
-| `lsvc` | Calibrated `LinearSVC` |
-| `svc` | Calibrated RBF `SVC` |
+| `lsvc` | `LinearSVC` |
+| `svc` | RBF `SVC` |
 | `dt` | `DecisionTreeClassifier` |
 | `ada` | `AdaBoostClassifier` |
 | `et` | `ExtraTreesClassifier` |
@@ -440,24 +443,112 @@ contract commitment, relative tenure, engagement, yearly spend and support
 call rates, late-payer status, and inactive-customer status before
 preprocessing and classification.
 
-### Evaluation, registry, and model cards
+Example training configuration:
 
-Training records ROC AUC, PR AUC, accuracy, precision, recall, F1, Brier score,
-fit time, and prediction time. The configured threshold determines the
-predicted class; ROC AUC is used for model promotion.
+```yaml
+model:
+  classifier: dc
+  classifier_params:
+    random_state: 26
+
+data:
+  target_column: churn
+  time_column: reference_date
+
+feature_builder:
+  feature_params:
+    engagement_window: 30
+    inactive_threshold: 15
+    late_payer_threshold: 15
+
+preprocessing:
+  numeric_impute_strategy: median
+  categorical_impute_strategy: most_frequent
+
+tuning:
+  enabled: false
+  n_trials: 50
+  n_splits: 4
+  metric: roc_auc
+  random_state: 26
+
+calibration:
+  method: sigmoid
+  n_splits: 3
+  n_bins: 10
+
+threshold:
+  strategy: max_f1
+
+registry:
+  register_model: false
+  model_name: churn-risk
+  alias: candidate
+
+promotion:
+  promote_model: true
+  min_delta: 0.005
+  metric_weights:
+    roc_auc: 0.2
+    pr_auc: 0.2
+    f1: 0.2
+    brier_score: 0.2
+    calibration_error: 0.2
+```
+
+### Calibration
+
+Calibration is configurable per run as `none`, `sigmoid` (Platt scaling), or `isotonic`. For calibrated runs, `CalibratedClassifierCV` uses expanding
+historical folds: each calibration fold is later than the fold's model-fitting
+data. To compare calibration approaches, run separate experiments with the same
+data and classifier while changing `calibration.method`.
+
+`LinearSVC` and `SVC` require `calibration.method` to be `sigmoid` or `isotonic`.
+They do not provide probabilities when used without calibration. During Optuna
+ranking-metric evaluation, these estimators are scored using their decision
+function.
+
+### Threshold selection
+
+Calibration and Optuna hyperparameter tuning remain restricted to training data.
+The final estimator is fitted on the full training split. The threshold
+maximizing F1 (`threshold.strategy: max_f1`) is selected from out-of-time test
+predictions before test metrics are computed.
+
+Runs log the selected threshold and its OOT selection source as MLflow
+parameters and in `evaluation/decision_threshold.json`. The reliability
+diagram is logged under `calibration/`.
+
+### Evaluation
+
+After completing hyperparameter tuning (optional), probability calibration and
+threshold selection, evaluation metrics like ROC AUC, PR AUC, accuracy,
+precision, recall, F1, Brier score, expected calibration error (ECE), fit time,
+and prediction time are computed and recorded.
+
+### Registry and promotion
 
 When enabled by configuration, a run registers an immutable model version.
-Promotion compares candidate ROC AUC with the current champion and changes the
-`champion` alias only when the configured improvement threshold is exceeded.
-The prior champion is retained under `former_champion`. CLI options can force
-registration with `--register-model` or control promotion with
-`--promote-model` / `--no-promote-model`.
+Champion promotion compares the weighted score configured in
+`promotion.metric_weights`: ROC AUC, PR AUC, and F1 contribute positively,
+while Brier score and ECE are inverted so lower values improve the score.
+The candidate must exceed the champion's score by `promotion.min_delta`.
+Champions from older runs that lack any configured metric are not comparable
+and are not automatically replaced; retrain the baseline with calibration
+evaluation before enabling automated promotion. The prior champion is retained
+under `former_champion`. CLI options can force registration with `--register-model`
+or control promotion with `--promote-model` / `--no-promote-model`.
 
-Training also writes a manifest linking the MLflow run and exact model version
-to its split and evaluation results. Use the manifest for reproducible batch
-scoring instead of relying on a mutable alias. MLflow runs also include a
-Markdown model card with model, data, feature, evaluation, and promotion
-details. See the [tracking package](src/churn_mlops/tracking).
+### Manifests and model cards
+
+Training writes a manifest linking the MLflow run and exact model version to
+its split and evaluation results. Use the manifest for reproducible batch
+scoring instead of relying on a mutable alias.
+
+MLflow runs also include a Markdown model card with model, data, feature,
+evaluation, and promotion details, including calibration method, calibration
+error, optimal threshold, and threshold-selection strategy. See the
+[tracking package](src/churn_mlops/tracking).
 
 ## Runtime configuration
 
@@ -562,7 +653,6 @@ data/partitioned/      Month-partitioned Parquet data
 data/splits/           Train/test Parquet files
 monitoring_pipeline/    DVC pipeline for selected monitoring cohorts
 notebooks/              Exploratory and analysis notebooks
-scripts/                Data preparation and serving helpers
 tests/                  Unit and integration tests
 compose.yaml            Local container stack
 dvc.yaml                Data preparation, training, and scoring pipeline
