@@ -87,9 +87,10 @@ metadata in `data/splits`.
 ### Reproduce an out-of-time experiment
 
 The root [dvc.yaml](dvc.yaml) defines a pipeline that adds reference dates,
-prepares partitioned data, creates a time split, trains and registers a model,
-then scores the held-out cohort. DVC tracks stage inputs and outputs;
-MLflow stores runs, metrics, model artifacts, and registered versions.
+prepares partitioned data, creates a time split, trains a model, then scores
+the held-out cohort. Registration is controlled by a DVC parameter. DVC tracks
+stage inputs and outputs; MLflow stores runs, metrics, model artifacts, and
+registered versions.
 Optuna tuning, when enabled in the training config, runs as part of training.
 
 The checked-in [params.yaml](params.yaml) configures `OOT_26Q2`: training from
@@ -121,15 +122,19 @@ uv run dvc exp run --name churn-12m-oot \
   --set-param 'split.split_date="2026-04-01"' \
   --set-param 'split.end_date="2026-06-30"' \
   --set-param model.classifier=lr \
-  --set-param model.config=lr.yaml \
-  --set-param model.config_path=src/config/lr.yaml \
+  --set-param calibration.method=isotonic \
+  --set-param model.register_model=true \
   --set-param tracking.experiment_name=churn-12m-oot
 ```
 
-When selecting another classifier, set `model.config` and `model.config_path`
-to its YAML file. Each DVC training stage registers a specific model version
-without changing the `candidate` or `champion` aliases. Its manifest under
-`data/manifests` identifies that version for scoring.
+`model.classifier` selects `src/config/{classifier}.yaml`, so each classifier
+alias used by this pipeline must have a matching config file. The
+`calibration.method` parameter overrides the config's calibration method.
+Registration is enabled by default; set `model.register_model=false` to keep
+the run in MLflow without adding it to the model registry. The pipeline still
+scores that run's logged MLflow model artifact. Registered runs score the exact
+registered version identified by their manifest under `data/manifests`; neither
+path changes the `candidate` or `champion` aliases.
 
 The source CSVs are represented in Git by `.dvc` pointer files, not by their
 contents. This repository has no DVC remote, so a fresh clone must be supplied
@@ -182,7 +187,8 @@ from hyperparameter tuning.
 
 Batch prediction validates input data and loads a registered model. Use a
 training manifest or an explicit model name and version when the exact model
-version matters; otherwise the configured model alias is used.
+version matters; otherwise the configured model alias is used. A training
+manifest can also identify an unregistered MLflow run model URI.
 
 For CSV input, the input filename is resolved under `data/raw` and the output
 is written under `output`:
@@ -528,22 +534,26 @@ and prediction time are computed and recorded.
 
 ### Registry and promotion
 
-When enabled by configuration, a run registers an immutable model version.
-Champion promotion compares the weighted score configured in
+When enabled by configuration or a CLI override, a run registers an immutable
+model version. Champion promotion compares the weighted score configured in
 `promotion.metric_weights`: ROC AUC, PR AUC, and F1 contribute positively,
 while Brier score and ECE are inverted so lower values improve the score.
 The candidate must exceed the champion's score by `promotion.min_delta`.
 Champions from older runs that lack any configured metric are not comparable
 and are not automatically replaced; retrain the baseline with calibration
 evaluation before enabling automated promotion. The prior champion is retained
-under `former_champion`. CLI options can force registration with `--register-model`
-or control promotion with `--promote-model` / `--no-promote-model`.
+under `former_champion`. CLI options can override registration with
+`--register-model`, for example `--register-model false` or
+`--no-register-model`; the bare `--register-model` flag enables registration.
+Promotion remains separately controlled with `--promote-model` /
+`--no-promote-model`.
 
 ### Manifests and model cards
 
-Training writes a manifest linking the MLflow run and exact model version to
-its split and evaluation results. Use the manifest for reproducible batch
-scoring instead of relying on a mutable alias.
+Training writes a manifest linking the MLflow run and its split and evaluation
+results. It identifies either an exact registered model version or the logged
+MLflow model URI for an unregistered run. Use the manifest for reproducible
+batch scoring instead of relying on a mutable alias.
 
 MLflow runs also include a Markdown model card with model, data, feature,
 evaluation, and promotion details, including calibration method, calibration

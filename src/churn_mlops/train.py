@@ -3,7 +3,7 @@ import logging
 import os
 import subprocess
 from collections.abc import Sequence
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import mlflow
@@ -42,6 +42,7 @@ def run_training_job(
     artifact_dir: Path | None = None,
     register_model: bool | None = None,
     promote_model: bool | None = None,
+    calibration_method: str | None = None,
     write_manifest: bool = True,
 ) -> TrainingResult:
     """Run the configured training, tracking, registration, and promotion flow.
@@ -57,11 +58,13 @@ def run_training_job(
             the ``MLFLOW_EXPERIMENT_NAME`` runtime setting is used.
         tracking_uri: Optional MLflow tracking URI.
         artifact_dir: Directory used for training artifacts.
+        register_model: Optional override for model registration.
+        promote_model: Optional override for alias updates and promotion.
+        calibration_method: Optional override for the configured calibration
+            method.
         write_manifest: Boolean flag for writing manifest JSON file, which
             contains experiment details like run and registered model version
             (default: True).
-        register_model: Optional override for model registration.
-        promote_model: Optional override for alias updates and promotion.
 
     Returns:
         TrainingResult containing the fitted pipeline, metrics, classifier
@@ -94,6 +97,11 @@ def run_training_job(
         config, config_file_path = load_config(
             file=config_file, path=resolved_config_dir
         )
+        if calibration_method is not None:
+            config = replace(
+                config,
+                calibration=replace(config.calibration, method=calibration_method),
+            )
         classifier_alias = config.model.classifier
         threshold_strategy = config.threshold.strategy
 
@@ -132,12 +140,6 @@ def run_training_job(
                 "test_start": str(payload["test_start"]),
                 "test_end": str(payload["test_end"]),
             }
-
-        if write_manifest and not resolved_register_model:
-            raise ValueError(
-                "A training manifest requires model registration. "
-                "Enable registration for this training run."
-            )
 
         logger.info("Loaded training configuration from '%s'.", config_file_path)
         logger.info(
@@ -269,21 +271,21 @@ def run_training_job(
                 config_file_path=config_file_path,
                 artifact_dir=resolved_artifact_dir,
             )
-        # Register the candidate model and evaluate it for promotion to champion if enabled
+        registered_model_version = None
+        model_name = config.registry.model_name
+        promotion_decision_dict = {}
         if resolved_register_model:
-            model_name = config.registry.model_name
             registry = ModelRegistry()
             registered_version = registry.register_model(
                 model_uri=model_info.model_uri,
                 model_name=model_name,
             )
-            registered_model_version = registered_version.version
+            registered_model_version = int(registered_version.version)
             logger.info(
                 "Registration of '%s' model, version '%s'.",
                 model_name,
                 registered_model_version,
             )
-            promotion_decision_dict = {}
             if resolved_promote_model:
                 model_alias = config.registry.alias
                 registry.set_alias(
@@ -341,12 +343,13 @@ def run_training_job(
                         promotion_decision.reason,
                     )
 
-            # Registered models are documented using model cards
+        if resolved_register_model or write_manifest:
             manifest = TrainingManifest(
                 run_id=run_id,
                 run_name=run_name,
                 model_name=model_name,
                 model_version=registered_model_version,
+                model_uri=model_info.model_uri,
                 target_column=config.data.target_column,
                 classifier_name=result.classifier_config["model_name"],
                 classifier_alias=classifier_alias,
@@ -368,11 +371,12 @@ def run_training_job(
                 context=manifest,
             )
 
-            registry.update_model_description(
-                model_name=model_name,
-                version=registered_model_version,
-                description=model_card,
-            )
+            if resolved_register_model:
+                registry.update_model_description(
+                    model_name=model_name,
+                    version=registered_model_version,
+                    description=model_card,
+                )
 
             with mlflow.start_run(run_id=run_id):
                 log_model_card(model_card)

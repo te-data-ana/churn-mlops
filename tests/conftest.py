@@ -42,6 +42,7 @@ def training_manifest_factory() -> Callable[..., TrainingManifest]:
             run_name="rf__oot_26q1",
             model_name="churn-risk",
             model_version=4,
+            model_uri="runs:/run-123/model",
             target_column="churn",
             classifier_name="clf_name",
             classifier_alias="clf_alias",

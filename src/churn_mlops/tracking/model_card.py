@@ -81,7 +81,8 @@ class ModelCardBuilder:
 | MLflow Run ID | {context.run_id} |
 | MLflow Run Name | {context.run_name} |
 | Model Name | {context.model_name} |
-| Model Version | {context.model_version} |
+| Model Version | {context.model_version if context.model_version is not None else "Not registered"} |
+| MLflow Model URI | {context.model_uri or "Unavailable"} |
 | Classifier Name | {context.classifier_name} |
 | Classifier Alias | {context.classifier_alias} |
 | Split Name | {context.split_name} |

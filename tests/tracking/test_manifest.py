@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -20,11 +21,39 @@ def test_training_manifest_round_trips_json(
 
 
 @pytest.mark.unit
+def test_unregistered_training_manifest_round_trips_model_uri(
+    tmp_path: Path,
+    training_manifest_factory: TrainingManifest,
+) -> None:
+    manifest = replace(training_manifest_factory(), model_version=None)
+    output = tmp_path / "manifest.json"
+
+    manifest.write(output)
+
+    assert TrainingManifest.read(output) == manifest
+
+
+@pytest.mark.unit
 def test_training_manifest_rejects_missing_fields(tmp_path: Path) -> None:
     path = tmp_path / "invalid.json"
     path.write_text('{"run_id": "run-123"}', encoding="utf-8")
 
     with pytest.raises(ValueError, match="missing fields"):
+        TrainingManifest.read(path)
+
+
+@pytest.mark.unit
+def test_training_manifest_requires_model_version_or_uri(
+    tmp_path: Path,
+    training_manifest_factory: TrainingManifest,
+) -> None:
+    payload = training_manifest_factory().to_dict()
+    payload["model_version"] = None
+    payload["model_uri"] = None
+    path = tmp_path / "invalid-model-reference.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="registered model version"):
         TrainingManifest.read(path)
 
 

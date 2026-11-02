@@ -367,6 +367,28 @@ def test_configure_model_environment_from_manifest(
 
 
 @pytest.mark.unit
+def test_configure_model_environment_rejects_unregistered_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(os, "environ", {})
+    args = Namespace(
+        model_manifest=Path("manifest.json"),
+        model_name=None,
+        model_version=None,
+    )
+    settings = Mock(data_dir=tmp_path)
+    monkeypatch.setattr(
+        TrainingManifest,
+        "read",
+        Mock(return_value=Mock(model_version=None)),
+    )
+
+    with pytest.raises(ValueError, match="requires a registered model"):
+        configure_model_environment(args=args, settings=settings)
+
+
+@pytest.mark.unit
 def test_configure_model_environment_from_model_name_version(
     monkeypatch: pytest.MonkeyPatch,
 ):

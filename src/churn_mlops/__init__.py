@@ -13,6 +13,16 @@ __all__ = ["main"]
 __version__ = "0.5.0"
 
 
+def _parse_boolean(value: str) -> bool:
+    """Parse a boolean command-line value."""
+    normalized = value.lower()
+    if normalized in {"true", "1", "yes", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(f"Expected a boolean value, received '{value}'.")
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Parse and dispatch commands for the package CLI.
 
@@ -116,11 +126,29 @@ def main(argv: Sequence[str] | None = None) -> None:
         required=False,
         help="Experiment name used for MLflow tracking.",
     )
-    train_parser.add_argument(
+    register_model_group = train_parser.add_mutually_exclusive_group()
+    register_model_group.add_argument(
         "--register-model",
-        action="store_true",
+        nargs="?",
+        const=True,
+        type=_parse_boolean,
         default=None,
-        help="Register this run's model even when the config disables registration.",
+        help=(
+            "Override model registration (optionally provide true/false); "
+            "without a value, this enables registration."
+        ),
+    )
+    register_model_group.add_argument(
+        "--no-register-model",
+        dest="register_model",
+        action="store_false",
+        help="Disable model registration for this run.",
+    )
+    train_parser.set_defaults(register_model=None)
+    train_parser.add_argument(
+        "--calibration-method",
+        choices=("none", "sigmoid", "isotonic"),
+        help="Override the calibration method in the training config.",
     )
     train_parser.add_argument(
         "--promote-model",
@@ -414,6 +442,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "experiment_name": args.experiment_name,
             "register_model": args.register_model,
             "promote_model": args.promote_model,
+            "calibration_method": args.calibration_method,
         }
         training_kwargs.update(
             {key: value for key, value in optional_kwargs.items() if value is not None}
@@ -449,6 +478,8 @@ def main(argv: Sequence[str] | None = None) -> None:
 
         model_name = args.model_name
         model_version = args.model_version
+        model_uri = None
+        model_threshold = None
         if args.model_manifest is not None:
             from .tracking import TrainingManifest
 
@@ -456,6 +487,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             manifest = TrainingManifest.read(model_manifest_file)
             model_name = manifest.model_name
             model_version = manifest.model_version
+            if model_version is None:
+                model_uri = manifest.model_uri
+                model_threshold = manifest.threshold
 
         from .batch_predict import run_batch_prediction
 
@@ -473,6 +507,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                 prediction_kwargs["model_name"] = model_name
             if model_version is not None:
                 prediction_kwargs["model_version"] = model_version
+            if model_uri is not None:
+                prediction_kwargs["model_uri"] = model_uri
+                prediction_kwargs["model_threshold"] = model_threshold
             df_pred = run_batch_prediction(**prediction_kwargs)
 
             output_path = settings.output_dir / args.output_csv
@@ -496,6 +533,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                 prediction_kwargs["model_name"] = model_name
             if model_version is not None:
                 prediction_kwargs["model_version"] = model_version
+            if model_uri is not None:
+                prediction_kwargs["model_uri"] = model_uri
+                prediction_kwargs["model_threshold"] = model_threshold
             df_pred = run_batch_prediction(**prediction_kwargs)
             write_partitioned_dataset(
                 df=df_pred,
@@ -524,6 +564,11 @@ def main(argv: Sequence[str] | None = None) -> None:
 
             model_manifest_file = settings.data_dir / args.model_manifest
             manifest = TrainingManifest.read(model_manifest_file)
+            if manifest.model_version is None:
+                parser.error(
+                    "Serving requires a registered model; this manifest identifies "
+                    "an unregistered training run."
+                )
             os.environ["MODEL_NAME"] = manifest.model_name
             os.environ["MODEL_VERSION"] = str(manifest.model_version)
 
@@ -592,6 +637,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             from .tracking import TrainingManifest
 
             manifest = TrainingManifest.read(settings.data_dir / args.model_manifest)
+            if manifest.model_version is None:
+                parser.error(
+                    "Monitoring requires a registered model; this manifest identifies "
+                    "an unregistered training run."
+                )
             model_name = manifest.model_name
             model_version = manifest.model_version
 

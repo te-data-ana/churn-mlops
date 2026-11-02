@@ -15,6 +15,8 @@ def run_batch_prediction(
     model_name: str | None = None,
     model_alias: str | None = None,
     model_version: int | None = None,
+    model_uri: str | None = None,
+    model_threshold: float | None = None,
 ) -> pd.DataFrame:
     """Validate input data and return a DataFrame containing predictions.
 
@@ -24,6 +26,8 @@ def run_batch_prediction(
         model_name: Optional registered model name.
         model_alias: Optional registered model alias.
         model_version: Optional exact registered model version.
+        model_uri: Optional logged MLflow model URI.
+        model_threshold: Threshold recorded with a logged model URI.
 
     Returns:
         Validated input data with model predictions.
@@ -37,12 +41,24 @@ def run_batch_prediction(
         logger.info("Starting batch prediction for %d rows.", len(df))
         df = validate_data(df)
 
+        if model_version is not None and model_uri is not None:
+            raise ValueError("A model URI cannot be combined with a model version.")
+        if model_uri is None and model_threshold is not None:
+            raise ValueError("A model threshold can only be used with a model URI.")
         if model_version is not None:
             loaded_model = load_model(
                 tracking_uri=resolved_tracking_uri,
                 model_name=resolved_model_name,
                 model_alias=resolved_model_alias,
                 model_version=model_version,
+            )
+        elif model_uri is not None:
+            loaded_model = load_model(
+                tracking_uri=resolved_tracking_uri,
+                model_name=resolved_model_name,
+                model_alias=resolved_model_alias,
+                model_uri=model_uri,
+                model_threshold=model_threshold,
             )
         else:
             loaded_model = load_model(

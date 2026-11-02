@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -137,6 +138,41 @@ def test_run_batch_prediction_uses_exact_model_version(
 
 
 @pytest.mark.unit
+def test_run_batch_prediction_uses_logged_model_uri(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = SimpleNamespace(
+        mlflow_tracking_uri="uri",
+        model_name="configured-model",
+        model_alias="champion",
+    )
+    load_model = Mock(return_value=Mock())
+    predictor = Mock()
+    predictor.predict_batch.return_value = pd.DataFrame(
+        {"predicted_probability": [0.7]}
+    )
+    monkeypatch.setattr(batch_predict, "ServingSettings", lambda: settings)
+    monkeypatch.setattr(batch_predict, "validate_data", lambda df: df)
+    monkeypatch.setattr(batch_predict, "load_model", load_model)
+    monkeypatch.setattr(batch_predict, "Predictor", Mock(return_value=predictor))
+
+    batch_predict.run_batch_prediction(
+        df=pd.DataFrame({"age": [30]}),
+        model_name="churn-risk",
+        model_uri="runs:/run-123/model",
+        model_threshold=0.42,
+    )
+
+    load_model.assert_called_once_with(
+        tracking_uri="uri",
+        model_name="churn-risk",
+        model_alias="champion",
+        model_uri="runs:/run-123/model",
+        model_threshold=0.42,
+    )
+
+
+@pytest.mark.unit
 def test_batch_predict_cli_reads_model_manifest(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -176,6 +212,50 @@ def test_batch_predict_cli_reads_model_manifest(
         df=input_df,
         model_name="churn-risk",
         model_version=4,
+    )
+
+
+@pytest.mark.unit
+def test_batch_predict_cli_reads_unregistered_model_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    training_manifest_factory: TrainingManifest,
+) -> None:
+    from churn_mlops import tracking
+
+    settings = SimpleNamespace(
+        data_dir=tmp_path,
+        output_dir=tmp_path,
+        api_host="127.0.0.1",
+        api_port=8000,
+    )
+    input_df = pd.DataFrame({"age": [35]})
+    prediction_df = pd.DataFrame({"predicted_probability": [0.7]})
+    manifest = replace(training_manifest_factory(), model_version=None)
+    predict = Mock(return_value=prediction_df)
+
+    monkeypatch.setattr(churn_mlops, "ServingSettings", lambda: settings)
+    monkeypatch.setattr(data, "load_raw_data", Mock(return_value=input_df))
+    monkeypatch.setattr(tracking.TrainingManifest, "read", Mock(return_value=manifest))
+    monkeypatch.setattr(batch_predict, "run_batch_prediction", predict)
+
+    churn_mlops.main(
+        [
+            "batch-predict",
+            "--input_csv",
+            "inference.csv",
+            "--output_csv",
+            "scored.csv",
+            "--model_manifest",
+            str(tmp_path / "manifest.json"),
+        ]
+    )
+
+    predict.assert_called_once_with(
+        df=input_df,
+        model_name="churn-risk",
+        model_uri="runs:/run-123/model",
+        model_threshold=0.5,
     )
 
 

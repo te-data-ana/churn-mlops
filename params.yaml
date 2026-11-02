@@ -6,9 +6,11 @@ split:
 
 model:
   classifier: rf
-  config: rf.yaml
-  config_path: src/config/rf.yaml
+  register_model: true
   exclude_columns: customerid
+
+calibration:
+  method: sigmoid
 
 tracking:
   experiment_name: churn-12m-oot

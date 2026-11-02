@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import ANY, MagicMock
@@ -5,9 +6,47 @@ from unittest.mock import ANY, MagicMock
 import pandas as pd
 import pytest
 
+import churn_mlops
 from churn_mlops import train
-from churn_mlops.config.schemas import TuningConfig
+from churn_mlops.config.schemas import TrainingConfig, TuningConfig
 from churn_mlops.training import TuningResult
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("registration_args", "expected_registration"),
+    [
+        (["--register-model"], True),
+        (["--register-model", "false"], False),
+        (["--no-register-model"], False),
+    ],
+)
+def test_training_cli_parses_registration_and_calibration_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+    registration_args: list[str],
+    expected_registration: bool,
+) -> None:
+    training_job = MagicMock(
+        return_value=SimpleNamespace(
+            classifier_config={"model_name": "LogisticRegression"},
+            metrics={"roc_auc": 0.8},
+        )
+    )
+    monkeypatch.setattr(train, "run_training_job", training_job)
+
+    churn_mlops.main(
+        [
+            "train",
+            "--config",
+            "lr.yaml",
+            *registration_args,
+            "--calibration-method",
+            "isotonic",
+        ]
+    )
+
+    assert training_job.call_args.kwargs["register_model"] is expected_registration
+    assert training_job.call_args.kwargs["calibration_method"] == "isotonic"
 
 
 @pytest.mark.unit
@@ -47,7 +86,10 @@ def test_run_training_job_resolves_input_arguments(
                 "calibration_error": 0.2,
             },
         ),
-        registry=SimpleNamespace(register_model=False),
+        registry=SimpleNamespace(
+            register_model=False,
+            model_name="churn-risk",
+        ),
     )
     config_file = "train.yaml"
     split_name = "temporal"
@@ -109,6 +151,91 @@ def test_run_training_job_resolves_input_arguments(
 
 
 @pytest.mark.unit
+def test_run_training_job_overrides_calibration_and_writes_unregistered_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    config_factory: Callable[..., TrainingConfig],
+) -> None:
+    settings = SimpleNamespace(
+        config_dir=tmp_path,
+        data_dir=tmp_path,
+        artifact_dir=tmp_path / "artifacts",
+        mlflow_tracking_uri="sqlite:///tracking.db",
+        mlflow_experiment_name="experiment",
+    )
+    config = config_factory()
+    training_result = SimpleNamespace(
+        metrics={
+            "roc_auc": 0.84,
+            "pr_auc": 0.82,
+            "f1": 0.75,
+            "brier_score": 0.18,
+            "calibration_error": 0.09,
+        },
+        classifier_config={"model_name": "LogisticRegression"},
+        feature_names_in=["feature"],
+        feature_names_out=["feature"],
+        threshold_data="out_of_time_test",
+        threshold=0.42,
+    )
+    train_model_mock = MagicMock(return_value=training_result)
+    mlflow_run = MagicMock()
+    monkeypatch.setattr(train, "RuntimeSettings", lambda: settings)
+    monkeypatch.setattr(
+        train,
+        "load_config",
+        lambda **_: (config, tmp_path / "lr.yaml"),
+    )
+    monkeypatch.setattr(
+        train,
+        "load_and_validate_training_splits",
+        MagicMock(return_value=(None, None)),
+    )
+    monkeypatch.setattr(train, "train_model", train_model_mock)
+    monkeypatch.setattr(train, "setup_local_experiment", MagicMock(return_value="exp"))
+    monkeypatch.setattr(
+        train,
+        "log_experiment_result",
+        MagicMock(return_value=SimpleNamespace(model_uri="runs:/run-123/model")),
+    )
+    model_registry = MagicMock()
+    monkeypatch.setattr(train, "ModelRegistry", model_registry)
+    monkeypatch.setattr(
+        train,
+        "ModelCardBuilder",
+        lambda: SimpleNamespace(build=MagicMock(return_value="# Model Card")),
+    )
+    monkeypatch.setattr(train, "log_model_card", MagicMock())
+    monkeypatch.setattr(train.mlflow, "get_experiment", MagicMock())
+    monkeypatch.setattr(train.mlflow, "get_tracking_uri", MagicMock(return_value="uri"))
+    monkeypatch.setattr(train.mlflow, "start_run", MagicMock(return_value=mlflow_run))
+    monkeypatch.setattr(
+        train.mlflow,
+        "active_run",
+        lambda: SimpleNamespace(info=SimpleNamespace(run_id="run-123")),
+    )
+    monkeypatch.setattr(train.mlflow, "set_tags", MagicMock())
+    monkeypatch.setattr(train.mlflow, "set_tag", MagicMock())
+    monkeypatch.setattr(train.mlflow, "log_artifact", MagicMock())
+
+    train.run_training_job(
+        config_file="lr.yaml",
+        split_name="temporal",
+        register_model=False,
+        calibration_method="isotonic",
+    )
+
+    assert train_model_mock.call_args.kwargs["config"].calibration.method == "isotonic"
+    assert config.calibration.method == "none"
+    from churn_mlops.tracking import TrainingManifest
+
+    manifest = TrainingManifest.read(tmp_path / "manifests/lr_temporal.json")
+    assert manifest.model_version is None
+    assert manifest.model_uri == "runs:/run-123/model"
+    model_registry.assert_not_called()
+
+
+@pytest.mark.unit
 def test_run_training_job_logs_tuning_result_and_fits_final_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -127,7 +254,10 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
                 "calibration_error": 0.2,
             },
         ),
-        registry=SimpleNamespace(register_model=False),
+        registry=SimpleNamespace(
+            register_model=False,
+            model_name="churn-risk",
+        ),
         tuning=TuningConfig(
             enabled=True,
             n_trials=3,

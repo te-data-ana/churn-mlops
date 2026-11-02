@@ -345,6 +345,11 @@ def configure_model_environment(
 
         model_manifest_file = settings.data_dir / args.model_manifest
         manifest = TrainingManifest.read(model_manifest_file)
+        if manifest.model_version is None:
+            raise ValueError(
+                "Serving samples requires a registered model; this manifest "
+                "identifies an unregistered training run."
+            )
 
         os.environ["MODEL_NAME"] = manifest.model_name
         os.environ["MODEL_VERSION"] = str(manifest.model_version)

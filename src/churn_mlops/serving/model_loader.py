@@ -11,8 +11,9 @@ from churn_mlops.tracking import ModelRegistry
 class ModelMetadata:
     model_name: str
     model_alias: str | None
-    model_version: int
+    model_version: int | None
     threshold: float
+    model_uri: str | None = None
 
 
 @dataclass
@@ -26,24 +27,33 @@ def load_model(
     model_name: str | None = None,
     model_alias: str | None = None,
     model_version: int | None = None,
+    model_uri: str | None = None,
+    model_threshold: float | None = None,
 ) -> LoadedModel:
     """Load the configured serving model and its registry metadata.
 
-    Returns:
-        Loaded model together with its name, alias, version, and probability
-        threshold.
+    Args:
+        tracking_uri: Optional MLflow tracking URI.
+        model_name: Optional registered model name.
+        model_alias: Optional registered model alias.
+        model_version: Optional immutable registered model version. When
+            supplied, it takes precedence over the alias.
+        model_uri: Optional logged MLflow model URI. When supplied, it
+            bypasses the model registry.
+        model_threshold: Threshold accompanying a logged model URI.
 
-        Args:
-            tracking_uri: Optional MLflow tracking URI.
-            model_name: Optional registered model name.
-            model_alias: Optional registered model alias.
-            model_version: Optional immutable registered model version. When
-                supplied, it takes precedence over the alias.
+    Returns:
+        Loaded model together with its name, alias, version, and
+        probability threshold.
 
     Raises:
         mlflow.exceptions.MlflowException: If the configured model or alias
             cannot be found in the MLflow registry.
+        ValueError: If URI-based loading has invalid or incomplete metadata.
     """
+
+    if model_uri is None and model_threshold is not None:
+        raise ValueError("A model threshold can only be used with a model URI.")
 
     # load settings used for model serving
     settings = ServingSettings()
@@ -53,10 +63,21 @@ def load_model(
     if resolved_tracking_uri:
         mlflow.set_tracking_uri(resolved_tracking_uri)
 
-    # initialize model registry
-    registry = ModelRegistry()
-
-    if model_version is not None:
+    if model_uri is not None:
+        if not model_uri:
+            raise ValueError("A model URI cannot be empty.")
+        if model_version is not None:
+            raise ValueError("A model URI cannot be combined with a model version.")
+        if model_threshold is None:
+            raise ValueError("A model URI requires its recorded prediction threshold.")
+        if not 0 <= model_threshold <= 1:
+            raise ValueError("A model threshold must be between 0 and 1.")
+        model = mlflow.sklearn.load_model(model_uri)
+        version_number = None
+        threshold = model_threshold
+        resolved_model_alias = None
+    elif model_version is not None:
+        registry = ModelRegistry()
         model = registry.load_model_by_version(
             model_name=resolved_model_name,
             version=model_version,
@@ -68,6 +89,7 @@ def load_model(
         )
         resolved_model_alias = None
     else:
+        registry = ModelRegistry()
         model = registry.load_model_by_alias(
             model_name=resolved_model_name,
             alias=resolved_model_alias,
@@ -88,6 +110,7 @@ def load_model(
         model_alias=resolved_model_alias,
         model_version=version_number,
         threshold=threshold,
+        model_uri=model_uri,
     )
 
     return LoadedModel(

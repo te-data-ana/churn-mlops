@@ -13,7 +13,7 @@ class TrainingManifest:
     run_id: str
     run_name: str
     model_name: str
-    model_version: int
+    model_version: int | None
     target_column: str
     classifier_name: str
     classifier_alias: str
@@ -28,6 +28,7 @@ class TrainingManifest:
     threshold: float
     metrics: dict[str, float]
     promotion_decision: dict
+    model_uri: str | None = None
 
     def write(self, path: Path) -> None:
         """Write the manifest as formatted JSON.
@@ -52,6 +53,7 @@ class TrainingManifest:
             "run_name": self.run_name,
             "model_name": self.model_name,
             "model_version": self.model_version,
+            "model_uri": self.model_uri,
             "target_column": self.target_column,
             "classifier_name": self.classifier_name,
             "classifier_alias": self.classifier_alias,
@@ -115,8 +117,17 @@ class TrainingManifest:
                 f"{', '.join(sorted(missing))}."
             )
 
-        if not isinstance(payload["model_version"], int):
+        model_version = payload["model_version"]
+        if model_version is not None and not isinstance(model_version, int):
             raise TypeError(f"Training manifest '{path}' has an invalid model_version.")
+        model_uri = payload.get("model_uri")
+        if model_uri is not None and (not isinstance(model_uri, str) or not model_uri):
+            raise TypeError(f"Training manifest '{path}' has an invalid model_uri.")
+        if model_version is None and model_uri is None:
+            raise ValueError(
+                f"Training manifest '{path}' must identify a registered model "
+                "version or a logged model URI."
+            )
 
         if not isinstance(payload["metrics"], dict) or not isinstance(
             payload["split_metadata"], dict
@@ -176,7 +187,8 @@ class TrainingManifest:
             run_id=payload["run_id"],
             run_name=payload["run_name"],
             model_name=payload["model_name"],
-            model_version=payload["model_version"],
+            model_version=model_version,
+            model_uri=model_uri,
             target_column=payload["target_column"],
             classifier_name=payload["classifier_name"],
             classifier_alias=payload["classifier_alias"],
