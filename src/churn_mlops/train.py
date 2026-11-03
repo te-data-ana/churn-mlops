@@ -270,7 +270,6 @@ def run_training_job(
                 result=result,
                 config=config,
                 config_file_path=config_file_path,
-                artifact_dir=resolved_artifact_dir,
             )
         registered_model_version = None
         model_name = config.registry.model_name
