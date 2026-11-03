@@ -29,16 +29,17 @@ def test_build_model_card_from_training_manifest(
     assert "# Model Card" in markdown
     assert "## Model Metadata" in markdown
     assert "## Evaluation on Out-of-Time Test Set" in markdown
-    assert str(context.model_version) in markdown
-    for feature in context.feature_names_out:
+    assert str(context.model.model_version) in markdown
+    for feature in context.training.feature_names_out:
         assert f"- {feature}" in markdown
-    assert f"| Classifier Alias | {context.classifier_alias} |" in markdown
-    assert f"| Classifier Name | {context.classifier_name} |" in markdown
+    assert f"| Classifier Alias | {context.training.classifier_alias} |" in markdown
+    assert f"| Classifier Name | {context.training.classifier_name} |" in markdown
     assert "| Calibration Method | none |" in markdown
     assert "| Threshold Selection Strategy | max_f1 |" in markdown
     assert "| Threshold Selection Data | out_of_time_test |" in markdown
+    assert "| Time Column | reference_date |" in markdown
     assert "maximizing F1 on the out-of-time test set" in markdown
-    assert f"{context.threshold:.6f}" in markdown
+    assert f"{context.training.threshold:.6f}" in markdown
     assert re.search(r"\| ROC AUC \| \d\.\d{4} \|", markdown)
     assert re.search(r"\| Calibration Error \(ECE\) \| \d\.\d{4} \|", markdown)
     assert re.search(r"\| Accuracy \| \d\.\d{4} \|", markdown)

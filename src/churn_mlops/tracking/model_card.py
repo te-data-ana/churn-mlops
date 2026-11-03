@@ -36,11 +36,13 @@ class ModelCardBuilder:
                 ``config``, ``context``, or the promotion decision object.
         """
 
-        metrics = context.metrics
-        decision = context.promotion_decision
-        split_metadata = context.split_metadata
+        metrics = context.evaluation.metrics
+        decision = context.lifecycle.promotion_decision
+        split_metadata = context.data.split_metadata
 
-        features = "\n".join(f"- {f}" for f in context.feature_names_out)
+        features = "\n".join(
+            f"- {feature}" for feature in context.training.feature_names_out
+        )
 
         promotion_section = ""
         if decision:
@@ -78,32 +80,34 @@ class ModelCardBuilder:
 
 | Property | Value |
 |----------|-------|
-| MLflow Run ID | {context.run_id} |
-| MLflow Run Name | {context.run_name} |
-| MLflow Model URI | {context.model_reference.model_uri} |
-| Model Name | {context.model_name} |
-| Model Version | {context.model_version if context.model_version is not None else "Not registered"} |
-| Classifier Name | {context.classifier_name} |
-| Classifier Alias | {context.classifier_alias} |
-| Split Name | {context.split_name} |
+| MLflow Run ID | {context.run.run_id} |
+| MLflow Run Name | {context.run.run_name} |
+| MLflow Model URI | {context.model.model_reference.model_uri} |
+| Model Name | {context.model.model_name} |
+| Model Version | {context.model.model_version if context.model.model_version is not None else "Not registered"} |
+| Classifier Name | {context.training.classifier_name} |
+| Classifier Alias | {context.training.classifier_alias} |
+| Split Name | {context.data.split_name} |
 
 ## Intended Use
 
-Predict customer {context.target_column} probability.
+Predict customer {context.data.target_column} probability.
 
 ## Training Dataset
 
-Trained on historical {context.target_column} data.
+Trained on historical {context.data.target_column} data.
 
 | Property | Value |
 |----------|-------|
+| Target Column | {context.data.target_column} |
+| Time Column | {context.data.time_column} |
 | Training Records | {split_metadata["train_rows"]} |
 | Training Start | {split_metadata["train_start"]} |
 | Training End | {split_metadata["train_end"]} |
 | Test Records | {split_metadata["test_rows"]} |
 | Test Start | {split_metadata["test_start"]} |
 | Test End | {split_metadata["test_end"]} |
-| Feature Count | {context.feature_count} |
+| Feature Count | {context.training.feature_count} |
 
 ## Model Features
 
@@ -120,10 +124,10 @@ Trained on historical {context.target_column} data.
 
 | Property | Value |
 |----------|-------|
-| Calibration Method | {context.calibration} |
-| Threshold Selection Strategy | {context.threshold_strategy} |
-| Threshold Selection Data | {context.threshold_data} |
-| Optimal Class Threshold | {context.threshold:.6f} |
+| Calibration Method | {context.training.calibration} |
+| Threshold Selection Strategy | {context.training.threshold_strategy} |
+| Threshold Selection Data | {context.training.threshold_data} |
+| Optimal Class Threshold | {context.training.threshold:.6f} |
 
 Note: The decision threshold was selected by maximizing F1 on the out-of-time test set.
 

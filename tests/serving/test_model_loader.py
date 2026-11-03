@@ -104,13 +104,13 @@ def test_load_model_uses_manifest_threshold_for_registered_version(
     loaded_model = model_loader.load_model(manifest=manifest)
 
     assert loaded_model.model is model
-    assert loaded_model.metadata.model_name == manifest.model_name
-    assert loaded_model.metadata.model_version == manifest.model_version
-    assert loaded_model.metadata.model_threshold == manifest.threshold
-    assert loaded_model.metadata.model_reference == manifest.model_reference
+    assert loaded_model.metadata.model_name == manifest.model.model_name
+    assert loaded_model.metadata.model_version == manifest.model.model_version
+    assert loaded_model.metadata.model_threshold == manifest.training.threshold
+    assert loaded_model.metadata.model_reference == manifest.model.model_reference
     registry.load_model_by_version.assert_called_once_with(
-        model_name=manifest.model_name,
-        model_version=manifest.model_version,
+        model_name=manifest.model.model_name,
+        model_version=manifest.model.model_version,
     )
     registry.load_registered_model.assert_not_called()
 
@@ -134,16 +134,17 @@ def test_load_model_uses_logged_model_reference_without_registry(
     monkeypatch.setattr(model_loader.mlflow, "set_tracking_uri", Mock())
     monkeypatch.setattr(model_loader.mlflow.sklearn, "load_model", load_mlflow_model)
 
+    manifest = training_manifest_factory()
     manifest = replace(
-        training_manifest_factory(),
-        model_version=None,
-        threshold=0.37,
+        manifest,
+        model=replace(manifest.model, model_version=None),
+        training=replace(manifest.training, threshold=0.37),
     )
     loaded_model = model_loader.load_model(manifest=manifest)
 
     assert loaded_model.model is model
     assert loaded_model.metadata.model_version is None
-    assert loaded_model.metadata.model_reference == manifest.model_reference
+    assert loaded_model.metadata.model_reference == manifest.model.model_reference
     assert loaded_model.metadata.model_alias is None
     assert loaded_model.metadata.model_threshold == 0.37
     load_mlflow_model.assert_called_once_with("runs:/run-123/model")
@@ -166,10 +167,14 @@ def test_load_model_loads_logged_mlflow_model_using_manifest(
             name="model",
         )
 
+    manifest = training_manifest_factory()
     manifest = replace(
-        training_manifest_factory(),
-        model_version=None,
-        model_reference=LoggedModelReference.from_model_info(model_info),
+        manifest,
+        model=replace(
+            manifest.model,
+            model_version=None,
+            model_reference=LoggedModelReference.from_model_info(model_info),
+        ),
     )
     loaded_model = model_loader.load_model(
         tracking_uri=tracking_uri,
@@ -177,5 +182,5 @@ def test_load_model_loads_logged_mlflow_model_using_manifest(
     )
 
     assert loaded_model.metadata.model_version is None
-    assert loaded_model.metadata.model_reference == manifest.model_reference
+    assert loaded_model.metadata.model_reference == manifest.model.model_reference
     assert loaded_model.model.predict_proba([[1]])[0, 1] < 0.5

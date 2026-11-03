@@ -177,7 +177,9 @@ def test_package_main_uses_monitoring_model_manifest(
         api_host="127.0.0.1",
         api_port=8000,
     )
-    manifest = SimpleNamespace(model_name="churn-risk", model_version=11)
+    manifest = SimpleNamespace(
+        model=SimpleNamespace(model_name="churn-risk", model_version=11)
+    )
     datasets = {"reference": object(), "analysis": object()}
     observed_report: dict[str, object] = {}
     observed_log: dict[str, object] = {}

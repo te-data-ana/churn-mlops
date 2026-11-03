@@ -164,6 +164,7 @@ def test_run_training_job_overrides_calibration_and_writes_unregistered_manifest
         mlflow_experiment_name="experiment",
     )
     config = config_factory()
+    config.promotion.promote_model = True
     training_result = SimpleNamespace(
         metrics={
             "roc_auc": 0.84,
@@ -236,8 +237,12 @@ def test_run_training_job_overrides_calibration_and_writes_unregistered_manifest
     from churn_mlops.tracking import TrainingManifest
 
     manifest = TrainingManifest.read(tmp_path / "manifests/lr_temporal.json")
-    assert manifest.model_version is None
-    assert manifest.model_reference.model_uri == "runs:/run-123/model"
+    assert manifest.data.time_column == "reference_date"
+    assert manifest.training.tuning_enabled is False
+    assert manifest.lifecycle.registration_enabled is False
+    assert manifest.lifecycle.promotion_enabled is False
+    assert manifest.model.model_version is None
+    assert manifest.model.model_reference.model_uri == "runs:/run-123/model"
     model_registry.assert_not_called()
 
 
@@ -492,10 +497,13 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
     from churn_mlops.tracking import TrainingManifest
 
     manifest = TrainingManifest.read(manifest_file)
-    assert manifest.model_name == "churn-risk"
-    assert manifest.model_version == 7
-    assert manifest.run_id == "training-run"
-    assert manifest.run_name == run_name
+    assert manifest.model.model_name == "churn-risk"
+    assert manifest.model.model_version == 7
+    assert manifest.run.run_id == "training-run"
+    assert manifest.run.run_name == run_name
+    assert manifest.data.time_column == "reference_date"
+    assert manifest.lifecycle.registration_enabled is True
+    assert manifest.lifecycle.promotion_enabled is False
     set_tag.assert_any_call("git_commit", ANY)
     train.mlflow.log_artifact.assert_called_once_with(
         local_path=str(manifest_file),

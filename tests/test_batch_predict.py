@@ -135,7 +135,11 @@ def test_run_batch_prediction_uses_manifest(
     monkeypatch: pytest.MonkeyPatch,
     training_manifest_factory: TrainingManifest,
 ) -> None:
-    manifest = replace(training_manifest_factory(), model_version=None)
+    manifest = training_manifest_factory()
+    manifest = replace(
+        manifest,
+        model=replace(manifest.model, model_version=None),
+    )
     load_model = Mock(return_value=Mock())
     predictor = Mock()
     predictor.predict_batch.return_value = pd.DataFrame(
@@ -219,7 +223,11 @@ def test_batch_predict_cli_reads_unregistered_model_manifest(
     )
     input_df = pd.DataFrame({"age": [35]})
     prediction_df = pd.DataFrame({"predicted_probability": [0.7]})
-    manifest = replace(training_manifest_factory(), model_version=None)
+    manifest = training_manifest_factory()
+    manifest = replace(
+        manifest,
+        model=replace(manifest.model, model_version=None),
+    )
     predict = Mock(return_value=prediction_df)
 
     monkeypatch.setattr(churn_mlops, "ServingSettings", lambda: settings)

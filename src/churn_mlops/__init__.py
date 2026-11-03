@@ -614,13 +614,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             from .tracking import TrainingManifest
 
             manifest = TrainingManifest.read(settings.data_dir / args.model_manifest)
-            if manifest.model_version is None:
+            if manifest.model.model_version is None:
                 parser.error(
                     "Monitoring requires a registered model; this manifest identifies "
                     "an unregistered training run."
                 )
-            model_name = manifest.model_name
-            model_version = manifest.model_version
+            model_name = manifest.model.model_name
+            model_version = manifest.model.model_version
 
         output_dir = args.output_dir or settings.output_dir
         if dataset_mode:

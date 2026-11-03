@@ -526,8 +526,7 @@ maximizing F1 (`threshold.strategy: max_f1`) is selected from out-of-time test
 predictions before test metrics are computed.
 
 Runs log the selected threshold and its OOT selection source as MLflow
-parameters and in `evaluation/decision_threshold.json`. The reliability
-diagram is logged under `calibration/`.
+parameters. The reliability diagram is logged under `calibration/`.
 
 ### Evaluation
 
@@ -558,7 +557,10 @@ Training writes a manifest linking the MLflow run and its split and evaluation
 results. The manifest contains a JSON-safe logged-model reference and identifies
 either an exact registered model version or the logged model URI for an
 unregistered run. Use the manifest for reproducible batch scoring or serving
-instead of relying on a mutable alias.
+instead of relying on a mutable alias. Its versioned JSON groups run and model
+identity, target/time columns and split metadata, training details, evaluation,
+and registration/promotion settings. Promotion is marked enabled only when both
+registration and promotion are enabled for that run.
 
 MLflow runs also include a Markdown model card with model, data, feature,
 evaluation, and promotion details, including calibration method, calibration

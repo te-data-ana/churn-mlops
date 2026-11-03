@@ -62,11 +62,11 @@ def load_model(
     model_version = model_version or settings.model_version
     model_reference = None
     if manifest is not None:
-        model_name = manifest.model_name
+        model_name = manifest.model.model_name
         model_alias = None
-        model_version = manifest.model_version
-        model_threshold = manifest.threshold
-        model_reference = manifest.model_reference
+        model_version = manifest.model.model_version
+        model_threshold = manifest.training.threshold
+        model_reference = manifest.model.model_reference
         if model_version is None:
             model = mlflow.sklearn.load_model(model_reference.model_uri)
         else:

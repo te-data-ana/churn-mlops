@@ -25,6 +25,14 @@ from churn_mlops.tracking import (
     log_model_card,
     setup_local_experiment,
 )
+from churn_mlops.tracking.manifest import (
+    ManifestData,
+    ManifestEvaluation,
+    ManifestLifecycle,
+    ManifestModel,
+    ManifestRun,
+    ManifestTraining,
+)
 from churn_mlops.training import (
     TrainingResult,
     optimize_hyperparameters,
@@ -345,25 +353,38 @@ def run_training_job(
 
         if resolved_register_model or write_manifest:
             manifest = TrainingManifest(
-                run_id=run_id,
-                run_name=run_name,
-                model_name=model_name,
-                model_version=registered_model_version,
-                model_reference=LoggedModelReference.from_model_info(model_info),
-                target_column=config.data.target_column,
-                classifier_name=result.classifier_config["model_name"],
-                classifier_alias=classifier_alias,
-                split_name=split_name,
-                split_metadata=split_metadata,
-                feature_count=len(result.feature_names_out),
-                feature_names_in=result.feature_names_in,
-                feature_names_out=result.feature_names_out,
-                calibration=config.calibration.method,
-                threshold_strategy=config.threshold.strategy,
-                threshold_data=result.threshold_data,
-                threshold=result.threshold,
-                metrics=result.metrics,
-                promotion_decision=promotion_decision_dict,
+                run=ManifestRun(run_id=run_id, run_name=run_name),
+                model=ManifestModel(
+                    model_name=model_name,
+                    model_version=registered_model_version,
+                    model_reference=LoggedModelReference.from_model_info(model_info),
+                ),
+                data=ManifestData(
+                    target_column=config.data.target_column,
+                    time_column=config.data.time_column,
+                    split_name=split_name,
+                    split_metadata=split_metadata,
+                ),
+                training=ManifestTraining(
+                    classifier_name=result.classifier_config["model_name"],
+                    classifier_alias=classifier_alias,
+                    feature_count=len(result.feature_names_out),
+                    feature_names_in=result.feature_names_in,
+                    feature_names_out=result.feature_names_out,
+                    tuning_enabled=config.tuning.enabled,
+                    calibration=config.calibration.method,
+                    threshold_strategy=config.threshold.strategy,
+                    threshold_data=result.threshold_data,
+                    threshold=result.threshold,
+                ),
+                evaluation=ManifestEvaluation(metrics=result.metrics),
+                lifecycle=ManifestLifecycle(
+                    registration_enabled=resolved_register_model,
+                    promotion_enabled=(
+                        resolved_register_model and resolved_promote_model
+                    ),
+                    promotion_decision=promotion_decision_dict,
+                ),
             )
 
             model_card = ModelCardBuilder().build(
