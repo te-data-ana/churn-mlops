@@ -179,6 +179,12 @@ def test_run_training_job_overrides_calibration_and_writes_unregistered_manifest
         threshold=0.42,
     )
     train_model_mock = MagicMock(return_value=training_result)
+    model_info = SimpleNamespace(
+        model_uri="runs:/run-123/model",
+        model_uuid="model-123",
+        artifact_path="model",
+        mlflow_version="3.16.0",
+    )
     mlflow_run = MagicMock()
     monkeypatch.setattr(train, "RuntimeSettings", lambda: settings)
     monkeypatch.setattr(
@@ -196,7 +202,7 @@ def test_run_training_job_overrides_calibration_and_writes_unregistered_manifest
     monkeypatch.setattr(
         train,
         "log_experiment_result",
-        MagicMock(return_value=SimpleNamespace(model_uri="runs:/run-123/model")),
+        MagicMock(return_value=model_info),
     )
     model_registry = MagicMock()
     monkeypatch.setattr(train, "ModelRegistry", model_registry)
@@ -231,7 +237,7 @@ def test_run_training_job_overrides_calibration_and_writes_unregistered_manifest
 
     manifest = TrainingManifest.read(tmp_path / "manifests/lr_temporal.json")
     assert manifest.model_version is None
-    assert manifest.model_uri == "runs:/run-123/model"
+    assert manifest.model_reference.model_uri == "runs:/run-123/model"
     model_registry.assert_not_called()
 
 
@@ -419,6 +425,12 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
         threshold=0.42,
     )
     registered_version = SimpleNamespace(version=7, run_id="training-run")
+    model_info = SimpleNamespace(
+        model_uri="runs:/training-run/model",
+        model_uuid="model-456",
+        artifact_path="model",
+        mlflow_version="3.16.0",
+    )
     registry = MagicMock()
     registry.register_model.return_value = registered_version
     model_card_builder = MagicMock()
@@ -442,7 +454,7 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
     monkeypatch.setattr(
         train,
         "log_experiment_result",
-        MagicMock(return_value=SimpleNamespace(model_uri="runs:/training-run/model")),
+        MagicMock(return_value=model_info),
     )
     monkeypatch.setattr(train, "ModelRegistry", lambda: registry)
     monkeypatch.setattr(train, "ModelCardBuilder", lambda: model_card_builder)
@@ -471,7 +483,7 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
 
     assert result is training_result
     registry.register_model.assert_called_once_with(
-        model_uri="runs:/training-run/model",
+        model_info=model_info,
         model_name="churn-risk",
     )
     registry.set_alias.assert_not_called()

@@ -1,9 +1,80 @@
 """Manifest metadata linking training runs to downstream scoring stages."""
 
+from __future__ import annotations
+
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from mlflow.models.model import ModelInfo
+
+
+@dataclass(frozen=True)
+class LoggedModelReference:
+    """Portable identity and URI for a logged MLflow model artifact."""
+
+    model_uri: str
+    model_uuid: str
+    artifact_path: str
+    mlflow_version: str
+
+    @classmethod
+    def from_model_info(cls, model_info: ModelInfo) -> LoggedModelReference:
+        """Create a JSON-safe reference from MLflow's logged model metadata.
+
+        Args:
+            model_info: Metadata returned when MLflow logs the model.
+
+        Returns:
+            A portable reference containing the model URI and identity fields.
+        """
+        return cls(
+            model_uri=model_info.model_uri,
+            model_uuid=model_info.model_uuid,
+            artifact_path=model_info.artifact_path,
+            mlflow_version=model_info.mlflow_version,
+        )
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> LoggedModelReference:
+        """Validate and construct a reference from a manifest object.
+
+        Args:
+            payload: JSON object containing logged-model identity fields.
+
+        Returns:
+            Validated logged-model reference.
+
+        Raises:
+            TypeError: If any identity field is not non-empty text.
+            ValueError: If a required identity field is missing.
+        """
+        required = {"model_uri", "model_uuid", "artifact_path", "mlflow_version"}
+        missing = required.difference(payload)
+        if missing:
+            raise ValueError(
+                "Training manifest model_reference is missing fields: "
+                f"{', '.join(sorted(missing))}."
+            )
+        if not all(isinstance(payload[key], str) and payload[key] for key in required):
+            raise TypeError("Training manifest has invalid model_reference fields.")
+        return cls(
+            model_uri=payload["model_uri"],
+            model_uuid=payload["model_uuid"],
+            artifact_path=payload["artifact_path"],
+            mlflow_version=payload["mlflow_version"],
+        )
+
+    def to_dict(self) -> dict[str, str]:
+        """Return the JSON-safe model reference fields."""
+        return {
+            "model_uri": self.model_uri,
+            "model_uuid": self.model_uuid,
+            "artifact_path": self.artifact_path,
+            "mlflow_version": self.mlflow_version,
+        }
 
 
 @dataclass(frozen=True)
@@ -14,6 +85,7 @@ class TrainingManifest:
     run_name: str
     model_name: str
     model_version: int | None
+    model_reference: LoggedModelReference
     target_column: str
     classifier_name: str
     classifier_alias: str
@@ -28,7 +100,6 @@ class TrainingManifest:
     threshold: float
     metrics: dict[str, float]
     promotion_decision: dict
-    model_uri: str | None = None
 
     def write(self, path: Path) -> None:
         """Write the manifest as formatted JSON.
@@ -53,7 +124,7 @@ class TrainingManifest:
             "run_name": self.run_name,
             "model_name": self.model_name,
             "model_version": self.model_version,
-            "model_uri": self.model_uri,
+            "model_reference": self.model_reference.to_dict(),
             "target_column": self.target_column,
             "classifier_name": self.classifier_name,
             "classifier_alias": self.classifier_alias,
@@ -71,7 +142,7 @@ class TrainingManifest:
         }
 
     @classmethod
-    def read(cls, path: Path) -> "TrainingManifest":
+    def read(cls, path: Path) -> TrainingManifest:
         """Read and validate a training manifest from JSON.
 
         Args:
@@ -89,6 +160,7 @@ class TrainingManifest:
             "run_id",
             "run_name",
             "model_name",
+            "model_reference",
             "model_version",
             "target_column",
             "classifier_name",
@@ -120,14 +192,9 @@ class TrainingManifest:
         model_version = payload["model_version"]
         if model_version is not None and not isinstance(model_version, int):
             raise TypeError(f"Training manifest '{path}' has an invalid model_version.")
-        model_uri = payload.get("model_uri")
-        if model_uri is not None and (not isinstance(model_uri, str) or not model_uri):
-            raise TypeError(f"Training manifest '{path}' has an invalid model_uri.")
-        if model_version is None and model_uri is None:
-            raise ValueError(
-                f"Training manifest '{path}' must identify a registered model "
-                "version or a logged model URI."
-            )
+        if not isinstance(payload["model_reference"], dict):
+            raise TypeError(f"Training manifest '{path}' has invalid model_reference.")
+        model_reference = LoggedModelReference.from_dict(payload["model_reference"])
 
         if not isinstance(payload["metrics"], dict) or not isinstance(
             payload["split_metadata"], dict
@@ -188,7 +255,7 @@ class TrainingManifest:
             run_name=payload["run_name"],
             model_name=payload["model_name"],
             model_version=model_version,
-            model_uri=model_uri,
+            model_reference=model_reference,
             target_column=payload["target_column"],
             classifier_name=payload["classifier_name"],
             classifier_alias=payload["classifier_alias"],

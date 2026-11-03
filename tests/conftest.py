@@ -22,7 +22,7 @@ from churn_mlops.config.schemas import (
     TrainingConfig,
 )
 from churn_mlops.evaluation import metrics
-from churn_mlops.tracking.manifest import TrainingManifest
+from churn_mlops.tracking.manifest import LoggedModelReference, TrainingManifest
 
 
 @pytest.fixture
@@ -42,7 +42,12 @@ def training_manifest_factory() -> Callable[..., TrainingManifest]:
             run_name="rf__oot_26q1",
             model_name="churn-risk",
             model_version=4,
-            model_uri="runs:/run-123/model",
+            model_reference=LoggedModelReference(
+                model_uri="runs:/run-123/model",
+                model_uuid="model-123",
+                artifact_path="model",
+                mlflow_version="3.16.0",
+            ),
             target_column="churn",
             classifier_name="clf_name",
             classifier_alias="clf_alias",

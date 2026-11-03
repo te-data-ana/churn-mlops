@@ -36,6 +36,7 @@ class ServingSettings(RuntimeSettings):
     model_name: str = Field(default="churn-risk", alias="MODEL_NAME")
     model_alias: str = Field(default="champion", alias="MODEL_ALIAS")
     model_version: int | None = Field(default=None, alias="MODEL_VERSION")
+    model_manifest: Path | None = Field(default=None, alias="MODEL_MANIFEST")
     request_id_header: str = Field(default="X-Request-ID", alias="REQUEST_ID_HEADER")
     logging_dir: Path = Field(default=LOGGING_DIR, alias="LOGGING_DIR")
     log_features: bool = Field(default=True, alias="LOG_FEATURES")

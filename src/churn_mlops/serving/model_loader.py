@@ -4,7 +4,7 @@ import mlflow
 from sklearn.base import BaseEstimator
 
 from churn_mlops.config import ServingSettings
-from churn_mlops.tracking import ModelRegistry
+from churn_mlops.tracking import LoggedModelReference, ModelRegistry, TrainingManifest
 
 
 @dataclass
@@ -12,8 +12,8 @@ class ModelMetadata:
     model_name: str
     model_alias: str | None
     model_version: int | None
-    threshold: float
-    model_uri: str | None = None
+    model_threshold: float
+    model_reference: LoggedModelReference | None = None
 
 
 @dataclass
@@ -27,93 +27,74 @@ def load_model(
     model_name: str | None = None,
     model_alias: str | None = None,
     model_version: int | None = None,
-    model_uri: str | None = None,
-    model_threshold: float | None = None,
+    manifest: TrainingManifest | None = None,
 ) -> LoadedModel:
-    """Load the configured serving model and its registry metadata.
+    """Load a configured or manifest-identified model and its metadata.
 
     Args:
         tracking_uri: Optional MLflow tracking URI.
         model_name: Optional registered model name.
         model_alias: Optional registered model alias.
-        model_version: Optional immutable registered model version. When
-            supplied, it takes precedence over the alias.
-        model_uri: Optional logged MLflow model URI. When supplied, it
-            bypasses the model registry.
-        model_threshold: Threshold accompanying a logged model URI.
+        model_version: Optional registered model version number.
+        manifest: Optional training manifest identifying an exact model.
 
     Returns:
-        Loaded model together with its name, alias, version, and
-        probability threshold.
+        Loaded model (trained estimator/pipeline) together with its
+        model identity metadata and probability threshold.
 
     Raises:
         mlflow.exceptions.MlflowException: If the configured model or alias
             cannot be found in the MLflow registry.
-        ValueError: If URI-based loading has invalid or incomplete metadata.
+        ValueError: If a manifest is combined with explicit model selectors.
     """
+    if manifest is not None and any(
+        selector is not None for selector in (model_name, model_alias, model_version)
+    ):
+        raise ValueError("A model manifest cannot be combined with model selectors.")
 
-    if model_uri is None and model_threshold is not None:
-        raise ValueError("A model threshold can only be used with a model URI.")
-
-    # load settings used for model serving
     settings = ServingSettings()
-    resolved_model_name = model_name or settings.model_name
-    resolved_model_alias = model_alias or settings.model_alias
-    resolved_tracking_uri = tracking_uri or settings.mlflow_tracking_uri
-    if resolved_tracking_uri:
-        mlflow.set_tracking_uri(resolved_tracking_uri)
+    tracking_uri = tracking_uri or settings.mlflow_tracking_uri
+    if tracking_uri:
+        mlflow.set_tracking_uri(tracking_uri)
 
-    if model_uri is not None:
-        if not model_uri:
-            raise ValueError("A model URI cannot be empty.")
-        if model_version is not None:
-            raise ValueError("A model URI cannot be combined with a model version.")
-        if model_threshold is None:
-            raise ValueError("A model URI requires its recorded prediction threshold.")
-        if not 0 <= model_threshold <= 1:
-            raise ValueError("A model threshold must be between 0 and 1.")
-        model = mlflow.sklearn.load_model(model_uri)
-        version_number = None
-        threshold = model_threshold
-        resolved_model_alias = None
-    elif model_version is not None:
-        registry = ModelRegistry()
-        model = registry.load_model_by_version(
-            model_name=resolved_model_name,
-            version=model_version,
-        )
-        version_number = model_version
-        threshold = registry.get_threshold_by_version(
-            model_name=resolved_model_name,
-            version=model_version,
-        )
-        resolved_model_alias = None
+    model_name = model_name or settings.model_name
+    model_alias = model_alias or settings.model_alias
+    model_version = model_version or settings.model_version
+    model_reference = None
+    if manifest is not None:
+        model_name = manifest.model_name
+        model_alias = None
+        model_version = manifest.model_version
+        model_threshold = manifest.threshold
+        model_reference = manifest.model_reference
+        if model_version is None:
+            model = mlflow.sklearn.load_model(model_reference.model_uri)
+        else:
+            registry = ModelRegistry()
+            model = registry.load_model_by_version(
+                model_name=model_name,
+                model_version=model_version,
+            )
     else:
         registry = ModelRegistry()
-        model = registry.load_model_by_alias(
-            model_name=resolved_model_name,
-            alias=resolved_model_alias,
+        if model_version is not None:
+            model_alias = None
+        registered_model = registry.load_registered_model(
+            model_name=model_name,
+            model_alias=model_alias,
+            model_version=model_version,
         )
-        version = registry.get_model_version_by_alias(
-            model_name=resolved_model_name,
-            alias=resolved_model_alias,
-        )
-        version_number = int(version.version)
-        threshold = registry.get_threshold_by_alias(
-            model_name=resolved_model_name,
-            alias=resolved_model_alias,
-        )
-
-    # combine model metadata
-    metadata = ModelMetadata(
-        model_name=resolved_model_name,
-        model_alias=resolved_model_alias,
-        model_version=version_number,
-        threshold=threshold,
-        model_uri=model_uri,
-    )
+        model = registered_model.model
+        model_version = int(registered_model.model_version.version)
+        model_threshold = registered_model.model_threshold
 
     return LoadedModel(
         model=model,
-        metadata=metadata,
+        metadata=ModelMetadata(
+            model_name=model_name,
+            model_alias=model_alias,
+            model_version=model_version,
+            model_threshold=model_threshold,
+            model_reference=model_reference,
+        ),
     )

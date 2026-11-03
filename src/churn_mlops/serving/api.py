@@ -14,6 +14,7 @@ from churn_mlops.serving.model_loader import load_model
 from churn_mlops.serving.prediction_logger import PredictionLogger
 from churn_mlops.serving.predictor import PredictionResult, Predictor
 from churn_mlops.serving.schemas import InputFeatures
+from churn_mlops.tracking import TrainingManifest
 
 configure_logging()
 
@@ -29,7 +30,10 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     application.state.settings = settings
 
     try:
-        if settings.model_version is None:
+        if settings.model_manifest is not None:
+            manifest = TrainingManifest.read(settings.model_manifest)
+            application.state.predictor = Predictor(load_model(manifest=manifest))
+        elif settings.model_version is None:
             application.state.predictor = Predictor(load_model())
         else:
             application.state.predictor = Predictor(

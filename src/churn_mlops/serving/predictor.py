@@ -33,7 +33,7 @@ class Predictor:
         logger.info(
             "Initialized predictor for model version '%s' with threshold %.4f.",
             self.metadata.model_version,
-            self.metadata.threshold,
+            self.metadata.model_threshold,
         )
 
     @staticmethod
@@ -89,7 +89,9 @@ class Predictor:
             probabilities = self._to_probability_array(self.model.predict_proba(df))
 
             predicted_probability = float(probabilities[0, 1])
-            predicted_class = int(predicted_probability >= self.metadata.threshold)
+            predicted_class = int(
+                predicted_probability >= self.metadata.model_threshold
+            )
 
             logger.info(
                 "Single-record prediction generated probability %.4f and class %d.",
@@ -123,14 +125,14 @@ class Predictor:
             predicted_probabilities = probabilities[:, 1]
 
             predicted_classes = (
-                predicted_probabilities >= self.metadata.threshold
+                predicted_probabilities >= self.metadata.model_threshold
             ).astype(int)
 
             result = df.copy()
 
             result["predicted_probability"] = predicted_probabilities
             result["predicted_class"] = predicted_classes
-            result["threshold"] = self.metadata.threshold
+            result["threshold"] = self.metadata.model_threshold
             result["model_version"] = self.metadata.model_version
 
             logger.info(

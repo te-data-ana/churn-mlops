@@ -185,10 +185,11 @@ from hyperparameter tuning.
 
 ### Generate batch predictions
 
-Batch prediction validates input data and loads a registered model. Use a
+Batch prediction validates input data and loads the configured model. Use a
 training manifest or an explicit model name and version when the exact model
 version matters; otherwise the configured model alias is used. A training
-manifest can also identify an unregistered MLflow run model URI.
+manifest identifies the logged MLflow model and prediction threshold, whether
+or not that model is registered.
 
 For CSV input, the input filename is resolved under `data/raw` and the output
 is written under `output`:
@@ -232,13 +233,16 @@ The manifest option cannot be combined with `--model_name` or
 
 ### Serve predictions over HTTP
 
-Start the FastAPI service locally:
+Start the FastAPI service locally. By default, it loads the configured
+registered model; `--model_manifest` selects the exact model recorded by a
+training manifest and can also serve an unregistered run:
 
 ```bash
 uv run churn-mlops serve --host 127.0.0.1 --port 8000 --reload
+uv run churn-mlops serve --model_manifest manifests/rf_OOT_26Q2.json
 ```
 
-The service loads the configured registered model once per process. Its
+The service loads the selected model once per process. Its
 `/health` endpoint is a liveness check; `/ready` reports whether a model loaded
 successfully. If model loading fails, the process remains live, but `/ready`
 and `/predict` return `503` until it is restarted with a valid model
@@ -551,9 +555,10 @@ Promotion remains separately controlled with `--promote-model` /
 ### Manifests and model cards
 
 Training writes a manifest linking the MLflow run and its split and evaluation
-results. It identifies either an exact registered model version or the logged
-MLflow model URI for an unregistered run. Use the manifest for reproducible
-batch scoring instead of relying on a mutable alias.
+results. The manifest contains a JSON-safe logged-model reference and identifies
+either an exact registered model version or the logged model URI for an
+unregistered run. Use the manifest for reproducible batch scoring or serving
+instead of relying on a mutable alias.
 
 MLflow runs also include a Markdown model card with model, data, feature,
 evaluation, and promotion details, including calibration method, calibration
@@ -571,6 +576,7 @@ Environment variables can override the runtime defaults:
 | `MODEL_NAME` | `churn-risk` | Registered model name for serving |
 | `MODEL_ALIAS` | `champion` | Alias used to load a serving model |
 | `MODEL_VERSION` | Unset | Optional exact model version |
+| `MODEL_MANIFEST` | Unset | Optional manifest selecting a logged model |
 | `API_HOST` | `127.0.0.1` | Host interface for `serve` |
 | `API_PORT` | `8000` | Port for `serve` |
 | `REQUEST_ID_HEADER` | `X-Request-ID` | Header used to pass request IDs |

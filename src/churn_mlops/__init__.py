@@ -476,20 +476,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         if (args.model_name is None) != (args.model_version is None):
             parser.error("--model_name and --model_version must be provided together.")
 
-        model_name = args.model_name
-        model_version = args.model_version
-        model_uri = None
-        model_threshold = None
+        manifest = None
         if args.model_manifest is not None:
             from .tracking import TrainingManifest
 
             model_manifest_file = settings.data_dir / args.model_manifest
             manifest = TrainingManifest.read(model_manifest_file)
-            model_name = manifest.model_name
-            model_version = manifest.model_version
-            if model_version is None:
-                model_uri = manifest.model_uri
-                model_threshold = manifest.threshold
 
         from .batch_predict import run_batch_prediction
 
@@ -502,15 +494,12 @@ def main(argv: Sequence[str] | None = None) -> None:
                 index_col=args.index_col,
                 data_dir=input_dir,
             )
-            prediction_kwargs: dict[str, object] = {"df": df}
-            if model_name is not None:
-                prediction_kwargs["model_name"] = model_name
-            if model_version is not None:
-                prediction_kwargs["model_version"] = model_version
-            if model_uri is not None:
-                prediction_kwargs["model_uri"] = model_uri
-                prediction_kwargs["model_threshold"] = model_threshold
-            df_pred = run_batch_prediction(**prediction_kwargs)
+            df_pred = run_batch_prediction(
+                df=df,
+                model_name=None if manifest is not None else args.model_name,
+                model_version=None if manifest is not None else args.model_version,
+                manifest=manifest,
+            )
 
             output_path = settings.output_dir / args.output_csv
             settings.output_dir.mkdir(parents=True, exist_ok=True)
@@ -528,15 +517,12 @@ def main(argv: Sequence[str] | None = None) -> None:
                 start=args.start_date,
                 end=args.end_date,
             )
-            prediction_kwargs: dict[str, object] = {"df": df}
-            if model_name is not None:
-                prediction_kwargs["model_name"] = model_name
-            if model_version is not None:
-                prediction_kwargs["model_version"] = model_version
-            if model_uri is not None:
-                prediction_kwargs["model_uri"] = model_uri
-                prediction_kwargs["model_threshold"] = model_threshold
-            df_pred = run_batch_prediction(**prediction_kwargs)
+            df_pred = run_batch_prediction(
+                df=df,
+                model_name=None if manifest is not None else args.model_name,
+                model_version=None if manifest is not None else args.model_version,
+                manifest=manifest,
+            )
             write_partitioned_dataset(
                 df=df_pred,
                 dataset_name=args.output_dataset,
@@ -560,19 +546,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             parser.error("--model_name and --model_version must be provided together.")
 
         if args.model_manifest is not None:
-            from .tracking import TrainingManifest
-
-            model_manifest_file = settings.data_dir / args.model_manifest
-            manifest = TrainingManifest.read(model_manifest_file)
-            if manifest.model_version is None:
-                parser.error(
-                    "Serving requires a registered model; this manifest identifies "
-                    "an unregistered training run."
-                )
-            os.environ["MODEL_NAME"] = manifest.model_name
-            os.environ["MODEL_VERSION"] = str(manifest.model_version)
+            os.environ["MODEL_MANIFEST"] = str(settings.data_dir / args.model_manifest)
 
         if args.model_name is not None and args.model_version is not None:
+            os.environ.pop("MODEL_MANIFEST", None)
             os.environ["MODEL_NAME"] = args.model_name
             os.environ["MODEL_VERSION"] = str(args.model_version)
 

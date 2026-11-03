@@ -21,7 +21,7 @@ def test_training_manifest_round_trips_json(
 
 
 @pytest.mark.unit
-def test_unregistered_training_manifest_round_trips_model_uri(
+def test_unregistered_training_manifest_round_trips_logged_model_reference(
     tmp_path: Path,
     training_manifest_factory: TrainingManifest,
 ) -> None:
@@ -43,17 +43,31 @@ def test_training_manifest_rejects_missing_fields(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_training_manifest_requires_model_version_or_uri(
+def test_training_manifest_requires_model_version_or_reference(
     tmp_path: Path,
     training_manifest_factory: TrainingManifest,
 ) -> None:
     payload = training_manifest_factory().to_dict()
     payload["model_version"] = None
-    payload["model_uri"] = None
+    payload["model_reference"] = None
     path = tmp_path / "invalid-model-reference.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="registered model version"):
+    with pytest.raises(TypeError, match="model_reference"):
+        TrainingManifest.read(path)
+
+
+@pytest.mark.unit
+def test_training_manifest_rejects_incomplete_logged_model_reference(
+    tmp_path: Path,
+    training_manifest_factory: TrainingManifest,
+) -> None:
+    payload = training_manifest_factory().to_dict()
+    payload["model_reference"].pop("model_uri")
+    path = tmp_path / "invalid-model-info.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="model_uri"):
         TrainingManifest.read(path)
 
 

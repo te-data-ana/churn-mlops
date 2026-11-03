@@ -25,7 +25,7 @@ def test_predict_returns_probability_class_and_metadata(
     assert result.metadata == loaded_model.metadata
     assert result.metadata.model_name == "churn-risk"
     assert result.metadata.model_alias == "champion"
-    assert result.metadata.threshold == 0.5
+    assert result.metadata.model_threshold == 0.5
 
 
 @pytest.mark.unit

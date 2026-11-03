@@ -268,6 +268,44 @@ def test_package_main_rejects_monitor_manifest_with_explicit_model(
 
 
 @pytest.mark.smoke
+def test_package_main_passes_manifest_to_api_for_serving(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import os
+
+    import uvicorn
+
+    import churn_mlops
+
+    settings = SimpleNamespace(
+        data_dir=tmp_path,
+        api_host="127.0.0.1",
+        api_port=8000,
+    )
+    run = Mock()
+    monkeypatch.setattr(churn_mlops, "ServingSettings", lambda: settings)
+    monkeypatch.setattr(uvicorn, "run", run)
+    monkeypatch.delenv("MODEL_MANIFEST", raising=False)
+
+    churn_mlops.main(
+        [
+            "serve",
+            "--model_manifest",
+            "manifests/unregistered.json",
+        ]
+    )
+
+    assert os.environ["MODEL_MANIFEST"] == str(tmp_path / "manifests/unregistered.json")
+    run.assert_called_once_with(
+        "churn_mlops.serving.api:app",
+        host="127.0.0.1",
+        port=8000,
+        reload=False,
+    )
+
+
+@pytest.mark.smoke
 def test_package_main_dispatches_api_file_monitoring_with_configured_error_log(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

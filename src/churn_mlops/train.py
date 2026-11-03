@@ -16,6 +16,7 @@ from churn_mlops.config.schemas import TuningConfig
 from churn_mlops.config.settings import RuntimeSettings
 from churn_mlops.data.splitting import load_and_validate_training_splits
 from churn_mlops.tracking import (
+    LoggedModelReference,
     ModelCardBuilder,
     ModelRegistry,
     PromotionService,
@@ -277,7 +278,7 @@ def run_training_job(
         if resolved_register_model:
             registry = ModelRegistry()
             registered_version = registry.register_model(
-                model_uri=model_info.model_uri,
+                model_info=model_info,
                 model_name=model_name,
             )
             registered_model_version = int(registered_version.version)
@@ -290,8 +291,8 @@ def run_training_job(
                 model_alias = config.registry.alias
                 registry.set_alias(
                     model_name=model_name,
-                    alias=model_alias,
-                    version=registered_model_version,
+                    model_alias=model_alias,
+                    model_version=registered_model_version,
                 )
                 champion = registry.get_champion_version(model_name=model_name)
 
@@ -299,7 +300,7 @@ def run_training_job(
                     logger.info("Retrieving metric for current champion model.")
                     champion_metrics = registry.get_metrics_by_alias(
                         model_name=model_name,
-                        alias="champion",
+                        model_alias="champion",
                     )
                 else:
                     logger.info(
@@ -349,7 +350,7 @@ def run_training_job(
                 run_name=run_name,
                 model_name=model_name,
                 model_version=registered_model_version,
-                model_uri=model_info.model_uri,
+                model_reference=LoggedModelReference.from_model_info(model_info),
                 target_column=config.data.target_column,
                 classifier_name=result.classifier_config["model_name"],
                 classifier_alias=classifier_alias,
@@ -374,7 +375,7 @@ def run_training_job(
             if resolved_register_model:
                 registry.update_model_description(
                     model_name=model_name,
-                    version=registered_model_version,
+                    model_version=registered_model_version,
                     description=model_card,
                 )
 

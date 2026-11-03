@@ -48,7 +48,7 @@ class PredictionLogger:
             model_version=prediction.metadata.model_version,
             predicted_class=prediction.predicted_class,
             predicted_probability=prediction.predicted_probability,
-            threshold=prediction.metadata.threshold,
+            threshold=prediction.metadata.model_threshold,
             features=features if flag_features else None,
         )
 

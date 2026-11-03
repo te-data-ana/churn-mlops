@@ -341,20 +341,11 @@ def configure_model_environment(
     """Configure model-related environment variables."""
 
     if args.model_manifest is not None:
-        from churn_mlops.tracking.manifest import TrainingManifest
-
         model_manifest_file = settings.data_dir / args.model_manifest
-        manifest = TrainingManifest.read(model_manifest_file)
-        if manifest.model_version is None:
-            raise ValueError(
-                "Serving samples requires a registered model; this manifest "
-                "identifies an unregistered training run."
-            )
-
-        os.environ["MODEL_NAME"] = manifest.model_name
-        os.environ["MODEL_VERSION"] = str(manifest.model_version)
+        os.environ["MODEL_MANIFEST"] = str(model_manifest_file)
 
     if args.model_name is not None and args.model_version is not None:
+        os.environ.pop("MODEL_MANIFEST", None)
         os.environ["MODEL_NAME"] = args.model_name
         os.environ["MODEL_VERSION"] = str(args.model_version)
 
@@ -390,18 +381,6 @@ def main() -> None:
         )
     if (args.model_name is None) != (args.model_version is None):
         parser.error("--model_name and --model_version must be provided together.")
-
-    # if args.model_manifest is not None:
-    #     from churn_mlops.tracking.manifest import TrainingManifest
-
-    #     model_manifest_file = settings.data_dir / args.model_manifest
-    #     manifest = TrainingManifest.read(model_manifest_file)
-    #     os.environ["MODEL_NAME"] = manifest.model_name
-    #     os.environ["MODEL_VERSION"] = str(manifest.model_version)
-
-    # if args.model_name is not None and args.model_version is not None:
-    #     os.environ["MODEL_NAME"] = args.model_name
-    #     os.environ["MODEL_VERSION"] = str(args.model_version)
 
     configure_model_environment(args=args, settings=settings)
 

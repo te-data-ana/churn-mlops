@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -176,6 +178,37 @@ def test_predictor_loads_once_per_api_lifetime(
     assert first_response.status_code == 200
     assert second_response.status_code == 200
     assert load_count == 1
+
+
+@pytest.mark.unit
+def test_api_loads_model_from_manifest_at_startup(
+    monkeypatch: pytest.MonkeyPatch,
+    mock_model_factory: Callable[..., LoadedModel],
+    tmp_path: Path,
+) -> None:
+    manifest = object()
+    settings = SimpleNamespace(
+        model_manifest=tmp_path / "manifest.json",
+        model_version=None,
+        prediction_log_path=tmp_path / "predictions.jsonl",
+        error_log_path=tmp_path / "errors.jsonl",
+        log_features=True,
+        request_id_header="X-Request-ID",
+    )
+    load = Mock(return_value=mock_model_factory())
+    monkeypatch.setattr(api, "ServingSettings", lambda: settings)
+    monkeypatch.setattr(
+        api.TrainingManifest,
+        "read",
+        Mock(return_value=manifest),
+    )
+    monkeypatch.setattr(api, "load_model", load)
+
+    with TestClient(api.app) as test_client:
+        ready_response = test_client.get("/ready")
+
+    assert ready_response.status_code == 200
+    load.assert_called_once_with(manifest=manifest)
 
 
 @pytest.mark.unit
