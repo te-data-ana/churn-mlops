@@ -21,7 +21,7 @@ from churn_mlops.training import TuningResult
         (["--no-register-model"], False),
     ],
 )
-def test_training_cli_parses_registration_and_calibration_overrides(
+def test_training_cli_parses_config_overrides(
     monkeypatch: pytest.MonkeyPatch,
     registration_args: list[str],
     expected_registration: bool,
@@ -42,11 +42,14 @@ def test_training_cli_parses_registration_and_calibration_overrides(
             *registration_args,
             "--calibration-method",
             "isotonic",
+            "--n-jobs",
+            "2",
         ]
     )
 
     assert training_job.call_args.kwargs["register_model"] is expected_registration
     assert training_job.call_args.kwargs["calibration_method"] == "isotonic"
+    assert training_job.call_args.kwargs["n_jobs"] == 2
 
 
 @pytest.mark.unit
@@ -71,6 +74,7 @@ def test_run_training_job_resolves_input_arguments(
         mlflow_experiment_name=configured_name,
     )
     config = SimpleNamespace(
+        n_jobs=1,
         data=SimpleNamespace(time_column="reference_date"),
         model=SimpleNamespace(classifier="lr"),
         threshold=SimpleNamespace(
@@ -116,6 +120,7 @@ def test_run_training_job_resolves_input_arguments(
     monkeypatch.setattr(train, "log_experiment_result", MagicMock())
     monkeypatch.setattr(train.mlflow, "get_experiment", MagicMock())
     monkeypatch.setattr(train.mlflow, "start_run", MagicMock(return_value=mlflow_run))
+    monkeypatch.setattr(train.mlflow, "log_param", MagicMock())
     monkeypatch.setattr(
         train.mlflow,
         "active_run",
@@ -151,7 +156,7 @@ def test_run_training_job_resolves_input_arguments(
 
 
 @pytest.mark.unit
-def test_run_training_job_overrides_calibration_and_writes_unregistered_manifest(
+def test_run_training_job_overrides_config_params_and_writes_unregistered_manifest(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     config_factory: Callable[..., TrainingConfig],
@@ -216,6 +221,7 @@ def test_run_training_job_overrides_calibration_and_writes_unregistered_manifest
     monkeypatch.setattr(train.mlflow, "get_experiment", MagicMock())
     monkeypatch.setattr(train.mlflow, "get_tracking_uri", MagicMock(return_value="uri"))
     monkeypatch.setattr(train.mlflow, "start_run", MagicMock(return_value=mlflow_run))
+    monkeypatch.setattr(train.mlflow, "log_param", MagicMock())
     monkeypatch.setattr(
         train.mlflow,
         "active_run",
@@ -230,10 +236,13 @@ def test_run_training_job_overrides_calibration_and_writes_unregistered_manifest
         split_name="temporal",
         register_model=False,
         calibration_method="isotonic",
+        n_jobs=3,
     )
 
     assert train_model_mock.call_args.kwargs["config"].calibration.method == "isotonic"
+    assert train_model_mock.call_args.kwargs["config"].n_jobs == 3
     assert config.calibration.method == "none"
+    assert config.n_jobs == 1
     from churn_mlops.tracking import TrainingManifest
 
     manifest = TrainingManifest.read(tmp_path / "manifests/lr_temporal.json")
@@ -251,6 +260,7 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = SimpleNamespace(
+        n_jobs=1,
         data=SimpleNamespace(time_column="reference_date"),
         model=SimpleNamespace(classifier="rf"),
         calibration=SimpleNamespace(method="sigmoid"),
@@ -328,6 +338,7 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
     monkeypatch.setattr(train, "log_experiment_result", MagicMock())
     monkeypatch.setattr(train.mlflow, "get_experiment", MagicMock())
     monkeypatch.setattr(train.mlflow, "start_run", MagicMock(return_value=mlflow_run))
+    monkeypatch.setattr(train.mlflow, "log_param", MagicMock())
     monkeypatch.setattr(
         train.mlflow,
         "active_run",
@@ -386,6 +397,7 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
     tmp_path: Path,
 ) -> None:
     config = SimpleNamespace(
+        n_jobs=1,
         data=SimpleNamespace(target_column="churn", time_column="reference_date"),
         model=SimpleNamespace(classifier="rf"),
         calibration=SimpleNamespace(method="sigmoid"),
@@ -467,6 +479,7 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
     monkeypatch.setattr(train.mlflow, "get_experiment", MagicMock())
     monkeypatch.setattr(train.mlflow, "get_tracking_uri", MagicMock(return_value="uri"))
     monkeypatch.setattr(train.mlflow, "start_run", MagicMock())
+    monkeypatch.setattr(train.mlflow, "log_param", MagicMock())
     monkeypatch.setattr(train.mlflow, "log_artifact", MagicMock())
     monkeypatch.setattr(
         train.mlflow,

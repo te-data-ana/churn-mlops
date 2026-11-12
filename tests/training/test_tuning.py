@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from dataclasses import replace
-from typing import Self
+from typing import Any, Self
 
 import numpy as np
 import optuna
@@ -95,12 +95,14 @@ def test_temporal_cv_splits_reject_missing_time_column(
 
 @pytest.mark.unit
 def test_optimize_hyperparameters_returns_reproducible_study_result(
+    monkeypatch: pytest.MonkeyPatch,
     config_factory: Callable[..., TrainingConfig],
     temporal_sample_training_df: pd.DataFrame,
 ) -> None:
     config: TrainingConfig = config_factory(classifier="dt")
     config = replace(
         config,
+        n_jobs=2,
         tuning=TuningConfig(
             enabled=True,
             n_trials=2,
@@ -109,6 +111,26 @@ def test_optimize_hyperparameters_returns_reproducible_study_result(
             random_state=13,
         ),
     )
+    study_optimize = optuna.study.Study.optimize
+    observed_outer_jobs: list[int] = []
+    observed_estimator_jobs: list[int] = []
+
+    def optimize_spy(
+        study: optuna.study.Study,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        observed_outer_jobs.append(kwargs["n_jobs"])
+        return study_optimize(study, *args, **kwargs)
+
+    create_model = tuning.create_model
+
+    def create_model_spy(**kwargs: Any) -> Any:
+        observed_estimator_jobs.append(kwargs["n_jobs"])
+        return create_model(**kwargs)
+
+    monkeypatch.setattr(optuna.study.Study, "optimize", optimize_spy)
+    monkeypatch.setattr(tuning, "create_model", create_model_spy)
     train_df = temporal_sample_training_df.copy()
 
     result = optimize_hyperparameters(config, train_df)
@@ -121,6 +143,9 @@ def test_optimize_hyperparameters_returns_reproducible_study_result(
     assert result.n_trials == 2
     assert result.n_splits == 2
     assert result.time_column == "reference_date"
+    assert observed_outer_jobs == [2]
+    assert observed_estimator_jobs
+    assert set(observed_estimator_jobs) == {1}
 
 
 @pytest.mark.unit

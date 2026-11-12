@@ -1,3 +1,5 @@
+from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -8,6 +10,7 @@ from churn_mlops.config.schemas import (
     DataConfig,
     PromotionConfig,
     ThresholdConfig,
+    TrainingConfig,
 )
 
 
@@ -53,6 +56,27 @@ def test_shipped_training_configs_have_valid_settings(
 
     assert config.calibration.method in {"none", "sigmoid", "isotonic"}
     assert sum(config.promotion.metric_weights.values()) > 0
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("n_jobs", [1, 2, -1])
+def test_training_config_accepts_supported_job_counts(
+    config_factory: Callable[..., TrainingConfig],
+    n_jobs: int,
+) -> None:
+    config = replace(config_factory(), n_jobs=n_jobs)
+
+    assert config.n_jobs == n_jobs
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("n_jobs", [0, -2, False, 1.5])
+def test_training_config_rejects_invalid_job_counts(
+    config_factory: Callable[..., TrainingConfig],
+    n_jobs: object,
+) -> None:
+    with pytest.raises(ValueError, match="n_jobs must be a positive integer or -1"):
+        replace(config_factory(), n_jobs=n_jobs)
 
 
 @pytest.mark.unit

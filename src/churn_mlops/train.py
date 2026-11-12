@@ -52,6 +52,7 @@ def run_training_job(
     register_model: bool | None = None,
     promote_model: bool | None = None,
     calibration_method: str | None = None,
+    n_jobs: int | None = None,
     write_manifest: bool = True,
 ) -> TrainingResult:
     """Run the configured training, tracking, registration, and promotion flow.
@@ -71,6 +72,7 @@ def run_training_job(
         promote_model: Optional override for alias updates and promotion.
         calibration_method: Optional override for the configured calibration
             method.
+        n_jobs: Optional override for the configured total CPU job budget.
         write_manifest: Boolean flag for writing manifest JSON file, which
             contains experiment details like run and registered model version
             (default: True).
@@ -111,6 +113,8 @@ def run_training_job(
                 config,
                 calibration=replace(config.calibration, method=calibration_method),
             )
+        if n_jobs is not None:
+            config = replace(config, n_jobs=n_jobs)
         classifier_alias = config.model.classifier
         threshold_strategy = config.threshold.strategy
 
@@ -195,6 +199,7 @@ def run_training_job(
                     "split_name": split_name,
                 }
             )
+            mlflow.log_param("n_jobs", config.n_jobs)
             try:
                 git_revision = subprocess.run(
                     ["git", "rev-parse", "HEAD"],

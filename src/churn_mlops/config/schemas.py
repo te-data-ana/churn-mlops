@@ -136,9 +136,15 @@ class TrainingConfig:
     model: ClassifierConfig
     data: DataConfig
     feature_builder: FeatureBuilderConfig
+    n_jobs: int = 1
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
     tuning: TuningConfig = field(default_factory=TuningConfig)
     calibration: CalibrationConfig = field(default_factory=CalibrationConfig)
     threshold: ThresholdConfig = field(default_factory=ThresholdConfig)
     registry: RegistryConfig = field(default_factory=RegistryConfig)
     promotion: PromotionConfig = field(default_factory=PromotionConfig)
+
+    def __post_init__(self) -> None:
+        """Validate the total parallel-job budget."""
+        if not isinstance(self.n_jobs, int) or self.n_jobs == 0 or self.n_jobs < -1:
+            raise ValueError("n_jobs must be a positive integer or -1.")

@@ -10,13 +10,16 @@ logger = logging.getLogger(__name__)
 
 
 def create_model(
-    model_alias: str, model_params: Mapping[str, Any] | None
+    model_alias: str,
+    model_params: Mapping[str, Any] | None,
+    n_jobs: int | None = None,
 ) -> tuple[BaseEstimator, dict[str, Any]]:
     """Create a catalogued classifier with merged default/model parameters.
 
     Args:
         model_alias: Key identifying the classifier in ``MODEL_CATALOG``.
         model_params: Parameter overrides applied on top of catalog defaults.
+        n_jobs: Optional job-count override for classifiers that support it.
 
     Returns:
         Tuple containing the configured classifier and its effective model
@@ -35,12 +38,15 @@ def create_model(
 
         catalog_entry = MODEL_CATALOG[model_alias]
         merged_params = catalog_entry["default_params"] | (model_params or {})
+        model = catalog_entry["clf"](**merged_params)
+        if n_jobs is not None and catalog_entry.get("supports_n_jobs", False):
+            model.set_params(n_jobs=n_jobs)
+            merged_params["n_jobs"] = n_jobs
         logger.info(
             "Creating model '%s' with effective params: %s",
             model_alias,
             merged_params,
         )
-        model = catalog_entry["clf"](**merged_params)
         model_name = catalog_entry["clf"].__name__
 
         model_config = {

@@ -76,6 +76,7 @@ stages:
       --experiment_name ${tracking.experiment_name}
       --register-model ${model.register_model}
       --calibration-method ${calibration.method}
+      --n-jobs ${training.n_jobs}
       --no-promote-model
     deps:
       - data/splits/${split.name}_test.parquet
@@ -89,6 +90,7 @@ stages:
       - model.classifier
       - model.register_model
       - model.exclude_columns
+      - training.n_jobs
       - calibration.method
       - split.name
       - tracking.experiment_name

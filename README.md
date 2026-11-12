@@ -127,6 +127,7 @@ uv run dvc exp run --name churn-12m-oot \
   --set-param 'split.split_date="2026-04-01"' \
   --set-param 'split.end_date="2026-06-30"' \
   --set-param model.classifier=lr \
+  --set-param training.n_jobs=4 \
   --set-param calibration.method=isotonic \
   --set-param model.register_model=true \
   --set-param tracking.experiment_name=churn-12m-oot
@@ -135,6 +136,10 @@ uv run dvc exp run --name churn-12m-oot \
 `model.classifier` selects `src/config/{classifier}.yaml`, so each classifier
 alias used by this pipeline must have a matching config file. The
 `calibration.method` parameter overrides the config's calibration method.
+`training.n_jobs` controls the total CPU job budget: use a positive integer or
+`-1` for all available CPUs. Only the outermost operation in each training
+phase uses this budget; nested estimator jobs remain at one to avoid
+oversubscription.
 Registration is enabled by default; set `model.register_model=false` to keep
 the run in MLflow without adding it to the model registry. The pipeline still
 scores that run's logged MLflow model artifact. Registered runs score the exact
@@ -461,6 +466,8 @@ preprocessing and classification.
 Example training configuration:
 
 ```yaml
+n_jobs: 1
+
 model:
   classifier: dc
   classifier_params:
@@ -510,6 +517,13 @@ promotion:
     brier_score: 0.2
     calibration_error: 0.2
 ```
+
+`n_jobs` is the total CPU job budget. It defaults to `1`, accepts positive
+integers, and uses `-1` to request all available CPUs. An explicit CLI
+`--n-jobs` value overrides the YAML setting. During tuning, trials run in
+parallel while individual estimators use one job; during calibration, folds
+run in parallel while inner estimators use one job. For uncalibrated fitting,
+the classifier uses the budget if it supports `n_jobs`.
 
 ### Calibration
 

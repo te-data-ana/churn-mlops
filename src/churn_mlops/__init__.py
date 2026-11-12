@@ -151,6 +151,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Override the calibration method in the training config.",
     )
     train_parser.add_argument(
+        "--n-jobs",
+        type=int,
+        help=(
+            "Override the total CPU job budget in the training config "
+            "(positive integer or -1 for all available CPUs)."
+        ),
+    )
+    train_parser.add_argument(
         "--promote-model",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -443,6 +451,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "register_model": args.register_model,
             "promote_model": args.promote_model,
             "calibration_method": args.calibration_method,
+            "n_jobs": args.n_jobs,
         }
         training_kwargs.update(
             {key: value for key, value in optional_kwargs.items() if value is not None}

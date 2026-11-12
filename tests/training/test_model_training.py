@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Literal
 from unittest.mock import Mock
 
@@ -136,7 +137,7 @@ def test_train_fits_time_aware_calibrated_classifier(
     config_factory: Callable[..., TrainingConfig],
     sample_training_df: pd.DataFrame,
 ) -> None:
-    config = config_factory(classifier="lr")
+    config = replace(config_factory(classifier="rf"), n_jobs=2)
     config.calibration.method = method
     train_df = pd.concat([sample_training_df] * 8, ignore_index=True)
     train_df["reference_date"] = pd.date_range(
@@ -151,9 +152,32 @@ def test_train_fits_time_aware_calibrated_classifier(
     )
 
     assert isinstance(result.trained_pipeline, CalibratedClassifierCV)
+    assert result.trained_pipeline.n_jobs == 2
+    assert (
+        result.trained_pipeline.calibrated_classifiers_[0]
+        .estimator.named_steps["classifier"]
+        .n_jobs
+        == 1
+    )
     assert config.calibration.method == method
     assert 0 <= result.threshold <= 1
     assert 0 <= result.metrics["calibration_error"] <= 1
+
+
+@pytest.mark.unit
+def test_train_uses_job_budget_for_uncalibrated_classifier(
+    config_factory: Callable[..., TrainingConfig],
+    temporal_sample_training_df: pd.DataFrame,
+) -> None:
+    config = replace(config_factory(classifier="rf"), n_jobs=2)
+    train_df = temporal_sample_training_df.iloc[:6]
+    test_df = temporal_sample_training_df.iloc[6:]
+
+    result = train_model(config, train_df, test_df)
+
+    classifier = result.trained_pipeline.named_steps["classifier"]
+    assert classifier.n_jobs == 2
+    assert result.classifier_config["n_jobs"] == 2
 
 
 @pytest.mark.unit

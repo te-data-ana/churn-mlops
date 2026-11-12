@@ -4,9 +4,11 @@ from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
+from joblib import effective_n_jobs
 from matplotlib.figure import Figure
 from sklearn.base import BaseEstimator
 from sklearn.calibration import CalibratedClassifierCV
+from threadpoolctl import threadpool_limits
 
 from churn_mlops.config.schemas import TrainingConfig
 from churn_mlops.evaluation import (
@@ -15,7 +17,11 @@ from churn_mlops.evaluation import (
     reliability_diagram,
     select_f1_threshold,
 )
-from churn_mlops.models import build_classifier_pipeline, create_model
+from churn_mlops.models import (
+    MODEL_CATALOG,
+    build_classifier_pipeline,
+    create_model,
+)
 from churn_mlops.training.calibration import fit_estimator_with_calibration
 
 
@@ -86,6 +92,7 @@ def train_model(
             model_params=(
                 config.model.classifier_params | (model_params_override or {})
             ),
+            n_jobs=(config.n_jobs if config.calibration.method == "none" else 1),
         )
         logger.info(
             "Using classifier '%s' with params %s.",
@@ -100,7 +107,13 @@ def train_model(
             cat_impute_strategy=config.preprocessing.categorical_impute_strategy,
         )
 
-        with Timer() as fit_timer:
+        thread_limit = (
+            1
+            if config.calibration.method != "none"
+            or MODEL_CATALOG[config.model.classifier].get("supports_n_jobs", False)
+            else effective_n_jobs(config.n_jobs)
+        )
+        with threadpool_limits(limits=thread_limit), Timer() as fit_timer:
             trained_model = fit_estimator_with_calibration(
                 estimator=model_pipeline,
                 train_df=train_df,
@@ -109,6 +122,7 @@ def train_model(
                 exclude_columns=exclude_columns,
                 method=config.calibration.method,
                 n_splits=config.calibration.n_splits,
+                n_jobs=config.n_jobs,
             )
         logger.info("Model pipeline fit completed in %.3f seconds.", fit_timer.duration)
 
