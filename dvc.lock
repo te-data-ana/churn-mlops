@@ -174,8 +174,8 @@ stages:
       size: 1581
     - path: src/churn_mlops
       hash: md5
-      md5: 50b85b6814c21a2e32d5db7e343df1f9.dir
-      size: 680751
+      md5: e328cf59cb65f9c204240180715ee9c5.dir
+      size: 693995
       nfiles: 135
     - path: src/config/lr.yaml
       hash: md5
@@ -194,10 +194,11 @@ stages:
         split.name: OOT_26Q2
         tracking.experiment_name: 12m-oot-26q2
     outs:
-    - path: data/manifests/lr_OOT_26Q2.json
+    - path: data/manifests
       hash: md5
-      md5: d23516c67f3659bd078b50da3c20a88f
-      size: 2213
+      md5: 9944dbb3b4c88ca98b05cc53853d2000.dir
+      size: 2797
+      nfiles: 1
   batch_predict_oot:
     cmd: uv run churn-mlops batch-predict --input_dataset
       splits/OOT_26Q2_test.parquet --output_dataset predictions/lr_OOT_26Q2
@@ -205,8 +206,8 @@ stages:
     deps:
     - path: data/manifests/lr_OOT_26Q2.json
       hash: md5
-      md5: d23516c67f3659bd078b50da3c20a88f
-      size: 2213
+      md5: 8d9947c6fe81042e8b72b33c13f54720
+      size: 2797
     - path: data/splits/OOT_26Q2_test.parquet
       hash: md5
       md5: 68d34592cd4c1004454590a36660f546
@@ -217,8 +218,8 @@ stages:
       size: 1581
     - path: src/churn_mlops
       hash: md5
-      md5: 50b85b6814c21a2e32d5db7e343df1f9.dir
-      size: 680751
+      md5: e328cf59cb65f9c204240180715ee9c5.dir
+      size: 693995
       nfiles: 135
     - path: uv.lock
       hash: md5
@@ -229,8 +230,8 @@ stages:
         model.classifier: lr
         split.name: OOT_26Q2
     outs:
-    - path: data/predictions/lr_OOT_26Q2
+    - path: data/predictions
       hash: md5
-      md5: 34432e34bcfc372bb8c65b7cc1a89949.dir
+      md5: 5c62861e4a3dd8a2a56e79dcc7fcd8e7.dir
       size: 741044
       nfiles: 3

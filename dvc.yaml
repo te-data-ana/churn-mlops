@@ -93,7 +93,8 @@ stages:
       - split.name
       - tracking.experiment_name
     outs:
-      - data/manifests/${model.classifier}_${split.name}.json
+      - data/manifests:
+          persist: true
   batch_predict_oot:
     cmd: >-
       uv run churn-mlops batch-predict
@@ -110,4 +111,5 @@ stages:
       - model.classifier
       - split.name
     outs:
-      - data/predictions/${model.classifier}_${split.name}
+      - data/predictions:
+          persist: true

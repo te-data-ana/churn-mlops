@@ -92,6 +92,11 @@ the held-out cohort. Registration is controlled by a DVC parameter. DVC tracks
 stage inputs and outputs; MLflow stores runs, metrics, model artifacts, and
 registered versions.
 Optuna tuning, when enabled in the training config, runs as part of training.
+The `data/manifests` and `data/predictions` directories are persistent DVC
+outputs, so results for different `{classifier}_{split}` combinations remain
+available after subsequent experiments. Repeating a combination reuses its
+manifest and prediction paths; it does not create a separate archive for each
+run.
 
 The checked-in [params.yaml](params.yaml) configures `OOT_26Q2`: training from
 2025-04-01 through 2026-03-31 and testing from 2026-04-01 through 2026-06-30,
