@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from dataclasses import replace
 from typing import Literal
@@ -41,7 +42,9 @@ def test_train_returns_valid_result_for_supported_classifier(
     classifier: Literal["lr", "dt", "rf", "hgb"],
     config_factory: Callable[..., TrainingConfig],
     temporal_sample_training_df: pd.DataFrame,
+    caplog: pytest.LogCaptureFixture,
 ):
+    caplog.set_level(logging.INFO)
     cfg = config_factory(classifier=classifier)
     train_df = temporal_sample_training_df.iloc[:6]
     test_df = temporal_sample_training_df.iloc[6:]
@@ -50,6 +53,19 @@ def test_train_returns_valid_result_for_supported_classifier(
     assert_training_result(result)
 
     assert len(result.feature_names_out) > len(result.feature_names_in)
+    log_messages = [
+        "Prepared training data:",
+        "Starting model fit",
+        "Model pipeline fit completed",
+        "Prediction on test set completed",
+        "Selecting decision threshold",
+        "Selected decision threshold",
+        "Evaluating model on out-of-time test data",
+        "Evaluation metrics:",
+        "Prepared calibration reliability diagram",
+    ]
+    log_positions = [caplog.text.index(message) for message in log_messages]
+    assert log_positions == sorted(log_positions)
 
 
 @pytest.mark.unit

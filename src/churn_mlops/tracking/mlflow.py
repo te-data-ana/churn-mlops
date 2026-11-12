@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -9,6 +10,8 @@ from mlflow.exceptions import MlflowException
 from mlflow.models.model import ModelInfo
 
 from churn_mlops.config.settings import RuntimeSettings
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from churn_mlops.config.schemas import TrainingConfig
@@ -74,6 +77,7 @@ def log_experiment_result(
         MLflow model metadata for the logged scikit-learn model.
     """
 
+    logger.info("Logging training parameters and tags to MLflow.")
     # log all parameters required for reproducibility
     # log classifier and its hyper-parameters
     mlflow.log_params(result.classifier_config)
@@ -126,15 +130,15 @@ def log_experiment_result(
     )
     # mlflow.log_param("feature_count", len(result.feature_names_out))
 
-    # log all model metrics
+    logger.info("Logging evaluation metrics to MLflow: %s.", result.metrics)
     mlflow.log_metrics(result.metrics)
-    # log figures for model evaluation
+    logger.info("Logging calibration reliability diagram to MLflow.")
     mlflow.log_figure(
         result.calibration_figure,
         artifact_file="calibration/reliability_diagram.png",
     )
 
-    # log trained model pipeline artifact
+    logger.info("Logging fitted model pipeline to MLflow.")
     model_info = mlflow.sklearn.log_model(
         result.trained_pipeline,
         name="model",
@@ -150,8 +154,9 @@ def log_experiment_result(
             "sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor",
         ],
     )
+    logger.info("Logged fitted model pipeline at '%s'.", model_info.model_uri)
 
-    # log full config file as artifact
+    logger.info("Logging training configuration artifact '%s'.", config_file_path)
     mlflow.log_artifact(config_file_path, artifact_path="config")
 
     return model_info

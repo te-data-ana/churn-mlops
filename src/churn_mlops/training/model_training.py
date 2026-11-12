@@ -80,10 +80,12 @@ def train_model(
         if y_train.nunique() != 2:
             raise ValueError("Training data must contain both target classes.")
         logger.info(
-            "Starting training using prepared train/test split with %d "
-            "train rows and %d test rows for target '%s'.",
-            len(train_df),
-            len(test_df),
+            "Prepared training data: %d rows and %d features; out-of-time test "
+            "data: %d rows and %d features (target '%s').",
+            len(X_train),
+            X_train.shape[1],
+            len(X_test),
+            X_test.shape[1],
             target_column,
         )
 
@@ -106,6 +108,11 @@ def train_model(
             num_impute_strategy=config.preprocessing.numeric_impute_strategy,
             cat_impute_strategy=config.preprocessing.categorical_impute_strategy,
         )
+        logger.info(
+            "Starting model fit for classifier '%s' with calibration method '%s'.",
+            config.model.classifier,
+            config.calibration.method,
+        )
 
         thread_limit = (
             1
@@ -126,30 +133,6 @@ def train_model(
             )
         logger.info("Model pipeline fit completed in %.3f seconds.", fit_timer.duration)
 
-        with Timer() as pred_timer:
-            y_proba = trained_model.predict_proba(X_test)[:, 1]
-        logger.info(
-            "Prediction on test set completed in %.3f seconds.", pred_timer.duration
-        )
-
-        # Threshold and evaluation metrics are calcualted on out-of-time test data
-        threshold = select_f1_threshold(y_test, y_proba)
-        logger.info(
-            "Selected threshold %.6f using %s on out-of-time test data.",
-            threshold,
-            config.threshold.strategy,
-        )
-
-        metrics = evaluate_model(
-            y_true=y_test,
-            y_prob=y_proba,
-            threshold=threshold,
-            calibration_bins=config.calibration.n_bins,
-            fit_time_sec=fit_timer.duration,
-            pred_time_sec=pred_timer.duration,
-        )
-        logger.info("Evaluation metrics: %s", vars(metrics))
-
         fitted_base_pipeline = (
             trained_model.calibrated_classifiers_[0].estimator
             if isinstance(trained_model, CalibratedClassifierCV)
@@ -160,10 +143,46 @@ def train_model(
             .get_feature_names_out()
             .tolist()
         )
+        logger.info(
+            "With %d input features resulting in a total of %d transformed features.",
+            len(X_train.columns),
+            len(feature_names_out),
+        )
+
+        with Timer() as pred_timer:
+            y_proba = trained_model.predict_proba(X_test)[:, 1]
+        logger.info(
+            "Prediction on test set completed in %.3f seconds.", pred_timer.duration
+        )
+
+        logger.info(
+            "Selecting decision threshold with strategy '%s' on out-of-time test data.",
+            config.threshold.strategy,
+        )
+        threshold = select_f1_threshold(y_test, y_proba)
+        logger.info(
+            "Selected decision threshold %.6f.",
+            threshold,
+        )
+
+        logger.info("Evaluating model on out-of-time test data.")
+        metrics = evaluate_model(
+            y_true=y_test,
+            y_prob=y_proba,
+            threshold=threshold,
+            calibration_bins=config.calibration.n_bins,
+            fit_time_sec=fit_timer.duration,
+            pred_time_sec=pred_timer.duration,
+        )
+        logger.info("Evaluation metrics: %s", vars(metrics))
         calibration_figure = reliability_diagram(
             y_test,
             y_proba,
             n_bins=config.calibration.n_bins,
+        )
+        logger.info(
+            "Prepared calibration reliability diagram with %d bins.",
+            config.calibration.n_bins,
         )
         return TrainingResult(
             trained_pipeline=trained_model,

@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -60,7 +61,9 @@ def test_log_experiment_result_logs_metrics_parameters_model_and_artifacts(
     sample_config_yaml: Path,
     mock_training_result: TrainingResult,
     config_factory: Callable[..., TrainingConfig],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.INFO)
 
     # Mock MLflow logging components and verify each category is logged (at least) once.
     mock_log_metrics = MagicMock()
@@ -100,6 +103,11 @@ def test_log_experiment_result_logs_metrics_parameters_model_and_artifacts(
     mock_log_model.assert_called_once()
     mock_log_figure.assert_called_once()
     assert mock_log_artifact.call_count >= 1
+    assert "Logging training parameters and tags to MLflow." in caplog.text
+    assert "Logging evaluation metrics to MLflow:" in caplog.text
+    assert "Logging calibration reliability diagram to MLflow." in caplog.text
+    assert "Logging fitted model pipeline to MLflow." in caplog.text
+    assert "Logging training configuration artifact" in caplog.text
 
 
 @pytest.mark.integration

@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
@@ -65,7 +66,9 @@ def test_run_training_job_resolves_input_arguments(
     provided_name: str | None,
     configured_name: str,
     expected_name: str,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.INFO)
     settings = SimpleNamespace(
         config_dir=Path("config"),
         data_dir=Path("data"),
@@ -113,6 +116,7 @@ def test_run_training_job_resolves_input_arguments(
     assert get_active_run() is None
 
     monkeypatch.setattr(train, "RuntimeSettings", lambda: settings)
+    monkeypatch.setattr(train, "configure_logging", lambda: None)
     monkeypatch.setattr(train, "load_config", lambda **_: (config, Path(config_file)))
     monkeypatch.setattr(train, "load_and_validate_training_splits", load_splits)
     monkeypatch.setattr(train, "train_model", train_model_mock)
@@ -153,6 +157,20 @@ def test_run_training_job_resolves_input_arguments(
         test_df=load_splits.return_value[1],
         exclude_columns=["customerid"],
     )
+    log_messages = [
+        "Loaded training configuration",
+        "MLflow experiment",
+        "MLflow artifact location",
+        "Loaded validated split",
+        "Starting MLflow run",
+        "Started MLflow run",
+        "Hyperparameter tuning is disabled",
+        "Training results logged to MLflow",
+        "Model registration is disabled; skipping registry and promotion steps",
+        "Training job completed",
+    ]
+    log_positions = [caplog.text.index(message) for message in log_messages]
+    assert log_positions == sorted(log_positions)
 
 
 @pytest.mark.unit
@@ -201,7 +219,7 @@ def test_run_training_job_overrides_config_params_and_writes_unregistered_manife
     monkeypatch.setattr(
         train,
         "load_and_validate_training_splits",
-        MagicMock(return_value=(None, None)),
+        MagicMock(return_value=(pd.DataFrame(), pd.DataFrame())),
     )
     monkeypatch.setattr(train, "train_model", train_model_mock)
     monkeypatch.setattr(train, "setup_local_experiment", MagicMock(return_value="exp"))
@@ -464,7 +482,9 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
         train, "load_config", lambda **_: (config, tmp_path / config_file)
     )
     monkeypatch.setattr(
-        train, "load_and_validate_training_splits", MagicMock(return_value=(None, None))
+        train,
+        "load_and_validate_training_splits",
+        MagicMock(return_value=(pd.DataFrame(), pd.DataFrame())),
     )
     monkeypatch.setattr(train, "train_model", MagicMock(return_value=training_result))
     monkeypatch.setattr(train, "setup_local_experiment", MagicMock(return_value="exp"))
