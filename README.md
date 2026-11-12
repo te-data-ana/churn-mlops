@@ -527,7 +527,8 @@ the classifier uses the budget if it supports `n_jobs`.
 
 ### Calibration
 
-Calibration is configurable per run as `none`, `sigmoid` (Platt scaling), or `isotonic`. For calibrated runs, `CalibratedClassifierCV` uses expanding
+Calibration is configurable per run as `none`, `sigmoid` (Platt scaling), or
+`isotonic`. For calibrated runs, `CalibratedClassifierCV` uses expanding
 historical folds: each calibration fold is later than the fold's model-fitting
 data. To compare calibration approaches, run separate experiments with the same
 data and classifier while changing `calibration.method`.
@@ -585,6 +586,53 @@ MLflow runs also include a Markdown model card with model, data, feature,
 evaluation, and promotion details, including calibration method, calibration
 error, optimal threshold, and threshold-selection strategy. See the
 [tracking package](src/churn_mlops/tracking).
+
+### MLflow logged artifacts and run metadata
+
+MLflow run metadata (metrics, parameters, and tags) is separate from files and
+models logged to the run. Training runs log evaluation metrics and training
+parameters such as classifier, feature, calibration, and threshold settings.
+They also include tags for calibration, threshold-data source, and feature
+count. Logged files and models include:
+
+| Training artifact | MLflow location or details |
+| --- | --- |
+| Fitted scikit-learn pipeline | Logged model named `model`; the manifest records its logged-model URI |
+| Training configuration | `config/` |
+| Reliability diagram | `calibration/reliability_diagram.png` |
+| Training manifest JSON | `manifest/` when manifest writing is enabled (enabled by default) |
+| Markdown model card | `documentation/` |
+
+When `monitor` is run with `--mlflow_experiment_name` or `--run_name` (as in the
+DVC monitoring pipeline), it logs the summary CSV under `monitoring/` and adds
+tags describing its input cohorts and, when available, the model. The command
+also writes its report under `OUTPUT_DIR`.
+
+The DVC pipeline for reproducible training experiments on the contrary, writes
+separate manifests and predictions under `data/manifests` and `data/predictions`.
+The local manifests can be used for scoring and serving. As indicated above,
+each manifest is also logged under along with its MLflow run.
+
+To browse run metadata and artifacts, start the MLflow UI using the tracking
+database path configured for this project (replace it if `TRACKING_DIR` or
+`MLFLOW_TRACKING_URI` is overridden), then open the run's **Artifacts** view:
+
+```bash
+uv run mlflow ui --backend-store-uri sqlite:///tracking_local/mlflow.db
+```
+
+The UI is available at <http://127.0.0.1:5000> by default. To list files
+directly from a run instead, set the tracking URI to the project's database:
+
+```bash
+MLFLOW_TRACKING_URI=sqlite:///tracking_local/mlflow.db \
+  uv run mlflow artifacts list --run-id RUN_ID
+```
+
+The tracking database and artifact files are separate local state. Preserve or
+share both the database in `TRACKING_DIR` and files in `ARTIFACT_DIR` to retain
+run metadata and artifacts across machines; sharing only one does not provide
+a complete MLflow history.
 
 ## Runtime configuration
 
