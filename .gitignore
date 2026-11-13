@@ -52,3 +52,7 @@ tracking_local/mlflow.db
 # Logs
 logs/
 logs_local/
+
+# License compliance
+license-report.json
+!license-policy.json
