@@ -712,7 +712,8 @@ def build_monitoring_report(
         drop=True
     )
 
-    summary = summary.round(4)
+    numeric_columns = summary.select_dtypes(include="number").columns
+    summary[numeric_columns] = summary[numeric_columns].round(4)
 
     summary_path = None
     if output_dir is not None:

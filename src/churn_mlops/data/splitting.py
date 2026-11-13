@@ -61,7 +61,7 @@ def load_and_validate_training_splits(
         columns_to_drop = (
             ["reference_date"] if "reference_date" not in preserved_columns else []
         )
-        df.drop(columns=columns_to_drop, errors="ignore", inplace=True)
+        df = df.drop(columns=columns_to_drop, errors="ignore")
         split_data[split] = validate_data(df.convert_dtypes())
 
     return split_data["train"], split_data["test"]

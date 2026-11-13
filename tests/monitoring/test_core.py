@@ -1,3 +1,4 @@
+import warnings
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -352,17 +353,24 @@ def test_build_monitoring_report_generates_summary_and_csv(
     )
     monkeypatch.setattr(core.nml, "UnivariateDriftCalculator", _FakeDriftCalculator)
 
-    report = core.build_monitoring_report(
-        reference=valid_reference_frame,
-        analysis=valid_analysis_frame,
-        source_reference="batch",
-        source_analysis="batch",
-        drift=True,
-        output_dir=tmp_path,
-    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "error",
+            message="obj.round has no effect with datetime",
+            category=UserWarning,
+        )
+        report = core.build_monitoring_report(
+            reference=valid_reference_frame,
+            analysis=valid_analysis_frame,
+            source_reference="batch",
+            source_analysis="batch",
+            drift=True,
+            output_dir=tmp_path,
+        )
 
     assert isinstance(report, core.MonitoringReport)
     assert not report.summary.empty
+    assert report.summary[core.TIMESTAMP_COLUMN].dtype.kind == "M"
     assert report.summary_path is not None
     assert report.summary_path.exists()
     assert list(report.summary.columns)[:4] == [
