@@ -400,6 +400,7 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
             "tuning_enabled": "true",
             "tuning_n_trials": 3,
             "tuning_n_splits": 2,
+            "tuning_n_jobs": 1,
             "tuning_time_column": "reference_date",
             "tuning_metric": "roc_auc",
             "tuning_random_state": 19,

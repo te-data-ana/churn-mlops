@@ -12,12 +12,12 @@ stages:
       isexec: true
     - path: pyproject.toml
       hash: md5
-      md5: 568f4d95af0f79877a16fb4b76eaf6c4
+      md5: d8c807776963332de2dc616c2e10b7c2
       size: 1581
     - path: src/churn_mlops/config
       hash: md5
-      md5: 727ca43a4139f10d08d46b801b5587e9.dir
-      size: 38795
+      md5: ba73ecddde316fec48c9fae12650ec6e.dir
+      size: 39643
       nfiles: 15
     - path: src/churn_mlops/data
       hash: md5
@@ -26,7 +26,7 @@ stages:
       nfiles: 26
     - path: uv.lock
       hash: md5
-      md5: 0ed20532f4e733b208670d87f655ed03
+      md5: 0d468131c55bf3769c82bf485a90e5b4
       size: 380961
     outs:
     - path: data/raw/training.csv
@@ -45,12 +45,12 @@ stages:
       isexec: true
     - path: pyproject.toml
       hash: md5
-      md5: 568f4d95af0f79877a16fb4b76eaf6c4
+      md5: d8c807776963332de2dc616c2e10b7c2
       size: 1581
     - path: src/churn_mlops/config
       hash: md5
-      md5: 727ca43a4139f10d08d46b801b5587e9.dir
-      size: 38795
+      md5: ba73ecddde316fec48c9fae12650ec6e.dir
+      size: 39643
       nfiles: 15
     - path: src/churn_mlops/data
       hash: md5
@@ -59,7 +59,7 @@ stages:
       nfiles: 26
     - path: uv.lock
       hash: md5
-      md5: 0ed20532f4e733b208670d87f655ed03
+      md5: 0d468131c55bf3769c82bf485a90e5b4
       size: 380961
     outs:
     - path: data/raw/inference.csv
@@ -81,12 +81,12 @@ stages:
       size: 28260531
     - path: pyproject.toml
       hash: md5
-      md5: 568f4d95af0f79877a16fb4b76eaf6c4
+      md5: d8c807776963332de2dc616c2e10b7c2
       size: 1581
     - path: src/churn_mlops/config
       hash: md5
-      md5: 727ca43a4139f10d08d46b801b5587e9.dir
-      size: 38795
+      md5: ba73ecddde316fec48c9fae12650ec6e.dir
+      size: 39643
       nfiles: 15
     - path: src/churn_mlops/data
       hash: md5
@@ -95,12 +95,12 @@ stages:
       nfiles: 26
     - path: uv.lock
       hash: md5
-      md5: 0ed20532f4e733b208670d87f655ed03
+      md5: 0d468131c55bf3769c82bf485a90e5b4
       size: 380961
     outs:
     - path: data/partitioned
       hash: md5
-      md5: 9f631066402e51c32f4d0e02d2ed172c.dir
+      md5: 7aa3558afe79ebb1485ef77e6d820977.dir
       size: 9453558
       nfiles: 42
   create_oot_split:
@@ -110,17 +110,17 @@ stages:
     deps:
     - path: data/partitioned
       hash: md5
-      md5: 9f631066402e51c32f4d0e02d2ed172c.dir
+      md5: 7aa3558afe79ebb1485ef77e6d820977.dir
       size: 9453558
       nfiles: 42
     - path: pyproject.toml
       hash: md5
-      md5: 568f4d95af0f79877a16fb4b76eaf6c4
+      md5: d8c807776963332de2dc616c2e10b7c2
       size: 1581
     - path: src/churn_mlops/config
       hash: md5
-      md5: 727ca43a4139f10d08d46b801b5587e9.dir
-      size: 38795
+      md5: ba73ecddde316fec48c9fae12650ec6e.dir
+      size: 39643
       nfiles: 15
     - path: src/churn_mlops/data
       hash: md5
@@ -129,7 +129,7 @@ stages:
       nfiles: 26
     - path: uv.lock
       hash: md5
-      md5: 0ed20532f4e733b208670d87f655ed03
+      md5: 0d468131c55bf3769c82bf485a90e5b4
       size: 380961
     params:
       params.yaml:
@@ -152,9 +152,10 @@ stages:
       md5: d342ef3d1c668f39289fd24497f025f7
       size: 1966768
   train_model:
-    cmd: uv run churn-mlops train --config lr.yaml --split_name OOT_26Q2
+    cmd: uv run churn-mlops train --config hgb.yaml --split_name OOT_26Q2
       --exclude-columns customerid --experiment_name 12m-oot-26q2
-      --register-model false --calibration-method sigmoid --no-promote-model
+      --register-model false --calibration-method sigmoid --n-jobs 16
+      --no-promote-model
     deps:
     - path: data/splits/OOT_26Q2.json
       hash: md5
@@ -170,68 +171,69 @@ stages:
       size: 1966768
     - path: pyproject.toml
       hash: md5
-      md5: 568f4d95af0f79877a16fb4b76eaf6c4
+      md5: d8c807776963332de2dc616c2e10b7c2
       size: 1581
     - path: src/churn_mlops
       hash: md5
-      md5: e328cf59cb65f9c204240180715ee9c5.dir
-      size: 693995
+      md5: 976d89b1cb5a537e36096dbf7fdfa8a8.dir
+      size: 704869
       nfiles: 135
-    - path: src/config/lr.yaml
+    - path: src/config/hgb.yaml
       hash: md5
-      md5: 17e2145a20fa26aafd27a79a34cc1444
-      size: 781
+      md5: cb3c617affeb1c37861728a6d15057c8
+      size: 775
     - path: uv.lock
       hash: md5
-      md5: 0ed20532f4e733b208670d87f655ed03
+      md5: 0d468131c55bf3769c82bf485a90e5b4
       size: 380961
     params:
       params.yaml:
         calibration.method: sigmoid
-        model.classifier: lr
+        model.classifier: hgb
         model.exclude_columns: customerid
         model.register_model: false
         split.name: OOT_26Q2
         tracking.experiment_name: 12m-oot-26q2
+        training.n_jobs: 16
     outs:
     - path: data/manifests
       hash: md5
-      md5: 9944dbb3b4c88ca98b05cc53853d2000.dir
-      size: 2797
-      nfiles: 1
+      md5: 92c34ddb48783a22d977341a3ffa5416.dir
+      size: 16770
+      nfiles: 6
   batch_predict_oot:
     cmd: uv run churn-mlops batch-predict --input_dataset
-      splits/OOT_26Q2_test.parquet --output_dataset predictions/lr_OOT_26Q2
-      --model_manifest manifests/lr_OOT_26Q2.json
+      splits/OOT_26Q2_test.parquet --output_dataset predictions/hgb_OOT_26Q2
+      --model_manifest manifests/hgb_OOT_26Q2.json
     deps:
-    - path: data/manifests/lr_OOT_26Q2.json
+    - path: data/manifests/hgb_OOT_26Q2.json
       hash: md5
-      md5: 8d9947c6fe81042e8b72b33c13f54720
-      size: 2797
+      md5: ab66adc2f8c53604d986ba9dbe928386
+      size: 2810
     - path: data/splits/OOT_26Q2_test.parquet
       hash: md5
       md5: 68d34592cd4c1004454590a36660f546
       size: 394426
     - path: pyproject.toml
       hash: md5
-      md5: 568f4d95af0f79877a16fb4b76eaf6c4
+      md5: d8c807776963332de2dc616c2e10b7c2
       size: 1581
     - path: src/churn_mlops
       hash: md5
-      md5: e328cf59cb65f9c204240180715ee9c5.dir
-      size: 693995
+      md5: 976d89b1cb5a537e36096dbf7fdfa8a8.dir
+      size: 704869
       nfiles: 135
     - path: uv.lock
       hash: md5
-      md5: 0ed20532f4e733b208670d87f655ed03
+      md5: 0d468131c55bf3769c82bf485a90e5b4
       size: 380961
     params:
       params.yaml:
-        model.classifier: lr
+        model.classifier: hgb
         split.name: OOT_26Q2
     outs:
     - path: data/predictions
       hash: md5
-      md5: 5c62861e4a3dd8a2a56e79dcc7fcd8e7.dir
-      size: 741044
-      nfiles: 3
+      md5: 16076e0b33e8c18498895c50626636b7.dir
+      size: 3694026
+      nfiles: 18

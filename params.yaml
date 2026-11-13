@@ -5,12 +5,12 @@ split:
   end_date: '2026-06-30'
 
 model:
-  classifier: lr
+  classifier: hgb
   register_model: false
   exclude_columns: customerid
 
 training:
-  n_jobs: 1
+  n_jobs: 16
 
 calibration:
   method: sigmoid

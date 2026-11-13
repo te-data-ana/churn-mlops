@@ -218,7 +218,6 @@ def run_training_job(
                     "split_name": split_name,
                 }
             )
-            mlflow.log_param("n_jobs", config.n_jobs)
             try:
                 git_revision = subprocess.run(
                     ["git", "rev-parse", "HEAD"],
@@ -263,6 +262,7 @@ def run_training_job(
                         "tuning_enabled": "true",
                         "tuning_n_trials": tuning_result.n_trials,
                         "tuning_n_splits": tuning_result.n_splits,
+                        "tuning_n_jobs": config.n_jobs,
                         "tuning_time_column": tuning_result.time_column,
                         "tuning_metric": tuning_result.metric,
                         "tuning_random_state": tuning_result.random_state,
