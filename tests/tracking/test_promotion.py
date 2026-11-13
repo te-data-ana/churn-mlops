@@ -128,8 +128,8 @@ def test_promote_candidate_first_champion() -> None:
 
     registry.set_alias.assert_called_once_with(
         model_name="my_model",
-        alias="champion",
-        version=1,
+        model_alias="champion",
+        model_version=1,
     )
 
 
@@ -156,13 +156,13 @@ def test_promote_candidate_replaces_champion() -> None:
     assert registry.set_alias.call_args_list == [
         call(
             model_name="my_model",
-            alias="former_champion",
-            version=2,
+            model_alias="former_champion",
+            model_version=2,
         ),
         call(
             model_name="my_model",
-            alias="champion",
-            version=4,
+            model_alias="champion",
+            model_version=4,
         ),
     ]
 

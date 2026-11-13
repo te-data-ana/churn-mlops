@@ -22,7 +22,16 @@ from churn_mlops.config.schemas import (
     TrainingConfig,
 )
 from churn_mlops.evaluation import metrics
-from churn_mlops.tracking.manifest import TrainingManifest
+from churn_mlops.tracking.manifest import (
+    LoggedModelReference,
+    ManifestData,
+    ManifestEvaluation,
+    ManifestLifecycle,
+    ManifestModel,
+    ManifestRun,
+    ManifestTraining,
+    TrainingManifest,
+)
 
 
 @pytest.fixture
@@ -38,31 +47,51 @@ def training_manifest_factory() -> Callable[..., TrainingManifest]:
         )
 
         return TrainingManifest(
-            run_id="run-123",
-            run_name="rf__oot_26q1",
-            model_name="churn-risk",
-            model_version=4,
-            target_column="churn",
-            classifier_name="clf_name",
-            classifier_alias="clf_alias",
-            split_name="oot_26q1",
-            split_metadata={
-                "train_rows": 100,
-                "test_rows": 25,
-                "train_start": "2025-01-01T00:00:00",
-                "train_end": "2025-12-31T00:00:00",
-                "test_start": "2026-01-01T00:00:00",
-                "test_end": "2026-03-31T00:00:00",
-            },
-            feature_count=2,
-            feature_names_in=["feature_in_1", "feature_in_2"],
-            feature_names_out=["feature_out_1", "feature_out_2"],
-            calibration="none",
-            threshold_strategy="max_f1",
-            threshold_data="out_of_time_test",
-            threshold=0.5,
-            metrics=vars(evaluation),
-            promotion_decision=promotion_decision or {},
+            run=ManifestRun(
+                run_id="run-123",
+                run_name="rf__oot_26q1",
+            ),
+            model=ManifestModel(
+                model_name="churn-risk",
+                model_version=4,
+                model_reference=LoggedModelReference(
+                    model_uri="runs:/run-123/model",
+                    model_uuid="model-123",
+                    artifact_path="model",
+                    mlflow_version="3.16.0",
+                ),
+            ),
+            data=ManifestData(
+                target_column="churn",
+                time_column="reference_date",
+                split_name="oot_26q1",
+                split_metadata={
+                    "train_rows": 100,
+                    "test_rows": 25,
+                    "train_start": "2025-01-01T00:00:00",
+                    "train_end": "2025-12-31T00:00:00",
+                    "test_start": "2026-01-01T00:00:00",
+                    "test_end": "2026-03-31T00:00:00",
+                },
+            ),
+            training=ManifestTraining(
+                classifier_name="clf_name",
+                classifier_alias="clf_alias",
+                feature_count=2,
+                feature_names_in=["feature_in_1", "feature_in_2"],
+                feature_names_out=["feature_out_1", "feature_out_2"],
+                tuning_enabled=False,
+                calibration="none",
+                threshold_strategy="max_f1",
+                threshold_data="out_of_time_test",
+                threshold=0.5,
+            ),
+            evaluation=ManifestEvaluation(metrics=vars(evaluation)),
+            lifecycle=ManifestLifecycle(
+                registration_enabled=True,
+                promotion_enabled=bool(promotion_decision),
+                promotion_decision=promotion_decision or {},
+            ),
         )
 
     return _create

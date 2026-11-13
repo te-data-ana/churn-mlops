@@ -87,10 +87,16 @@ metadata in `data/splits`.
 ### Reproduce an out-of-time experiment
 
 The root [dvc.yaml](dvc.yaml) defines a pipeline that adds reference dates,
-prepares partitioned data, creates a time split, trains and registers a model,
-then scores the held-out cohort. DVC tracks stage inputs and outputs;
-MLflow stores runs, metrics, model artifacts, and registered versions.
+prepares partitioned data, creates a time split, trains a model, then scores
+the held-out cohort. Registration is controlled by a DVC parameter. DVC tracks
+stage inputs and outputs; MLflow stores runs, metrics, model artifacts, and
+registered versions.
 Optuna tuning, when enabled in the training config, runs as part of training.
+The `data/manifests` and `data/predictions` directories are persistent DVC
+outputs, so results for different `{classifier}_{split}` combinations remain
+available after subsequent experiments. Repeating a combination reuses its
+manifest and prediction paths; it does not create a separate archive for each
+run.
 
 The checked-in [params.yaml](params.yaml) configures `OOT_26Q2`: training from
 2025-04-01 through 2026-03-31 and testing from 2026-04-01 through 2026-06-30,
@@ -121,15 +127,24 @@ uv run dvc exp run --name churn-12m-oot \
   --set-param 'split.split_date="2026-04-01"' \
   --set-param 'split.end_date="2026-06-30"' \
   --set-param model.classifier=lr \
-  --set-param model.config=lr.yaml \
-  --set-param model.config_path=src/config/lr.yaml \
+  --set-param training.n_jobs=4 \
+  --set-param calibration.method=isotonic \
+  --set-param model.register_model=true \
   --set-param tracking.experiment_name=churn-12m-oot
 ```
 
-When selecting another classifier, set `model.config` and `model.config_path`
-to its YAML file. Each DVC training stage registers a specific model version
-without changing the `candidate` or `champion` aliases. Its manifest under
-`data/manifests` identifies that version for scoring.
+`model.classifier` selects `src/config/{classifier}.yaml`, so each classifier
+alias used by this pipeline must have a matching config file. The
+`calibration.method` parameter overrides the config's calibration method.
+`training.n_jobs` controls the total CPU job budget: use a positive integer or
+`-1` for all available CPUs. Only the outermost operation in each training
+phase uses this budget; nested estimator jobs remain at one to avoid
+oversubscription.
+Registration is enabled by default; set `model.register_model=false` to keep
+the run in MLflow without adding it to the model registry. The pipeline still
+scores that run's logged MLflow model artifact. Registered runs score the exact
+registered version identified by their manifest under `data/manifests`; neither
+path changes the `candidate` or `champion` aliases.
 
 The source CSVs are represented in Git by `.dvc` pointer files, not by their
 contents. This repository has no DVC remote, so a fresh clone must be supplied
@@ -180,9 +195,11 @@ from hyperparameter tuning.
 
 ### Generate batch predictions
 
-Batch prediction validates input data and loads a registered model. Use a
+Batch prediction validates input data and loads the configured model. Use a
 training manifest or an explicit model name and version when the exact model
-version matters; otherwise the configured model alias is used.
+version matters; otherwise the configured model alias is used. A training
+manifest identifies the logged MLflow model and prediction threshold, whether
+or not that model is registered.
 
 For CSV input, the input filename is resolved under `data/raw` and the output
 is written under `output`:
@@ -226,13 +243,16 @@ The manifest option cannot be combined with `--model_name` or
 
 ### Serve predictions over HTTP
 
-Start the FastAPI service locally:
+Start the FastAPI service locally. By default, it loads the configured
+registered model; `--model_manifest` selects the exact model recorded by a
+training manifest and can also serve an unregistered run:
 
 ```bash
 uv run churn-mlops serve --host 127.0.0.1 --port 8000 --reload
+uv run churn-mlops serve --model_manifest manifests/rf_OOT_26Q2.json
 ```
 
-The service loads the configured registered model once per process. Its
+The service loads the selected model once per process. Its
 `/health` endpoint is a liveness check; `/ready` reports whether a model loaded
 successfully. If model loading fails, the process remains live, but `/ready`
 and `/predict` return `503` until it is restarted with a valid model
@@ -446,6 +466,8 @@ preprocessing and classification.
 Example training configuration:
 
 ```yaml
+n_jobs: 1
+
 model:
   classifier: dc
   classifier_params:
@@ -496,9 +518,17 @@ promotion:
     calibration_error: 0.2
 ```
 
+`n_jobs` is the total CPU job budget. It defaults to `1`, accepts positive
+integers, and uses `-1` to request all available CPUs. An explicit CLI
+`--n-jobs` value overrides the YAML setting. During tuning, trials run in
+parallel while individual estimators use one job; during calibration, folds
+run in parallel while inner estimators use one job. For uncalibrated fitting,
+the classifier uses the budget if it supports `n_jobs`.
+
 ### Calibration
 
-Calibration is configurable per run as `none`, `sigmoid` (Platt scaling), or `isotonic`. For calibrated runs, `CalibratedClassifierCV` uses expanding
+Calibration is configurable per run as `none`, `sigmoid` (Platt scaling), or
+`isotonic`. For calibrated runs, `CalibratedClassifierCV` uses expanding
 historical folds: each calibration fold is later than the fold's model-fitting
 data. To compare calibration approaches, run separate experiments with the same
 data and classifier while changing `calibration.method`.
@@ -516,8 +546,7 @@ maximizing F1 (`threshold.strategy: max_f1`) is selected from out-of-time test
 predictions before test metrics are computed.
 
 Runs log the selected threshold and its OOT selection source as MLflow
-parameters and in `evaluation/decision_threshold.json`. The reliability
-diagram is logged under `calibration/`.
+parameters. The reliability diagram is logged under `calibration/`.
 
 ### Evaluation
 
@@ -528,27 +557,82 @@ and prediction time are computed and recorded.
 
 ### Registry and promotion
 
-When enabled by configuration, a run registers an immutable model version.
-Champion promotion compares the weighted score configured in
+When enabled by configuration or a CLI override, a run registers an immutable
+model version. Champion promotion compares the weighted score configured in
 `promotion.metric_weights`: ROC AUC, PR AUC, and F1 contribute positively,
 while Brier score and ECE are inverted so lower values improve the score.
 The candidate must exceed the champion's score by `promotion.min_delta`.
 Champions from older runs that lack any configured metric are not comparable
 and are not automatically replaced; retrain the baseline with calibration
 evaluation before enabling automated promotion. The prior champion is retained
-under `former_champion`. CLI options can force registration with `--register-model`
-or control promotion with `--promote-model` / `--no-promote-model`.
+under `former_champion`. CLI options can override registration with
+`--register-model`, for example `--register-model false` or
+`--no-register-model`; the bare `--register-model` flag enables registration.
+Promotion remains separately controlled with `--promote-model` /
+`--no-promote-model`.
 
 ### Manifests and model cards
 
-Training writes a manifest linking the MLflow run and exact model version to
-its split and evaluation results. Use the manifest for reproducible batch
-scoring instead of relying on a mutable alias.
+Training writes a manifest linking the MLflow run and its split and evaluation
+results. The manifest contains a JSON-safe logged-model reference and identifies
+either an exact registered model version or the logged model URI for an
+unregistered run. Use the manifest for reproducible batch scoring or serving
+instead of relying on a mutable alias. Its versioned JSON groups run and model
+identity, target/time columns and split metadata, training details, evaluation,
+and registration/promotion settings. Promotion is marked enabled only when both
+registration and promotion are enabled for that run.
 
 MLflow runs also include a Markdown model card with model, data, feature,
 evaluation, and promotion details, including calibration method, calibration
 error, optimal threshold, and threshold-selection strategy. See the
 [tracking package](src/churn_mlops/tracking).
+
+### MLflow logged artifacts and run metadata
+
+MLflow run metadata (metrics, parameters, and tags) is separate from files and
+models logged to the run. Training runs log evaluation metrics and training
+parameters such as classifier, feature, calibration, and threshold settings.
+They also include tags for calibration, threshold-data source, and feature
+count. Logged files and models include:
+
+| Training artifact | MLflow location or details |
+| --- | --- |
+| Fitted scikit-learn pipeline | Logged model named `model`; the manifest records its logged-model URI |
+| Training configuration | `config/` |
+| Reliability diagram | `calibration/reliability_diagram.png` |
+| Training manifest JSON | `manifest/` when manifest writing is enabled (enabled by default) |
+| Markdown model card | `documentation/` |
+
+When `monitor` is run with `--mlflow_experiment_name` or `--run_name` (as in the
+DVC monitoring pipeline), it logs the summary CSV under `monitoring/` and adds
+tags describing its input cohorts and, when available, the model. The command
+also writes its report under `OUTPUT_DIR`.
+
+The DVC pipeline for reproducible training experiments on the contrary, writes
+separate manifests and predictions under `data/manifests` and `data/predictions`.
+The local manifests can be used for scoring and serving. As indicated above,
+each manifest is also logged under along with its MLflow run.
+
+To browse run metadata and artifacts, start the MLflow UI using the tracking
+database path configured for this project (replace it if `TRACKING_DIR` or
+`MLFLOW_TRACKING_URI` is overridden), then open the run's **Artifacts** view:
+
+```bash
+uv run mlflow ui --backend-store-uri sqlite:///tracking_local/mlflow.db
+```
+
+The UI is available at <http://127.0.0.1:5000> by default. To list files
+directly from a run instead, set the tracking URI to the project's database:
+
+```bash
+MLFLOW_TRACKING_URI=sqlite:///tracking_local/mlflow.db \
+  uv run mlflow artifacts list --run-id RUN_ID
+```
+
+The tracking database and artifact files are separate local state. Preserve or
+share both the database in `TRACKING_DIR` and files in `ARTIFACT_DIR` to retain
+run metadata and artifacts across machines; sharing only one does not provide
+a complete MLflow history.
 
 ## Runtime configuration
 
@@ -561,6 +645,7 @@ Environment variables can override the runtime defaults:
 | `MODEL_NAME` | `churn-risk` | Registered model name for serving |
 | `MODEL_ALIAS` | `champion` | Alias used to load a serving model |
 | `MODEL_VERSION` | Unset | Optional exact model version |
+| `MODEL_MANIFEST` | Unset | Optional manifest selecting a logged model |
 | `API_HOST` | `127.0.0.1` | Host interface for `serve` |
 | `API_PORT` | `8000` | Port for `serve` |
 | `REQUEST_ID_HEADER` | `X-Request-ID` | Header used to pass request IDs |

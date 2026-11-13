@@ -4,6 +4,7 @@ from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
+from joblib import parallel_backend
 from sklearn.base import BaseEstimator
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.model_selection import TimeSeriesSplit
@@ -80,6 +81,7 @@ def fit_estimator_with_calibration(
     exclude_columns: Sequence[str] = (),
     method: str = "none",
     n_splits: int = 4,
+    n_jobs: int = 1,
 ) -> BaseEstimator:
     """Fit an estimator, optionally using historical-only calibration folds.
 
@@ -91,6 +93,7 @@ def fit_estimator_with_calibration(
         method: ``none``, ``sigmoid``, or ``isotonic``.
         n_splits: Number of expanding-window calibration folds.
         exclude_columns: Optional non-feature columns to exclude from fitting.
+        n_jobs: Total job budget for calibration folds.
 
     Returns:
         A fitted estimator, wrapped in ``CalibratedClassifierCV`` when enabled.
@@ -128,5 +131,7 @@ def fit_estimator_with_calibration(
         method=method,
         cv=splits,
         ensemble=True,
+        n_jobs=n_jobs,
     )
-    return calibrated.fit(X_train, y_train)
+    with parallel_backend("loky", inner_max_num_threads=1):
+        return calibrated.fit(X_train, y_train)

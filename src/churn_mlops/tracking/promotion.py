@@ -169,12 +169,12 @@ class PromotionService:
             current_champion = registry.get_champion_version(model_name=model_name)
             registry.set_alias(
                 model_name=model_name,
-                alias="former_champion",
-                version=current_champion.version,
+                model_alias="former_champion",
+                model_version=current_champion.version,
             )
         # promote new champion
         registry.set_alias(
             model_name=model_name,
-            alias="champion",
-            version=candidate_version,
+            model_alias="champion",
+            model_version=candidate_version,
         )

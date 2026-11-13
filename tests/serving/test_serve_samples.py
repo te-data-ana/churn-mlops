@@ -16,7 +16,6 @@ from churn_mlops.serving.serve_samples import (
     custom_parser,
     main,
 )
-from churn_mlops.tracking.manifest import TrainingManifest
 
 
 class MockResponse:
@@ -346,24 +345,8 @@ def test_configure_model_environment_from_manifest(
         model_version=None,
     )
     settings = Mock(data_dir=tmp_path)
-    manifest = Mock(model_name="model", model_version=3)
-    read_mock = Mock(return_value=manifest)
-
-    monkeypatch.setattr(
-        TrainingManifest,
-        "read",
-        read_mock,
-    )
-
-    configure_model_environment(
-        args=args,
-        settings=settings,
-    )
-
-    read_mock.assert_called_once_with(tmp_path / "manifest.json")
-
-    assert os.environ["MODEL_NAME"] == "model"
-    assert os.environ["MODEL_VERSION"] == "3"
+    configure_model_environment(args=args, settings=settings)
+    assert os.environ["MODEL_MANIFEST"] == str(tmp_path / "manifest.json")
 
 
 @pytest.mark.unit

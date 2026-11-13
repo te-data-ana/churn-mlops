@@ -77,7 +77,7 @@ def sample_metadata() -> ModelMetadata:
         model_name="churn-risk",
         model_alias="champion",
         model_version=5,
-        threshold=0.5,
+        model_threshold=0.5,
     )
 
 
@@ -102,7 +102,7 @@ def mock_model_factory() -> Callable[..., LoadedModel]:
             model_name="churn-risk",
             model_alias="champion",
             model_version=5,
-            threshold=threshold,
+            model_threshold=threshold,
         )
 
         return LoadedModel(

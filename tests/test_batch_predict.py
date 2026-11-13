@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -54,7 +55,12 @@ def test_batch_predict_cli_reads_csv_and_writes_predictions(
         index_col="customerid",
         data_dir=tmp_path / "raw",
     )
-    predict.assert_called_once_with(df=input_df)
+    predict.assert_called_once_with(
+        df=input_df,
+        model_name=None,
+        model_version=None,
+        manifest=None,
+    )
 
     output_path = tmp_path / "predictions.csv"
     assert output_path.exists()
@@ -68,16 +74,10 @@ def test_batch_predict_cli_reads_csv_and_writes_predictions(
 def test_run_batch_prediction_validates_and_returns_prediction_dataframe(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    settings = SimpleNamespace(
-        mlflow_tracking_uri="uri",
-        model_name="my_model",
-        model_alias="prod",
-    )
     input_df = pd.DataFrame({"age": [45]})
     validated_df = pd.DataFrame({"age": [45]})
     prediction_df = pd.DataFrame({"predicted_probability": [0.5]})
 
-    monkeypatch.setattr(batch_predict, "ServingSettings", lambda: settings)
     validate_data = Mock(return_value=validated_df)
     load_model = Mock(return_value=Mock())
     predictor = Mock()
@@ -90,9 +90,11 @@ def test_run_batch_prediction_validates_and_returns_prediction_dataframe(
 
     validate_data.assert_called_once_with(input_df)
     load_model.assert_called_once_with(
-        tracking_uri="uri",
-        model_name="my_model",
-        model_alias="prod",
+        tracking_uri=None,
+        model_name=None,
+        model_alias=None,
+        model_version=None,
+        manifest=None,
     )
     predictor.predict_batch.assert_called_once_with(df=validated_df)
     pd.testing.assert_frame_equal(result, prediction_df)
@@ -109,15 +111,6 @@ def test_run_batch_prediction_uses_exact_model_version(
         {"predicted_probability": [0.7]}
     )
 
-    monkeypatch.setattr(
-        batch_predict,
-        "ServingSettings",
-        lambda: SimpleNamespace(
-            mlflow_tracking_uri="uri",
-            model_name="configured-model",
-            model_alias="champion",
-        ),
-    )
     monkeypatch.setattr(batch_predict, "validate_data", lambda df: df)
     monkeypatch.setattr(batch_predict, "load_model", load_model)
     monkeypatch.setattr(batch_predict, "Predictor", Mock(return_value=predictor))
@@ -129,10 +122,44 @@ def test_run_batch_prediction_uses_exact_model_version(
     )
 
     load_model.assert_called_once_with(
-        tracking_uri="uri",
+        tracking_uri=None,
         model_name="churn-risk",
-        model_alias="champion",
+        model_alias=None,
         model_version=8,
+        manifest=None,
+    )
+
+
+@pytest.mark.unit
+def test_run_batch_prediction_uses_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    training_manifest_factory: TrainingManifest,
+) -> None:
+    manifest = training_manifest_factory()
+    manifest = replace(
+        manifest,
+        model=replace(manifest.model, model_version=None),
+    )
+    load_model = Mock(return_value=Mock())
+    predictor = Mock()
+    predictor.predict_batch.return_value = pd.DataFrame(
+        {"predicted_probability": [0.7]}
+    )
+    monkeypatch.setattr(batch_predict, "validate_data", lambda df: df)
+    monkeypatch.setattr(batch_predict, "load_model", load_model)
+    monkeypatch.setattr(batch_predict, "Predictor", Mock(return_value=predictor))
+
+    batch_predict.run_batch_prediction(
+        df=pd.DataFrame({"age": [30]}),
+        manifest=manifest,
+    )
+
+    load_model.assert_called_once_with(
+        tracking_uri=None,
+        model_name=None,
+        model_alias=None,
+        model_version=None,
+        manifest=manifest,
     )
 
 
@@ -174,8 +201,57 @@ def test_batch_predict_cli_reads_model_manifest(
 
     predict.assert_called_once_with(
         df=input_df,
-        model_name="churn-risk",
-        model_version=4,
+        model_name=None,
+        model_version=None,
+        manifest=manifest,
+    )
+
+
+@pytest.mark.unit
+def test_batch_predict_cli_reads_unregistered_model_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    training_manifest_factory: TrainingManifest,
+) -> None:
+    from churn_mlops import tracking
+
+    settings = SimpleNamespace(
+        data_dir=tmp_path,
+        output_dir=tmp_path,
+        api_host="127.0.0.1",
+        api_port=8000,
+    )
+    input_df = pd.DataFrame({"age": [35]})
+    prediction_df = pd.DataFrame({"predicted_probability": [0.7]})
+    manifest = training_manifest_factory()
+    manifest = replace(
+        manifest,
+        model=replace(manifest.model, model_version=None),
+    )
+    predict = Mock(return_value=prediction_df)
+
+    monkeypatch.setattr(churn_mlops, "ServingSettings", lambda: settings)
+    monkeypatch.setattr(data, "load_raw_data", Mock(return_value=input_df))
+    monkeypatch.setattr(tracking.TrainingManifest, "read", Mock(return_value=manifest))
+    monkeypatch.setattr(batch_predict, "run_batch_prediction", predict)
+
+    churn_mlops.main(
+        [
+            "batch-predict",
+            "--input_csv",
+            "inference.csv",
+            "--output_csv",
+            "scored.csv",
+            "--model_manifest",
+            str(tmp_path / "manifest.json"),
+        ]
+    )
+
+    predict.assert_called_once_with(
+        df=input_df,
+        model_name=None,
+        model_version=None,
+        manifest=manifest,
     )
 
 
@@ -183,15 +259,6 @@ def test_batch_predict_cli_reads_model_manifest(
 def test_batch_prediction_logs_and_reraises_on_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        batch_predict,
-        "ServingSettings",
-        lambda: SimpleNamespace(
-            mlflow_tracking_uri=None,
-            model_name=None,
-            model_alias=None,
-        ),
-    )
     monkeypatch.setattr(
         batch_predict,
         "validate_data",
@@ -248,7 +315,12 @@ def test_batch_predict_cli_reads_and_writes_partitioned_data(
         start="2026-02-01",
         end="2026-02-28",
     )
-    predict.assert_called_once_with(df=input_df)
+    predict.assert_called_once_with(
+        df=input_df,
+        model_name=None,
+        model_version=None,
+        manifest=None,
+    )
     write_dataset.assert_called_once_with(
         df=prediction_df,
         dataset_name="batch_predictions",
@@ -330,9 +402,12 @@ def test_batch_prediction_uses_registered_model(
     assert len(predictions) == len(pd.read_csv(generated_inference_csv))
     assert predictions["predicted_probability"].between(0, 1).all()
     assert predictions["predicted_class"].isin([0, 1]).all()
-    threshold = ModelRegistry().get_threshold_by_alias(
+    registry = ModelRegistry()
+    model_version = registry.get_model_version_by_alias(
         model_name=str(registered_model["model_name"]),
-        alias=str(registered_model["model_alias"]),
+        model_alias=str(registered_model["model_alias"]),
     )
+    run = registry.client.get_run(model_version.run_id)
+    threshold = float(run.data.params["threshold"])
     assert (predictions["threshold"] == threshold).all()
     assert predictions["model_version"].notna().all()

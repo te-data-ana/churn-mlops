@@ -95,6 +95,7 @@ MODEL_CATALOG = {
     },
     "et": {
         "clf": ExtraTreesClassifier,
+        "supports_n_jobs": True,
         "default_params": {
             "random_state": DEFAULT_RANDOM_STATE,
         },
@@ -113,6 +114,7 @@ MODEL_CATALOG = {
     },
     "rf": {
         "clf": RandomForestClassifier,
+        "supports_n_jobs": True,
         "default_params": {
             "random_state": DEFAULT_RANDOM_STATE,
         },
@@ -153,6 +155,7 @@ MODEL_CATALOG = {
     },
     "knn": {
         "clf": KNeighborsClassifier,
+        "supports_n_jobs": True,
         "default_params": {
             "n_neighbors": 5,
             "weights": "uniform",

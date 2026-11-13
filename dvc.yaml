@@ -70,29 +70,33 @@ stages:
   train_model:
     cmd: >-
       uv run churn-mlops train
-      --config ${model.config}
+      --config ${model.classifier}.yaml
       --split_name ${split.name}
       --exclude-columns ${model.exclude_columns}
       --experiment_name ${tracking.experiment_name}
-      --register-model
+      --register-model ${model.register_model}
+      --calibration-method ${calibration.method}
+      --n-jobs ${training.n_jobs}
       --no-promote-model
     deps:
       - data/splits/${split.name}_test.parquet
       - data/splits/${split.name}_train.parquet
       - data/splits/${split.name}.json
       - src/churn_mlops
-      - ${model.config_path}
+      - src/config/${model.classifier}.yaml
       - pyproject.toml
       - uv.lock
     params:
       - model.classifier
-      - model.config
-      - model.config_path
+      - model.register_model
       - model.exclude_columns
+      - training.n_jobs
+      - calibration.method
       - split.name
       - tracking.experiment_name
     outs:
-      - data/manifests/${model.classifier}_${split.name}.json
+      - data/manifests:
+          persist: true
   batch_predict_oot:
     cmd: >-
       uv run churn-mlops batch-predict
@@ -109,4 +113,5 @@ stages:
       - model.classifier
       - split.name
     outs:
-      - data/predictions/${model.classifier}_${split.name}
+      - data/predictions:
+          persist: true

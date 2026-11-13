@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import json
-import tempfile
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -11,6 +10,8 @@ from mlflow.exceptions import MlflowException
 from mlflow.models.model import ModelInfo
 
 from churn_mlops.config.settings import RuntimeSettings
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from churn_mlops.config.schemas import TrainingConfig
@@ -62,7 +63,6 @@ def log_experiment_result(
     result: TrainingResult,
     config: TrainingConfig,
     config_file_path: Path,
-    artifact_dir: Path | None = None,
 ) -> ModelInfo:
     """Log training parameters, metrics, artifacts, and the fitted pipeline.
 
@@ -77,16 +77,15 @@ def log_experiment_result(
         MLflow model metadata for the logged scikit-learn model.
     """
 
-    resolved_artifact_dir = artifact_dir or RuntimeSettings().artifact_dir
-
+    logger.info("Logging training parameters and tags to MLflow.")
     # log all parameters required for reproducibility
     # log classifier and its hyper-parameters
     mlflow.log_params(result.classifier_config)
     # log data parameters
     mlflow.log_params(
         {
-            "target_column": config.data.target_column,
-            "time_column": config.data.time_column,
+            "column_target": config.data.target_column,
+            "column_time": config.data.time_column,
         }
     )
     # log feature enginnering hyper-parameters
@@ -94,8 +93,8 @@ def log_experiment_result(
     # log preprocessing hyper-parameters
     mlflow.log_params(
         {
-            "numeric_imputer": config.preprocessing.numeric_impute_strategy,
-            "categorical_imputer": config.preprocessing.categorical_impute_strategy,
+            "imputer_numeric": config.preprocessing.numeric_impute_strategy,
+            "imputer_categorical": config.preprocessing.categorical_impute_strategy,
         }
     )
     # log calibration parameters
@@ -126,37 +125,20 @@ def log_experiment_result(
         {
             "calibration": config.calibration.method,
             "threshold_data": result.threshold_data,
+            "feature_count": len(result.feature_names_out),
         }
     )
-    mlflow.log_param("feature_count", len(result.feature_names_out))
+    # mlflow.log_param("feature_count", len(result.feature_names_out))
 
-    # log all model metrics
+    logger.info("Logging evaluation metrics to MLflow: %s.", result.metrics)
     mlflow.log_metrics(result.metrics)
+    logger.info("Logging calibration reliability diagram to MLflow.")
     mlflow.log_figure(
         result.calibration_figure,
         artifact_file="calibration/reliability_diagram.png",
     )
-    with tempfile.TemporaryDirectory() as temporary_directory:
-        threshold_path = Path(temporary_directory) / "decision_threshold.json"
-        threshold_path.write_text(
-            json.dumps(
-                {
-                    "calibration_method": config.calibration.method,
-                    "threshold_strategy": config.threshold.strategy,
-                    "threshold_data": result.threshold_data,
-                    "threshold": result.threshold,
-                },
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        mlflow.log_artifact(
-            threshold_path,
-            artifact_path="evaluation",
-        )
 
-    # log trained model pipeline artifact
+    logger.info("Logging fitted model pipeline to MLflow.")
     model_info = mlflow.sklearn.log_model(
         result.trained_pipeline,
         name="model",
@@ -172,21 +154,9 @@ def log_experiment_result(
             "sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor",
         ],
     )
+    logger.info("Logged fitted model pipeline at '%s'.", model_info.model_uri)
 
-    # log model feature names
-    resolved_artifact_dir.mkdir(parents=True, exist_ok=True)
-    feature_names_path = resolved_artifact_dir / "feature_names.json"
-    with open(feature_names_path, "w") as f:
-        json.dump(
-            {
-                "input": result.feature_names_in,
-                "output": result.feature_names_out,
-            },
-            f,
-        )
-    mlflow.log_artifact(feature_names_path, artifact_path="features")
-
-    # log full config file as artifact
+    logger.info("Logging training configuration artifact '%s'.", config_file_path)
     mlflow.log_artifact(config_file_path, artifact_path="config")
 
     return model_info

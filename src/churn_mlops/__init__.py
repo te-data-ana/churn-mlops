@@ -10,7 +10,17 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["main"]
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
+
+
+def _parse_boolean(value: str) -> bool:
+    """Parse a boolean command-line value."""
+    normalized = value.lower()
+    if normalized in {"true", "1", "yes", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(f"Expected a boolean value, received '{value}'.")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -116,11 +126,37 @@ def main(argv: Sequence[str] | None = None) -> None:
         required=False,
         help="Experiment name used for MLflow tracking.",
     )
-    train_parser.add_argument(
+    register_model_group = train_parser.add_mutually_exclusive_group()
+    register_model_group.add_argument(
         "--register-model",
-        action="store_true",
+        nargs="?",
+        const=True,
+        type=_parse_boolean,
         default=None,
-        help="Register this run's model even when the config disables registration.",
+        help=(
+            "Override model registration (optionally provide true/false); "
+            "without a value, this enables registration."
+        ),
+    )
+    register_model_group.add_argument(
+        "--no-register-model",
+        dest="register_model",
+        action="store_false",
+        help="Disable model registration for this run.",
+    )
+    train_parser.set_defaults(register_model=None)
+    train_parser.add_argument(
+        "--calibration-method",
+        choices=("none", "sigmoid", "isotonic"),
+        help="Override the calibration method in the training config.",
+    )
+    train_parser.add_argument(
+        "--n-jobs",
+        type=int,
+        help=(
+            "Override the total CPU job budget in the training config "
+            "(positive integer or -1 for all available CPUs)."
+        ),
     )
     train_parser.add_argument(
         "--promote-model",
@@ -414,6 +450,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             "experiment_name": args.experiment_name,
             "register_model": args.register_model,
             "promote_model": args.promote_model,
+            "calibration_method": args.calibration_method,
+            "n_jobs": args.n_jobs,
         }
         training_kwargs.update(
             {key: value for key, value in optional_kwargs.items() if value is not None}
@@ -447,15 +485,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         if (args.model_name is None) != (args.model_version is None):
             parser.error("--model_name and --model_version must be provided together.")
 
-        model_name = args.model_name
-        model_version = args.model_version
+        manifest = None
         if args.model_manifest is not None:
             from .tracking import TrainingManifest
 
             model_manifest_file = settings.data_dir / args.model_manifest
             manifest = TrainingManifest.read(model_manifest_file)
-            model_name = manifest.model_name
-            model_version = manifest.model_version
 
         from .batch_predict import run_batch_prediction
 
@@ -468,12 +503,12 @@ def main(argv: Sequence[str] | None = None) -> None:
                 index_col=args.index_col,
                 data_dir=input_dir,
             )
-            prediction_kwargs: dict[str, object] = {"df": df}
-            if model_name is not None:
-                prediction_kwargs["model_name"] = model_name
-            if model_version is not None:
-                prediction_kwargs["model_version"] = model_version
-            df_pred = run_batch_prediction(**prediction_kwargs)
+            df_pred = run_batch_prediction(
+                df=df,
+                model_name=None if manifest is not None else args.model_name,
+                model_version=None if manifest is not None else args.model_version,
+                manifest=manifest,
+            )
 
             output_path = settings.output_dir / args.output_csv
             settings.output_dir.mkdir(parents=True, exist_ok=True)
@@ -491,12 +526,12 @@ def main(argv: Sequence[str] | None = None) -> None:
                 start=args.start_date,
                 end=args.end_date,
             )
-            prediction_kwargs: dict[str, object] = {"df": df}
-            if model_name is not None:
-                prediction_kwargs["model_name"] = model_name
-            if model_version is not None:
-                prediction_kwargs["model_version"] = model_version
-            df_pred = run_batch_prediction(**prediction_kwargs)
+            df_pred = run_batch_prediction(
+                df=df,
+                model_name=None if manifest is not None else args.model_name,
+                model_version=None if manifest is not None else args.model_version,
+                manifest=manifest,
+            )
             write_partitioned_dataset(
                 df=df_pred,
                 dataset_name=args.output_dataset,
@@ -520,14 +555,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             parser.error("--model_name and --model_version must be provided together.")
 
         if args.model_manifest is not None:
-            from .tracking import TrainingManifest
-
-            model_manifest_file = settings.data_dir / args.model_manifest
-            manifest = TrainingManifest.read(model_manifest_file)
-            os.environ["MODEL_NAME"] = manifest.model_name
-            os.environ["MODEL_VERSION"] = str(manifest.model_version)
+            os.environ["MODEL_MANIFEST"] = str(settings.data_dir / args.model_manifest)
 
         if args.model_name is not None and args.model_version is not None:
+            os.environ.pop("MODEL_MANIFEST", None)
             os.environ["MODEL_NAME"] = args.model_name
             os.environ["MODEL_VERSION"] = str(args.model_version)
 
@@ -592,8 +623,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             from .tracking import TrainingManifest
 
             manifest = TrainingManifest.read(settings.data_dir / args.model_manifest)
-            model_name = manifest.model_name
-            model_version = manifest.model_version
+            if manifest.model.model_version is None:
+                parser.error(
+                    "Monitoring requires a registered model; this manifest identifies "
+                    "an unregistered training run."
+                )
+            model_name = manifest.model.model_name
+            model_version = manifest.model.model_version
 
         output_dir = args.output_dir or settings.output_dir
         if dataset_mode:

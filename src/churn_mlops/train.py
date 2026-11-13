@@ -3,7 +3,7 @@ import logging
 import os
 import subprocess
 from collections.abc import Sequence
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import mlflow
@@ -16,6 +16,7 @@ from churn_mlops.config.schemas import TuningConfig
 from churn_mlops.config.settings import RuntimeSettings
 from churn_mlops.data.splitting import load_and_validate_training_splits
 from churn_mlops.tracking import (
+    LoggedModelReference,
     ModelCardBuilder,
     ModelRegistry,
     PromotionService,
@@ -23,6 +24,14 @@ from churn_mlops.tracking import (
     log_experiment_result,
     log_model_card,
     setup_local_experiment,
+)
+from churn_mlops.tracking.manifest import (
+    ManifestData,
+    ManifestEvaluation,
+    ManifestLifecycle,
+    ManifestModel,
+    ManifestRun,
+    ManifestTraining,
 )
 from churn_mlops.training import (
     TrainingResult,
@@ -42,6 +51,8 @@ def run_training_job(
     artifact_dir: Path | None = None,
     register_model: bool | None = None,
     promote_model: bool | None = None,
+    calibration_method: str | None = None,
+    n_jobs: int | None = None,
     write_manifest: bool = True,
 ) -> TrainingResult:
     """Run the configured training, tracking, registration, and promotion flow.
@@ -57,11 +68,14 @@ def run_training_job(
             the ``MLFLOW_EXPERIMENT_NAME`` runtime setting is used.
         tracking_uri: Optional MLflow tracking URI.
         artifact_dir: Directory used for training artifacts.
+        register_model: Optional override for model registration.
+        promote_model: Optional override for alias updates and promotion.
+        calibration_method: Optional override for the configured calibration
+            method.
+        n_jobs: Optional override for the configured total CPU job budget.
         write_manifest: Boolean flag for writing manifest JSON file, which
             contains experiment details like run and registered model version
             (default: True).
-        register_model: Optional override for model registration.
-        promote_model: Optional override for alias updates and promotion.
 
     Returns:
         TrainingResult containing the fitted pipeline, metrics, classifier
@@ -94,6 +108,13 @@ def run_training_job(
         config, config_file_path = load_config(
             file=config_file, path=resolved_config_dir
         )
+        if calibration_method is not None:
+            config = replace(
+                config,
+                calibration=replace(config.calibration, method=calibration_method),
+            )
+        if n_jobs is not None:
+            config = replace(config, n_jobs=n_jobs)
         classifier_alias = config.model.classifier
         threshold_strategy = config.threshold.strategy
 
@@ -133,17 +154,18 @@ def run_training_job(
                 "test_end": str(payload["test_end"]),
             }
 
-        if write_manifest and not resolved_register_model:
-            raise ValueError(
-                "A training manifest requires model registration. "
-                "Enable registration for this training run."
-            )
-
         logger.info("Loaded training configuration from '%s'.", config_file_path)
         logger.info(
             "Configured model alias '%s' with threshold strategy '%s'.",
             classifier_alias,
             threshold_strategy,
+        )
+        logger.info(
+            "Model registration is %s; model promotion is %s.",
+            "enabled" if resolved_register_model else "disabled",
+            "enabled"
+            if resolved_register_model and resolved_promote_model
+            else "disabled",
         )
 
         experiment_id = setup_local_experiment(
@@ -158,7 +180,7 @@ def run_training_job(
             experiment_id,
         )
         logger.info("Tracking URI: %s", mlflow.get_tracking_uri())
-        logger.info("Experiment metadata: %s", experiment)
+        logger.info("MLflow artifact location: %s", experiment.artifact_location)
 
         tuning_config = getattr(config, "tuning", TuningConfig())
         train_df, test_df = load_and_validate_training_splits(
@@ -166,8 +188,19 @@ def run_training_job(
             split_dir=resolved_split_dir,
             preserve_time_column=config.data.time_column,
         )
+        logger.info(
+            "Loaded validated split '%s': %d train rows and %d test rows.",
+            split_name,
+            len(train_df),
+            len(test_df),
+        )
 
         # Start an MLflow run for the training job and log the results
+        logger.info(
+            "Starting MLflow run '%s' in experiment '%s'.",
+            run_name,
+            resolved_experiment_name,
+        )
         with mlflow.start_run(
             experiment_id=experiment_id,
             run_name=run_name,
@@ -176,6 +209,7 @@ def run_training_job(
             if active_run is None:
                 raise RuntimeError("MLflow did not create an active training run.")
             run_id = active_run.info.run_id
+            logger.info("Started MLflow run '%s'.", run_id)
             mlflow.set_tags(
                 {
                     "config_file": config_file,
@@ -213,6 +247,7 @@ def run_training_job(
                         "test_end": split_metadata["test_end"],
                     }
                 )
+                logger.info("Logged split metadata to MLflow: %s.", split_metadata)
             if tuning_config.enabled:
                 tuning_result = optimize_hyperparameters(
                     config=config,
@@ -227,6 +262,7 @@ def run_training_job(
                         "tuning_enabled": "true",
                         "tuning_n_trials": tuning_result.n_trials,
                         "tuning_n_splits": tuning_result.n_splits,
+                        "tuning_n_jobs": config.n_jobs,
                         "tuning_time_column": tuning_result.time_column,
                         "tuning_metric": tuning_result.metric,
                         "tuning_random_state": tuning_result.random_state,
@@ -240,6 +276,12 @@ def run_training_job(
                     f"tuning_cv_{tuning_result.metric}",
                     tuning_result.best_score,
                 )
+                logger.info(
+                    "Logged tuning results to MLflow: %s=%.6f; best parameters=%s.",
+                    tuning_result.metric,
+                    tuning_result.best_score,
+                    tuning_result.best_params,
+                )
                 result = train_model(
                     config=config,
                     train_df=train_df,
@@ -251,6 +293,10 @@ def run_training_job(
                     ],
                 )
             else:
+                logger.info(
+                    "Hyperparameter tuning is disabled; using configured classifier "
+                    "parameters."
+                )
                 result = train_model(
                     config=config,
                     train_df=train_df,
@@ -267,29 +313,28 @@ def run_training_job(
                 result=result,
                 config=config,
                 config_file_path=config_file_path,
-                artifact_dir=resolved_artifact_dir,
             )
-        # Register the candidate model and evaluate it for promotion to champion if enabled
+            logger.info(
+                "Training results logged to MLflow run '%s' (model URI: '%s').",
+                run_id,
+                model_info.model_uri,
+            )
+        registered_model_version = None
+        model_name = config.registry.model_name
+        promotion_decision_dict = {}
         if resolved_register_model:
-            model_name = config.registry.model_name
             registry = ModelRegistry()
             registered_version = registry.register_model(
-                model_uri=model_info.model_uri,
+                model_info=model_info,
                 model_name=model_name,
             )
-            registered_model_version = registered_version.version
-            logger.info(
-                "Registration of '%s' model, version '%s'.",
-                model_name,
-                registered_model_version,
-            )
-            promotion_decision_dict = {}
+            registered_model_version = int(registered_version.version)
             if resolved_promote_model:
                 model_alias = config.registry.alias
                 registry.set_alias(
                     model_name=model_name,
-                    alias=model_alias,
-                    version=registered_model_version,
+                    model_alias=model_alias,
+                    model_version=registered_model_version,
                 )
                 champion = registry.get_champion_version(model_name=model_name)
 
@@ -297,7 +342,7 @@ def run_training_job(
                     logger.info("Retrieving metric for current champion model.")
                     champion_metrics = registry.get_metrics_by_alias(
                         model_name=model_name,
-                        alias="champion",
+                        model_alias="champion",
                     )
                 else:
                     logger.info(
@@ -317,8 +362,10 @@ def run_training_job(
                 promotion_decision_dict = asdict(promotion_decision)
 
                 if promotion_decision.promote:
-                    logger.info("Decision to promote candidate model to champion:")
-                    logger.info(promotion_decision.reason)
+                    logger.info(
+                        "Promoting candidate model to champion: %s",
+                        promotion_decision.reason,
+                    )
                     if promotion_decision.score_delta is not None:
                         logger.info(
                             "The weighted quality score delta was '%.4f'.",
@@ -340,27 +387,49 @@ def run_training_job(
                         "No promotion of candidate model: %s",
                         promotion_decision.reason,
                     )
+            else:
+                logger.info(
+                    "Model promotion is disabled; registered model remains a candidate."
+                )
+        else:
+            logger.info(
+                "Model registration is disabled; skipping registry and promotion steps."
+            )
 
-            # Registered models are documented using model cards
+        if resolved_register_model or write_manifest:
             manifest = TrainingManifest(
-                run_id=run_id,
-                run_name=run_name,
-                model_name=model_name,
-                model_version=registered_model_version,
-                target_column=config.data.target_column,
-                classifier_name=result.classifier_config["model_name"],
-                classifier_alias=classifier_alias,
-                split_name=split_name,
-                split_metadata=split_metadata,
-                feature_count=len(result.feature_names_out),
-                feature_names_in=result.feature_names_in,
-                feature_names_out=result.feature_names_out,
-                calibration=config.calibration.method,
-                threshold_strategy=config.threshold.strategy,
-                threshold_data=result.threshold_data,
-                threshold=result.threshold,
-                metrics=result.metrics,
-                promotion_decision=promotion_decision_dict,
+                run=ManifestRun(run_id=run_id, run_name=run_name),
+                model=ManifestModel(
+                    model_name=model_name,
+                    model_version=registered_model_version,
+                    model_reference=LoggedModelReference.from_model_info(model_info),
+                ),
+                data=ManifestData(
+                    target_column=config.data.target_column,
+                    time_column=config.data.time_column,
+                    split_name=split_name,
+                    split_metadata=split_metadata,
+                ),
+                training=ManifestTraining(
+                    classifier_name=result.classifier_config["model_name"],
+                    classifier_alias=classifier_alias,
+                    feature_count=len(result.feature_names_out),
+                    feature_names_in=result.feature_names_in,
+                    feature_names_out=result.feature_names_out,
+                    tuning_enabled=config.tuning.enabled,
+                    calibration=config.calibration.method,
+                    threshold_strategy=config.threshold.strategy,
+                    threshold_data=result.threshold_data,
+                    threshold=result.threshold,
+                ),
+                evaluation=ManifestEvaluation(metrics=result.metrics),
+                lifecycle=ManifestLifecycle(
+                    registration_enabled=resolved_register_model,
+                    promotion_enabled=(
+                        resolved_register_model and resolved_promote_model
+                    ),
+                    promotion_decision=promotion_decision_dict,
+                ),
             )
 
             model_card = ModelCardBuilder().build(
@@ -368,13 +437,15 @@ def run_training_job(
                 context=manifest,
             )
 
-            registry.update_model_description(
-                model_name=model_name,
-                version=registered_model_version,
-                description=model_card,
-            )
+            if resolved_register_model:
+                registry.update_model_description(
+                    model_name=model_name,
+                    model_version=registered_model_version,
+                    description=model_card,
+                )
 
             with mlflow.start_run(run_id=run_id):
+                logger.info("Logging model card to MLflow.")
                 log_model_card(model_card)
                 if write_manifest:
                     manifest.write(manifest_file)
@@ -382,7 +453,18 @@ def run_training_job(
                         local_path=str(manifest_file),
                         artifact_path="manifest",
                     )
+                    logger.info(
+                        "Wrote training manifest to '%s' and logged it to MLflow.",
+                        manifest_file,
+                    )
 
+        logger.info(
+            "Training job completed for classifier '%s' on split '%s' "
+            "(MLflow run '%s').",
+            classifier_alias,
+            split_name,
+            run_id,
+        )
         return result
     except Exception:
         logger.exception(

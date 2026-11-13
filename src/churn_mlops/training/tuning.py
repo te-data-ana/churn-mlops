@@ -9,6 +9,7 @@ import numpy as np
 import optuna
 import pandas as pd
 from sklearn.metrics import average_precision_score, roc_auc_score
+from threadpoolctl import threadpool_limits
 
 from churn_mlops.config.schemas import TrainingConfig
 from churn_mlops.models import MODEL_CATALOG, build_classifier_pipeline, create_model
@@ -129,6 +130,7 @@ def optimize_hyperparameters(
             classifier, _ = create_model(
                 model_alias=config.model.classifier,
                 model_params=config.model.classifier_params | trial_params,
+                n_jobs=1,
             )
             pipeline = build_classifier_pipeline(
                 classifier=classifier,
@@ -169,7 +171,8 @@ def optimize_hyperparameters(
         direction="maximize",
         sampler=optuna.samplers.TPESampler(seed=tuning.random_state),
     )
-    study.optimize(func=objective, n_trials=tuning.n_trials)
+    with threadpool_limits(limits=1):
+        study.optimize(func=objective, n_trials=tuning.n_trials, n_jobs=config.n_jobs)
     logger.info(
         "Optuna study completed: best %s=%.6f with params %s.",
         tuning.metric,

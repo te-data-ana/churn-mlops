@@ -1,4 +1,4 @@
-import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -61,11 +61,12 @@ def test_log_experiment_result_logs_metrics_parameters_model_and_artifacts(
     sample_config_yaml: Path,
     mock_training_result: TrainingResult,
     config_factory: Callable[..., TrainingConfig],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.INFO)
 
     # Mock MLflow logging components and verify each category is logged (at least) once.
     mock_log_metrics = MagicMock()
-    mock_log_param = MagicMock()
     mock_log_params = MagicMock()
     mock_set_tags = MagicMock()
     mock_log_model = MagicMock()
@@ -73,7 +74,6 @@ def test_log_experiment_result_logs_metrics_parameters_model_and_artifacts(
     mock_log_figure = MagicMock()
 
     monkeypatch.setattr(tracking.mlflow, "log_metrics", mock_log_metrics)
-    monkeypatch.setattr(tracking.mlflow, "log_param", mock_log_param)
     monkeypatch.setattr(tracking.mlflow, "log_params", mock_log_params)
     monkeypatch.setattr(tracking.mlflow, "set_tags", mock_set_tags)
     monkeypatch.setattr(tracking.mlflow.sklearn, "log_model", mock_log_model)
@@ -82,11 +82,12 @@ def test_log_experiment_result_logs_metrics_parameters_model_and_artifacts(
 
     mock_training_result.classifier_config["random_state"] = 42
     tracking.log_experiment_result(
-        mock_training_result, config_factory(), sample_config_yaml
+        result=mock_training_result,
+        config=config_factory(),
+        config_file_path=sample_config_yaml,
     )
 
     mock_log_metrics.assert_called_once()
-    mock_log_param.assert_called_once_with("feature_count", 3)
     assert mock_log_params.call_count > 4
     logged_parameters = {
         name for call in mock_log_params.call_args_list for name in call.args[0]
@@ -100,12 +101,13 @@ def test_log_experiment_result_logs_metrics_parameters_model_and_artifacts(
     assert "threshold_data" in logged_parameters
     mock_set_tags.assert_called_once()
     mock_log_model.assert_called_once()
-    assert mock_log_artifact.call_count >= 2
     mock_log_figure.assert_called_once()
-    assert any(
-        call.kwargs.get("artifact_path") == "evaluation"
-        for call in mock_log_artifact.call_args_list
-    )
+    assert mock_log_artifact.call_count >= 1
+    assert "Logging training parameters and tags to MLflow." in caplog.text
+    assert "Logging evaluation metrics to MLflow:" in caplog.text
+    assert "Logging calibration reliability diagram to MLflow." in caplog.text
+    assert "Logging fitted model pipeline to MLflow." in caplog.text
+    assert "Logging training configuration artifact" in caplog.text
 
 
 @pytest.mark.integration
@@ -150,7 +152,6 @@ def test_logged_calibrated_model_can_be_reloaded(
             result=result,
             config=config,
             config_file_path=config_path,
-            artifact_dir=tmp_path / "artifacts",
         )
         reloaded_model = mlflow.sklearn.load_model(model_info.model_uri)
 
@@ -159,13 +160,6 @@ def test_logged_calibrated_model_can_be_reloaded(
         model_info.run_id,
         "calibration",
     )
-    threshold_artifacts = client.list_artifacts(model_info.run_id, "evaluation")
-    threshold_path = client.download_artifacts(
-        model_info.run_id,
-        "evaluation/decision_threshold.json",
-        str(tmp_path),
-    )
-    threshold_metadata = json.loads(Path(threshold_path).read_text(encoding="utf-8"))
     logged_run = client.get_run(model_info.run_id)
     probabilities = reloaded_model.predict_proba(
         test_df.drop(columns=["churn", "reference_date"])
@@ -175,14 +169,4 @@ def test_logged_calibrated_model_can_be_reloaded(
     assert any(
         item.path.endswith("reliability_diagram.png") for item in calibration_artifacts
     )
-    assert any(
-        item.path.endswith("decision_threshold.json") for item in threshold_artifacts
-    )
-    assert threshold_metadata["threshold_data"] == "out_of_time_test"
-    assert set(threshold_metadata) == {
-        "calibration_method",
-        "threshold_strategy",
-        "threshold_data",
-        "threshold",
-    }
     assert logged_run.data.params["threshold_data"] == "out_of_time_test"

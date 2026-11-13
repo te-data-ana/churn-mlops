@@ -46,6 +46,7 @@ def load_config(
     return TrainingConfig(
         data=DataConfig(**raw["data"]),
         feature_builder=FeatureBuilderConfig(**raw["feature_builder"]),
+        n_jobs=raw.get("n_jobs", 1),
         preprocessing=PreprocessingConfig(**raw["preprocessing"]),
         model=ClassifierConfig(**raw["model"]),
         calibration=CalibrationConfig(**raw.get("calibration", {})),
