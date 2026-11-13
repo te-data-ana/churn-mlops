@@ -26,6 +26,26 @@ def test_load_raw_data_returns_clean_indexed_dataframe(generated_training_csv) -
 
 
 @pytest.mark.unit
+def test_load_raw_data_drops_normalized_columns(tmp_path: Path) -> None:
+    source = tmp_path / "source.csv"
+    pd.DataFrame(
+        {
+            "Customer ID": [1, 2],
+            "Extra Value": [10, 20],
+            "Churn": [0, 1],
+        }
+    ).to_csv(source, index=False)
+
+    df = load_raw_data(
+        source.name,
+        data_dir=tmp_path,
+        drop_columns=[" Extra Value "],
+    )
+
+    assert df.columns.tolist() == ["customer_id", "churn"]
+
+
+@pytest.mark.unit
 def test_combine_sample_predictions_adds_run_id(tmp_path: Path) -> None:
     df1 = pd.DataFrame({"prediction": [0, 1]})
     df2 = pd.DataFrame({"prediction": [1]})

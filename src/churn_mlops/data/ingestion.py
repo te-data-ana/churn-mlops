@@ -46,14 +46,15 @@ def load_raw_data(
         df.columns = normalize_strings(df.columns)
         df = df.convert_dtypes()
         if drop_columns:
-            df.drop(
-                columns=normalize_strings(drop_columns), errors="ignore", inplace=True
+            df = df.drop(
+                columns=normalize_strings(drop_columns),
+                errors="ignore",
             )
         if index_col:
-            df.set_index(index_col, inplace=True)
+            df = df.set_index(index_col)
             logger.info("Set index column '%s' on dataset '%s'.", index_col, file_name)
         prior_rows = len(df)
-        df.dropna(how="all", inplace=True)
+        df = df.dropna(how="all")
         dropped_rows = prior_rows - len(df)
         if dropped_rows:
             logger.warning(

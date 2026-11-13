@@ -14,10 +14,13 @@ dependencies = [
     "mlflow>=3.17.2",
     "nannyml>=0.13.1",
     "optuna>=5.0.0",
-    "pandas>=3.0.5",
+    # NannyML 0.13.1 passes inplace=False, deprecated in pandas 3.1.
+    "pandas>=3.0.5,<3.1",
     "pandera>=0.33.1",
     "pydantic-settings>=2.15.0",
     "scikit-learn>=1.9.0",
+    # MLflow 3.18 uses SQLAlchemy's noload strategy, deprecated in 2.1.
+    "sqlalchemy>=2.0,<2.1",
     # NannyML imports statsmodels as part of its monitoring package.
     "statsmodels>=0.15.0",
     "uvicorn>=0.53.0",
