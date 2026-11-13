@@ -720,6 +720,34 @@ CI installs locked dependencies, runs Ruff lint and format checks, and runs
 the full test suite. Tests generate their own temporary data and isolated
 MLflow state.
 
+## License compliance
+
+The project is licensed under MIT; see [LICENSE](LICENSE).
+
+Generate a machine-readable report of installed packages and check it against
+[license-policy.json](license-policy.json):
+
+```bash
+uv sync --all-groups
+uv run pip-licenses --format=json --output-file=license-report.json
+uv run python scripts/check_licenses.py license-report.json
+```
+
+GPL-licensed packages are reported but do not fail the check. AGPL and SSPL
+are rejected, as are proprietary license labels unless the exact package and
+reported label have a documented exception. Missing or newly unrecognized
+license labels also require review. Exceptions are kept package-specific and
+include a reason based on the package's license terms; packages are not
+approved solely because they are transitive.
+
+CI runs the same check across all dependency groups and uploads
+`license-report.json` as the `dependency-license-report` artifact.
+Pull requests also run GitHub Dependency Review against the SPDX
+allow-list and package exceptions in
+[.github/dependency-review-config.yml](.github/dependency-review-config.yml);
+enable the repository's dependency graph for the action to evaluate pull
+requests.
+
 ## Repository layout
 
 ```text

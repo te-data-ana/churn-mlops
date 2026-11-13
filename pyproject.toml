@@ -3,6 +3,7 @@ name = "churn-mlops"
 version = "0.6.0"
 description = "MLops project based on churn propensity use case, to evolve and demonstrate my ML engineering skills"
 readme = "README.md"
+license = "MIT"
 # fixing to earlier verison, as required packages are not compatible with newer versions
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -39,6 +40,7 @@ dev = [
     "dvc>=3.67.1",
     # Required by Starlette's TestClient used in serving tests.
     "httpx2>=2.16.0",
+    "pip-licenses>=5.5.5",
     "pre-commit>=4.6.2",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",

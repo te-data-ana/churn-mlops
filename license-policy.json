@@ -1,0 +1,57 @@
+{
+  "approved_license_labels": [
+    "3-Clause BSD License",
+    "Apache License 2.0",
+    "Apache Software License",
+    "Apache Software License; BSD License",
+    "Apache-2.0",
+    "Apache-2.0 AND MIT",
+    "Apache-2.0 OR BSD-2-Clause",
+    "Apache-2.0 OR BSD-3-Clause",
+    "Apache-2.0 OR GPL-2.0-or-later",
+    "Apache 2.0",
+    "Apache-2.0 AND BSD-2-Clause",
+    "Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT",
+    "BSD",
+    "BSD License",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
+    "EPL-2.0 OR GPL-2.0-or-later",
+    "MIT",
+    "MIT AND PSF-2.0",
+    "MIT License",
+    "MIT-0",
+    "MIT-CMU",
+    "MPL-2.0",
+    "MPL-2.0 AND (Apache-2.0 OR MIT)",
+    "MPL-2.0 AND MIT",
+    "Mozilla Public License 2.0 (MPL 2.0)",
+    "PSF-2.0",
+    "Python Software Foundation License",
+    "ISC License (ISCL)",
+    "ZPL-2.1"
+  ],
+  "package_exceptions": [
+    {
+      "package": "category_encoders",
+      "license": "Other/Proprietary License",
+      "reason": "The installed LICENSE.md grants BSD 3-Clause-style redistribution rights; the package metadata uses a generic proprietary classifier."
+    },
+    {
+      "package": "huey",
+      "license": "UNKNOWN",
+      "reason": "The installed LICENSE file grants the MIT License; pip-licenses cannot identify the metadata label."
+    },
+    {
+      "package": "nvidia-nccl-cu12",
+      "license": "LicenseRef-NVIDIA-Proprietary",
+      "reason": "The installed license file grants BSD-style source and binary redistribution rights; this is an explicitly approved NVIDIA CUDA ecosystem package."
+    },
+    {
+      "package": "skops",
+      "license": "UNKNOWN",
+      "reason": "The installed LICENSE file grants the MIT License; pip-licenses cannot identify the metadata label."
+    }
+  ]
+}
