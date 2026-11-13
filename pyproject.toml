@@ -9,7 +9,7 @@ dependencies = [
     "fastapi>=0.141.1",
     # Temporary pin required because uv resolves kaleido 0.2.1.post1,
     # which currently lacks a compatible wheel for Linux x86_64.
-    "kaleido==0.2.1",
+    "kaleido==1.5.0",
     "matplotlib>=3.10",
     "mlflow>=3.17.2",
     "nannyml>=0.13.1",
