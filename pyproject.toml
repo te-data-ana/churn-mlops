@@ -20,7 +20,7 @@ dependencies = [
     "pydantic-settings>=2.15.0",
     "scikit-learn>=1.9.0",
     # MLflow 3.18 uses SQLAlchemy's noload strategy, deprecated in 2.1.
-    "sqlalchemy>=2.0,<2.1",
+    "sqlalchemy>=2.0,<2.2",
     # NannyML imports statsmodels as part of its monitoring package.
     "statsmodels>=0.15.0",
     "uvicorn>=0.53.0",
