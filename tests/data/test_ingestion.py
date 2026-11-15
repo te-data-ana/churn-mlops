@@ -10,6 +10,7 @@ from churn_mlops.data.ingestion import (
     load_raw_data,
     normalize_strings,
 )
+from churn_mlops.use_cases import get_use_case
 
 
 @pytest.mark.unit
@@ -198,8 +199,9 @@ def test_ingest_sample_data_validates_and_writes_dataset(
         lambda: sample_data,
     )
 
-    def fake_validate_data(df: pd.DataFrame) -> pd.DataFrame:
+    def fake_validate_data(df: pd.DataFrame, use_case: object) -> pd.DataFrame:
         observed["validated_input"] = df
+        observed["use_case"] = use_case
         return validated_data
 
     def fake_write_partitioned_dataset(**kwargs: object) -> None:
@@ -212,9 +214,15 @@ def test_ingest_sample_data_validates_and_writes_dataset(
         fake_write_partitioned_dataset,
     )
 
-    ingestion.ingest_sample_data("samples", "reference_date")
+    use_case = get_use_case("churn")
+    ingestion.ingest_sample_data(
+        dataset_name="samples",
+        timestamp_column="reference_date",
+        use_case=use_case,
+    )
 
     assert observed["validated_input"] is sample_data
+    assert observed["use_case"] is use_case
     write_args = observed["write"]
     assert isinstance(write_args, dict)
     assert write_args["df"] is validated_data

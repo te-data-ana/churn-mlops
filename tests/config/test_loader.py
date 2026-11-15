@@ -7,7 +7,6 @@ import pytest
 from churn_mlops.config import load_config
 from churn_mlops.config.schemas import (
     CalibrationConfig,
-    DataConfig,
     PromotionConfig,
     ThresholdConfig,
     TrainingConfig,
@@ -24,8 +23,7 @@ def test_load_config_returns_config_and_resolved_path(sample_config_yaml) -> Non
         path=config_file_dir,
     )
 
-    assert config.data.target_column == "churn"
-    assert config.data.time_column == "reference_date"
+    assert config.use_case == "churn"
     assert not config.tuning.enabled
     assert config.calibration.method == "none"
     assert config.threshold.strategy == "max_f1"
@@ -92,9 +90,11 @@ def test_promotion_config_rejects_negative_min_delta() -> None:
 
 
 @pytest.mark.unit
-def test_data_config_rejects_empty_time_column() -> None:
-    with pytest.raises(ValueError, match="time_column"):
-        DataConfig(target_column="churn", time_column="")
+def test_training_config_rejects_empty_use_case(
+    config_factory: Callable[..., TrainingConfig],
+) -> None:
+    with pytest.raises(ValueError, match="use_case"):
+        replace(config_factory(), use_case="")
 
 
 @pytest.mark.unit

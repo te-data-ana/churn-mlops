@@ -9,6 +9,8 @@ from sklearn.base import BaseEstimator
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.model_selection import TimeSeriesSplit
 
+from churn_mlops.training.features import select_feature_columns
+
 
 def make_temporal_cv_splits(
     df: pd.DataFrame,
@@ -78,7 +80,7 @@ def fit_estimator_with_calibration(
     *,
     target_column: str,
     time_column: str,
-    exclude_columns: Sequence[str] = (),
+    feature_columns: Sequence[str],
     method: str = "none",
     n_splits: int = 4,
     n_jobs: int = 1,
@@ -92,19 +94,24 @@ def fit_estimator_with_calibration(
         time_column: Column defining chronological order.
         method: ``none``, ``sigmoid``, or ``isotonic``.
         n_splits: Number of expanding-window calibration folds.
-        exclude_columns: Optional non-feature columns to exclude from fitting.
+        feature_columns: Use-case columns used as model inputs.
         n_jobs: Total job budget for calibration folds.
 
     Returns:
         A fitted estimator, wrapped in ``CalibratedClassifierCV`` when enabled.
 
     Raises:
-        ValueError: If the method is unsupported or temporal folds are invalid.
+        ValueError: If required model features are missing, the method is
+            unsupported, or temporal folds are invalid.
     """
     if target_column not in train_df.columns:
         raise ValueError(f"Temporal CV target column '{target_column}' is missing.")
 
-    X_train = train_df.drop(columns=exclude_columns, errors="ignore")
+    X_train = select_feature_columns(
+        df=train_df,
+        feature_columns=feature_columns,
+        data_name="Training",
+    )
     y_train = train_df[target_column]
 
     if method == "none":

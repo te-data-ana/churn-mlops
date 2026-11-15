@@ -15,7 +15,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 
-from churn_mlops.models import build_classifier_pipeline
+from churn_mlops.models import IdentityFeatureBuilder, build_classifier_pipeline
 from churn_mlops.models.pipelines import _requires_scaling
 
 
@@ -63,7 +63,10 @@ def test_classifier_pipeline_predicts_after_fitting(
 ) -> None:
     X, y = sample_training_data
 
-    pipeline = build_classifier_pipeline(LogisticRegression())
+    pipeline = build_classifier_pipeline(
+        classifier=LogisticRegression(),
+        feature_builder=IdentityFeatureBuilder(),
+    )
 
     # Verify the pipeline rejects prediction before it has been fitted.
     with pytest.raises(NotFittedError):
@@ -78,7 +81,10 @@ def test_classifier_pipeline_predicts_after_fitting(
 
 @pytest.mark.unit
 def test_classifier_pipeline_contains_expected_steps() -> None:
-    pipeline = build_classifier_pipeline(LogisticRegression())
+    pipeline = build_classifier_pipeline(
+        classifier=LogisticRegression(),
+        feature_builder=IdentityFeatureBuilder(),
+    )
 
     assert set(pipeline.named_steps) == {
         "features",
@@ -109,6 +115,9 @@ def test_classifier_pipeline_preserves_supplied_classifier(
     | GaussianNB
     | DecisionTreeClassifier,
 ) -> None:
-    pipeline = build_classifier_pipeline(classifier)
+    pipeline = build_classifier_pipeline(
+        classifier=classifier,
+        feature_builder=IdentityFeatureBuilder(),
+    )
 
     assert pipeline.named_steps["classifier"] is classifier

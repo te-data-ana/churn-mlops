@@ -1,11 +1,8 @@
 """Classifier pipelines for tabular classification models, combining feature engineering, preprocessing and classifier."""
 
-from typing import Any
-
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.pipeline import Pipeline
 
-from .features import FeatureBuilder
 from .preprocessing import create_preprocessor
 
 
@@ -33,7 +30,7 @@ def _requires_scaling(estimator: BaseEstimator) -> bool:
 
 def build_classifier_pipeline(
     classifier: ClassifierMixin,
-    feature_params: dict[str, Any] | None = None,
+    feature_builder: BaseEstimator,
     num_impute_strategy: str = "median",
     cat_impute_strategy: str = "most_frequent",
 ) -> Pipeline:
@@ -41,7 +38,7 @@ def build_classifier_pipeline(
 
     Args:
         classifier: Scikit-learn classifier to use as the final pipeline step.
-        feature_params: Optional thresholds for ``FeatureBuilder``.
+        feature_builder: Use-case-specific feature transformer.
         num_impute_strategy: Imputation strategy for numeric columns.
         cat_impute_strategy: Imputation strategy for categorical columns.
 
@@ -51,14 +48,16 @@ def build_classifier_pipeline(
     """
 
     scale = _requires_scaling(classifier)
+    preprocessor = create_preprocessor(
+        scale=scale,
+        num_impute_strategy=num_impute_strategy,
+        cat_impute_strategy=cat_impute_strategy,
+    )
 
     return Pipeline(
         steps=[
-            ("features", FeatureBuilder(feature_params)),
-            (
-                "preprocessor",
-                create_preprocessor(scale, num_impute_strategy, cat_impute_strategy),
-            ),
+            ("features", feature_builder),
+            ("preprocessor", preprocessor),
             ("classifier", classifier),
         ]
     )

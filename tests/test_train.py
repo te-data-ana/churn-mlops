@@ -11,6 +11,9 @@ import churn_mlops
 from churn_mlops import train
 from churn_mlops.config.schemas import TrainingConfig, TuningConfig
 from churn_mlops.training import TuningResult
+from churn_mlops.use_cases import get_use_case
+
+CHURN_USE_CASE = get_use_case("churn")
 
 
 @pytest.mark.unit
@@ -54,6 +57,40 @@ def test_training_cli_parses_config_overrides(
 
 
 @pytest.mark.unit
+def test_run_training_job_applies_use_case_override_before_registry_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+    config_factory: Callable[..., TrainingConfig],
+    tmp_path: Path,
+) -> None:
+    config = config_factory(classifier="lr")
+    settings = SimpleNamespace(
+        config_dir=tmp_path,
+        data_dir=tmp_path,
+        artifact_dir=tmp_path / "artifacts",
+        mlflow_tracking_uri="sqlite:///tracking.db",
+        mlflow_experiment_name="test",
+    )
+    registry_lookup = MagicMock(side_effect=ValueError("stop after use-case lookup"))
+    monkeypatch.setattr(train, "configure_logging", MagicMock())
+    monkeypatch.setattr(train, "RuntimeSettings", lambda: settings)
+    monkeypatch.setattr(
+        train,
+        "load_config",
+        lambda **_: (config, tmp_path / "config.yaml"),
+    )
+    monkeypatch.setattr(train, "get_use_case", registry_lookup)
+
+    with pytest.raises(ValueError, match="stop after use-case lookup"):
+        train.run_training_job(
+            config_file="lr.yaml",
+            split_name="test",
+            use_case_name="alternate",
+        )
+
+    registry_lookup.assert_called_once_with("alternate")
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("provided_name", "configured_name", "expected_name"),
     [
@@ -77,8 +114,8 @@ def test_run_training_job_resolves_input_arguments(
         mlflow_experiment_name=configured_name,
     )
     config = SimpleNamespace(
+        use_case="churn",
         n_jobs=1,
-        data=SimpleNamespace(time_column="reference_date"),
         model=SimpleNamespace(classifier="lr"),
         threshold=SimpleNamespace(
             strategy="max_f1",
@@ -137,7 +174,6 @@ def test_run_training_job_resolves_input_arguments(
     train.run_training_job(
         config_file=config_file,
         split_name=split_name,
-        exclude_columns=["customerid"],
         experiment_name=provided_name,
         register_model=False,
         write_manifest=False,
@@ -149,13 +185,13 @@ def test_run_training_job_resolves_input_arguments(
     load_splits.assert_called_once_with(
         split_name=split_name,
         split_dir=Path("data") / "splits",
-        preserve_time_column="reference_date",
+        use_case=CHURN_USE_CASE,
     )
     train_model_mock.assert_called_once_with(
         config=config,
         train_df=load_splits.return_value[0],
         test_df=load_splits.return_value[1],
-        exclude_columns=["customerid"],
+        use_case=CHURN_USE_CASE,
     )
     log_messages = [
         "Loaded training configuration",
@@ -264,6 +300,7 @@ def test_run_training_job_overrides_config_params_and_writes_unregistered_manife
     from churn_mlops.tracking import TrainingManifest
 
     manifest = TrainingManifest.read(tmp_path / "manifests/lr_temporal.json")
+    assert manifest.model.use_case == "churn"
     assert manifest.data.time_column == "reference_date"
     assert manifest.training.tuning_enabled is False
     assert manifest.lifecycle.registration_enabled is False
@@ -278,8 +315,8 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = SimpleNamespace(
+        use_case="churn",
         n_jobs=1,
-        data=SimpleNamespace(time_column="reference_date"),
         model=SimpleNamespace(classifier="rf"),
         calibration=SimpleNamespace(method="sigmoid"),
         threshold=SimpleNamespace(strategy="max_f1"),
@@ -370,7 +407,6 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
     result = train.run_training_job(
         config_file=config_file,
         split_name=split_name,
-        exclude_columns=["customerid"],
         register_model=False,
         write_manifest=False,
     )
@@ -379,21 +415,18 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
     load_splits.assert_called_once_with(
         split_name=split_name,
         split_dir=Path("data") / "splits",
-        preserve_time_column="reference_date",
+        use_case=CHURN_USE_CASE,
     )
     assert optimizer.call_count == 1
     assert optimizer.call_args.kwargs["config"] is config
     assert optimizer.call_args.kwargs["train_df"].equals(train_df)
-    assert optimizer.call_args.kwargs["exclude_columns"] == [
-        "customerid",
-        "reference_date",
-    ]
+    assert optimizer.call_args.kwargs["use_case"] is CHURN_USE_CASE
     train_model.assert_called_once_with(
         config=config,
         train_df=train_df,
         test_df=test_df,
+        use_case=CHURN_USE_CASE,
         model_params_override={"n_estimators": 150, "max_depth": None},
-        exclude_columns=["customerid", "reference_date"],
     )
     log_params.assert_called_once_with(
         {
@@ -416,8 +449,8 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
     tmp_path: Path,
 ) -> None:
     config = SimpleNamespace(
+        use_case="churn",
         n_jobs=1,
-        data=SimpleNamespace(target_column="churn", time_column="reference_date"),
         model=SimpleNamespace(classifier="rf"),
         calibration=SimpleNamespace(method="sigmoid"),
         threshold=SimpleNamespace(strategy="max_f1"),
@@ -535,6 +568,7 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
     assert manifest.model.model_version == 7
     assert manifest.run.run_id == "training-run"
     assert manifest.run.run_name == run_name
+    assert manifest.model.use_case == "churn"
     assert manifest.data.time_column == "reference_date"
     assert manifest.lifecycle.registration_enabled is True
     assert manifest.lifecycle.promotion_enabled is False

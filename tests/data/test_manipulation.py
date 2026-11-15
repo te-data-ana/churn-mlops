@@ -9,6 +9,8 @@ from churn_mlops.data.manipulation import (
     main,
     preprocess_raw_data,
 )
+from churn_mlops.models.features import IdentityFeatureBuilder
+from churn_mlops.use_cases import UseCase, get_use_case
 
 
 @pytest.mark.unit
@@ -35,6 +37,8 @@ def test_main_passes_cli_config_to_preprocess_raw_data(
             "2026-01-01",
             "--end_date",
             "2026-06-01",
+            "--use-case",
+            "churn",
         ],
     )
 
@@ -45,6 +49,7 @@ def test_main_passes_cli_config_to_preprocess_raw_data(
         output_csv="out.csv",
         start_date="2026-01-01",
         end_date="2026-06-01",
+        use_case=get_use_case("churn"),
     )
 
 
@@ -93,6 +98,7 @@ def test_preprocess_raw_data_creates_output_file(
         start_date="2024-01-01",
         end_date="2024-12-01",
         data_dir=tmp_path,
+        use_case=get_use_case("churn"),
     )
 
     assert output_path.exists()
@@ -100,3 +106,35 @@ def test_preprocess_raw_data_creates_output_file(
     result = pd.read_csv(output_path)
 
     assert "reference_date" in result.columns
+
+
+@pytest.mark.unit
+def test_preprocess_raw_data_uses_selected_use_case_time_column(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    use_case = UseCase(
+        name="alternate",
+        target_column="label",
+        time_column="event_date",
+        feature_columns=("value",),
+        data_validator=lambda frame: frame,
+        feature_builder_factory=lambda _: IdentityFeatureBuilder(),
+    )
+    monkeypatch.setattr(
+        "churn_mlops.data.manipulation.load_raw_data",
+        lambda **_: pd.DataFrame({"value": [1, 2]}),
+    )
+
+    output_path = preprocess_raw_data(
+        input_csv="input.csv",
+        output_csv="processed.csv",
+        start_date="2024-01-01",
+        end_date="2024-02-01",
+        data_dir=tmp_path,
+        use_case=use_case,
+    )
+
+    result = pd.read_csv(output_path)
+    assert "event_date" in result.columns
+    assert "reference_date" not in result.columns

@@ -5,6 +5,7 @@ from sklearn.base import BaseEstimator
 
 from churn_mlops.config import ServingSettings
 from churn_mlops.tracking import LoggedModelReference, ModelRegistry, TrainingManifest
+from churn_mlops.use_cases import UseCase
 
 
 @dataclass
@@ -20,9 +21,11 @@ class ModelMetadata:
 class LoadedModel:
     model: BaseEstimator
     metadata: ModelMetadata
+    use_case: UseCase
 
 
 def load_model(
+    use_case: UseCase,
     tracking_uri: str | None = None,
     model_name: str | None = None,
     model_alias: str | None = None,
@@ -32,6 +35,7 @@ def load_model(
     """Load a configured or manifest-identified model and its metadata.
 
     Args:
+        use_case: Explicit use-case contract expected by the selected model.
         tracking_uri: Optional MLflow tracking URI.
         model_name: Optional registered model name.
         model_alias: Optional registered model alias.
@@ -45,17 +49,24 @@ def load_model(
     Raises:
         mlflow.exceptions.MlflowException: If the configured model or alias
             cannot be found in the MLflow registry.
-        ValueError: If a manifest is combined with explicit model selectors.
+        ValueError: If a manifest is combined with explicit model selectors or
+            the selected model does not match the use case.
     """
     if manifest is not None and any(
         selector is not None for selector in (model_name, model_alias, model_version)
     ):
         raise ValueError("A model manifest cannot be combined with model selectors.")
+    if manifest is not None and manifest.model.use_case != use_case.name:
+        raise ValueError(
+            f"Training manifest selects use case '{manifest.model.use_case}', but "
+            f"'{use_case.name}' was supplied."
+        )
 
     settings = ServingSettings()
     tracking_uri = tracking_uri or settings.mlflow_tracking_uri
     if tracking_uri:
         mlflow.set_tracking_uri(tracking_uri)
+    registry = ModelRegistry()
 
     model_name = model_name or settings.model_name
     model_alias = model_alias or settings.model_alias
@@ -68,19 +79,24 @@ def load_model(
         model_threshold = manifest.training.threshold
         model_reference = manifest.model.model_reference
         if model_version is None:
+            registry.validate_run_use_case(
+                run_id=manifest.run.run_id,
+                expected_use_case=use_case.name,
+            )
             model = mlflow.sklearn.load_model(model_reference.model_uri)
         else:
-            registry = ModelRegistry()
-            model = registry.load_model_by_version(
+            registered_model = registry.load_registered_model(
                 model_name=model_name,
+                expected_use_case=use_case.name,
                 model_version=model_version,
             )
+            model = registered_model.model
     else:
-        registry = ModelRegistry()
         if model_version is not None:
             model_alias = None
         registered_model = registry.load_registered_model(
             model_name=model_name,
+            expected_use_case=use_case.name,
             model_alias=model_alias,
             model_version=model_version,
         )
@@ -97,4 +113,5 @@ def load_model(
             model_threshold=model_threshold,
             model_reference=model_reference,
         ),
+        use_case=use_case,
     )

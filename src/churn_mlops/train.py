@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import subprocess
-from collections.abc import Sequence
 from dataclasses import asdict, replace
 from pathlib import Path
 
@@ -38,6 +37,7 @@ from churn_mlops.training import (
     optimize_hyperparameters,
     train_model,
 )
+from churn_mlops.use_cases import get_use_case
 
 
 def run_training_job(
@@ -45,7 +45,6 @@ def run_training_job(
     split_name: str,
     config_dir: Path | None = None,
     split_dir: Path | None = None,
-    exclude_columns: Sequence[str] = (),
     experiment_name: str | None = None,
     tracking_uri: str | None = None,
     artifact_dir: Path | None = None,
@@ -54,6 +53,7 @@ def run_training_job(
     calibration_method: str | None = None,
     n_jobs: int | None = None,
     write_manifest: bool = True,
+    use_case_name: str | None = None,
 ) -> TrainingResult:
     """Run the configured training, tracking, registration, and promotion flow.
 
@@ -62,8 +62,6 @@ def run_training_job(
         split_name: Prefix of the prepared train/test Parquet split files.
         config_dir: Directory containing the training configuration.
         split_dir: Directory containing the prepared split files.
-        exclude_columns: Optional non-feature columns to exclude from
-            hyperparameter tuning and model fitting.
         experiment_name: Optional MLflow experiment name override. When omitted,
             the ``MLFLOW_EXPERIMENT_NAME`` runtime setting is used.
         tracking_uri: Optional MLflow tracking URI.
@@ -76,6 +74,7 @@ def run_training_job(
         write_manifest: Boolean flag for writing manifest JSON file, which
             contains experiment details like run and registered model version
             (default: True).
+        use_case_name: Optional use-case override for DVC and CLI orchestration.
 
     Returns:
         TrainingResult containing the fitted pipeline, metrics, classifier
@@ -108,6 +107,8 @@ def run_training_job(
         config, config_file_path = load_config(
             file=config_file, path=resolved_config_dir
         )
+        if use_case_name is not None:
+            config = replace(config, use_case=use_case_name)
         if calibration_method is not None:
             config = replace(
                 config,
@@ -126,6 +127,8 @@ def run_training_job(
         resolved_promote_model = (
             config.promotion.promote_model if promote_model is None else promote_model
         )
+
+        use_case = get_use_case(config.use_case)
 
         split_metadata: dict[str, str | int] = {}
         split_metadata_path = resolved_split_dir / f"{split_name}.json"
@@ -186,7 +189,7 @@ def run_training_job(
         train_df, test_df = load_and_validate_training_splits(
             split_name=split_name,
             split_dir=resolved_split_dir,
-            preserve_time_column=config.data.time_column,
+            use_case=use_case,
         )
         logger.info(
             "Loaded validated split '%s': %d train rows and %d test rows.",
@@ -252,10 +255,7 @@ def run_training_job(
                 tuning_result = optimize_hyperparameters(
                     config=config,
                     train_df=train_df,
-                    exclude_columns=[
-                        *exclude_columns,
-                        config.data.time_column,
-                    ],
+                    use_case=use_case,
                 )
                 mlflow.log_params(
                     {
@@ -286,11 +286,8 @@ def run_training_job(
                     config=config,
                     train_df=train_df,
                     test_df=test_df,
+                    use_case=use_case,
                     model_params_override=tuning_result.best_params,
-                    exclude_columns=[
-                        *exclude_columns,
-                        tuning_result.time_column,
-                    ],
                 )
             else:
                 logger.info(
@@ -301,7 +298,7 @@ def run_training_job(
                     config=config,
                     train_df=train_df,
                     test_df=test_df,
-                    exclude_columns=exclude_columns,
+                    use_case=use_case,
                 )
             result.metrics["promotion_score"] = (
                 PromotionService.calculate_weighted_score(
@@ -400,13 +397,14 @@ def run_training_job(
             manifest = TrainingManifest(
                 run=ManifestRun(run_id=run_id, run_name=run_name),
                 model=ManifestModel(
+                    use_case=use_case.name,
                     model_name=model_name,
                     model_version=registered_model_version,
                     model_reference=LoggedModelReference.from_model_info(model_info),
                 ),
                 data=ManifestData(
-                    target_column=config.data.target_column,
-                    time_column=config.data.time_column,
+                    target_column=use_case.target_column,
+                    time_column=use_case.time_column,
                     split_name=split_name,
                     split_metadata=split_metadata,
                 ),

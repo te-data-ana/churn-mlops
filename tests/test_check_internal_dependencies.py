@@ -12,6 +12,7 @@ SCRIPT_API = runpy.run_path(
 )
 build_plotly_graph = SCRIPT_API["build_plotly_graph"]
 build_plotly_dependency_matrix = SCRIPT_API["build_plotly_dependency_matrix"]
+extract_internal_imports = SCRIPT_API["extract_internal_imports"]
 separate_cluster_centers = SCRIPT_API["_separate_cluster_centers"]
 write_dependency_visualizations = SCRIPT_API["write_dependency_visualizations"]
 
@@ -98,6 +99,36 @@ def test_build_plotly_dependency_matrix_counts_directional_module_dependencies()
     assert "No direct module dependencies" in matrix.hovertext[0][0]
     assert figure.layout.xaxis.title.text == "Imported dependency"
     assert figure.layout.yaxis.title.text == "Importing submodule"
+
+
+def test_dependency_matrix_preserves_repeated_import_occurrences() -> None:
+    graph = nx.MultiDiGraph()
+    graph.add_edge("churn_mlops.models.pipeline", "churn_mlops.data.schema")
+    graph.add_edge("churn_mlops.models.pipeline", "churn_mlops.data.schema")
+
+    figure = build_plotly_dependency_matrix(graph)
+
+    assert figure.data[0].z[1][0] == 2
+
+
+def test_extract_internal_imports_resolves_relative_imports_and_duplicates(
+    tmp_path: Path,
+) -> None:
+    package_root = tmp_path / "example"
+    package_root.mkdir()
+    (package_root / "__init__.py").write_text("", encoding="utf-8")
+    (package_root / "consumer.py").write_text(
+        "from . import provider\n"
+        "from .provider import value\n"
+        "from .provider import value\n",
+        encoding="utf-8",
+    )
+    (package_root / "provider.py").write_text("value = 1\n", encoding="utf-8")
+
+    graph = extract_internal_imports(package_root)
+
+    assert isinstance(graph, nx.MultiDiGraph)
+    assert graph.number_of_edges("example.consumer", "example.provider") == 3
 
 
 def test_write_dependency_visualizations_creates_and_uses_output_directory(

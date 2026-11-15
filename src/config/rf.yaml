@@ -1,13 +1,10 @@
 n_jobs: 1
+use_case: churn
 
 model:
   classifier: rf
   classifier_params:
     random_state: 26
-
-data:
-  target_column: churn
-  time_column: reference_date
 
 feature_builder:
   feature_params:
@@ -21,7 +18,7 @@ preprocessing:
 
 tuning:
   enabled: true
-  n_trials: 25
+  n_trials: 64
   n_splits: 4
   metric: roc_auc
   random_state: 26

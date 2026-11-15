@@ -10,6 +10,7 @@ from mlflow.exceptions import MlflowException
 from mlflow.models.model import ModelInfo
 
 from churn_mlops.config.settings import RuntimeSettings
+from churn_mlops.use_cases import get_use_case
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ def log_experiment_result(
     Returns:
         MLflow model metadata for the logged scikit-learn model.
     """
+    use_case = get_use_case(config.use_case)
 
     logger.info("Logging training parameters and tags to MLflow.")
     # log all parameters required for reproducibility
@@ -84,8 +86,9 @@ def log_experiment_result(
     # log data parameters
     mlflow.log_params(
         {
-            "column_target": config.data.target_column,
-            "column_time": config.data.time_column,
+            "use_case": config.use_case,
+            "column_target": use_case.target_column,
+            "column_time": use_case.time_column,
         }
     )
     # log feature enginnering hyper-parameters
@@ -128,7 +131,6 @@ def log_experiment_result(
             "feature_count": len(result.feature_names_out),
         }
     )
-    # mlflow.log_param("feature_count", len(result.feature_names_out))
 
     logger.info("Logging evaluation metrics to MLflow: %s.", result.metrics)
     mlflow.log_metrics(result.metrics)
@@ -138,12 +140,20 @@ def log_experiment_result(
         artifact_file="calibration/reliability_diagram.png",
     )
 
+    feature_builder = use_case.build_feature_builder(
+        config.feature_builder.feature_params
+    )
+    feature_builder_type = type(feature_builder)
+    feature_builder_trusted_type = (
+        f"{feature_builder_type.__module__}.{feature_builder_type.__name__}"
+    )
+
     logger.info("Logging fitted model pipeline to MLflow.")
     model_info = mlflow.sklearn.log_model(
         result.trained_pipeline,
         name="model",
         skops_trusted_types=[
-            "churn_mlops.models.features.FeatureBuilder",
+            feature_builder_trusted_type,
             "numpy.dtype",
             "numpy.number",
             "sklearn.compose._column_transformer.make_column_selector",

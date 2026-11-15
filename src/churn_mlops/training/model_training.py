@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,6 +23,8 @@ from churn_mlops.models import (
     create_model,
 )
 from churn_mlops.training.calibration import fit_estimator_with_calibration
+from churn_mlops.training.features import select_feature_columns
+from churn_mlops.use_cases import UseCase
 
 
 @dataclass
@@ -43,39 +45,50 @@ def train_model(
     config: TrainingConfig,
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
+    use_case: UseCase,
     model_params_override: Mapping[str, Any] | None = None,
-    exclude_columns: Sequence[str] = (),
 ) -> TrainingResult:
     """Fit and evaluate a configured classifier pipeline.
 
     Args:
         config: Training, feature, preprocessing, model, calibration, threshold,
             promotion, and MLflow registration settings.
+        use_case: Explicit data contract to be used for model training.
         train_df: Validated training DataFrame containing features and target.
         test_df: Validated test DataFrame containing features and target.
         model_params_override: Optional model parameters overriding configured
             values for this fit.
-        exclude_columns: Optional non-feature columns to exclude from fitting
-            and evaluation. The configured data time column is always excluded
-            from model features.
-
     Returns:
         TrainingResult containing the fitted pipeline, evaluation metrics,
         effective classifier configuration, feature names, and threshold
         selection details.
 
     Raises:
-        ValueError: If the configured classifier alias is unknown.
+        ValueError: If the use-case contract does not match the configuration,
+            required model features are missing, or the classifier/labels are
+            invalid.
     """
+    if config.use_case != use_case.name:
+        raise ValueError(
+            f"Training config selects use case '{config.use_case}', but "
+            f"'{use_case.name}' was supplied."
+        )
     logger = logging.getLogger(__name__)
-    target_column = config.data.target_column
-    time_column = config.data.time_column
-    exclude_columns = [target_column, time_column, *exclude_columns]
+    target_column = use_case.target_column
+    time_column = use_case.time_column
 
     try:
-        X_train = train_df.drop(columns=exclude_columns, errors="ignore")
+        X_train = select_feature_columns(
+            df=train_df,
+            feature_columns=use_case.feature_columns,
+            data_name="Training",
+        )
         y_train = train_df[target_column]
-        X_test = test_df.drop(columns=exclude_columns, errors="ignore")
+        X_test = select_feature_columns(
+            df=test_df,
+            feature_columns=use_case.feature_columns,
+            data_name="Test",
+        )
         y_test = test_df[target_column]
         if y_train.nunique() != 2:
             raise ValueError("Training data must contain both target classes.")
@@ -104,7 +117,9 @@ def train_model(
 
         model_pipeline = build_classifier_pipeline(
             classifier=classifier,
-            feature_params=config.feature_builder.feature_params,
+            feature_builder=use_case.build_feature_builder(
+                feature_params=config.feature_builder.feature_params
+            ),
             num_impute_strategy=config.preprocessing.numeric_impute_strategy,
             cat_impute_strategy=config.preprocessing.categorical_impute_strategy,
         )
@@ -126,7 +141,7 @@ def train_model(
                 train_df=train_df,
                 target_column=target_column,
                 time_column=time_column,
-                exclude_columns=exclude_columns,
+                feature_columns=use_case.feature_columns,
                 method=config.calibration.method,
                 n_splits=config.calibration.n_splits,
                 n_jobs=config.n_jobs,

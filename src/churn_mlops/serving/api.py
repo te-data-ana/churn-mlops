@@ -1,165 +1,160 @@
 import logging
+import os
 import traceback
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime
 from time import perf_counter
+from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from churn_mlops.config import ServingSettings, configure_logging
 from churn_mlops.serving.model_loader import load_model
 from churn_mlops.serving.prediction_logger import PredictionLogger
-from churn_mlops.serving.predictor import PredictionResult, Predictor
-from churn_mlops.serving.schemas import InputFeatures
+from churn_mlops.serving.predictor import Predictor
+from churn_mlops.serving.schemas import prediction_response_schema
 from churn_mlops.tracking import TrainingManifest
+from churn_mlops.use_cases import UseCase, get_use_case
 
 configure_logging()
 
 logger = logging.getLogger(__name__)
 
 
-@asynccontextmanager
-async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
-    """Load the serving predictor once for the lifetime of an API process."""
+def create_app(use_case: UseCase) -> FastAPI:
+    """Create an API application for an explicitly selected use case."""
+    request_model = use_case.request_schema
+    if request_model is None:
+        raise ValueError(f"Use case '{use_case.name}' does not define an API schema.")
+    response_model = prediction_response_schema(time_column=use_case.time_column)
 
-    settings = ServingSettings()
-    application.state.predictor = None
-    application.state.settings = settings
-
-    try:
-        if settings.model_manifest is not None:
-            manifest = TrainingManifest.read(settings.model_manifest)
-            application.state.predictor = Predictor(load_model(manifest=manifest))
-        elif settings.model_version is None:
-            application.state.predictor = Predictor(load_model())
-        else:
-            application.state.predictor = Predictor(
-                load_model(
-                    model_name=settings.model_name,
-                    model_version=settings.model_version,
-                )
-            )
-
-        application.state.prediction_logger = PredictionLogger(
-            prediction_log_path=settings.prediction_log_path,
-            error_log_path=settings.error_log_path,
-            log_features=settings.log_features,
-        )
-
-        logger.info("Serving predictor loaded successfully.")
-
-    except Exception:
-        logger.exception("Serving predictor failed to load during startup.")
-    yield
-
-
-app = FastAPI(lifespan=lifespan)
-
-
-@app.middleware("http")
-async def add_request_id(request: Request, call_next):
-
-    request_id_header = getattr(
-        request.app.state,
-        "settings",
-        ServingSettings(),
-    ).request_id_header
-    request_id = request.headers.get(
-        key=request_id_header,
-        default=str(uuid4()),
-    )
-
-    request.state.request_id = request_id
-
-    response = await call_next(request)
-
-    response.headers[request_id_header] = request_id
-
-    return response
-
-
-@app.get("/health")
-def health() -> JSONResponse:
-    """Return the process liveness status."""
-    return JSONResponse(status_code=200, content={"status": "healthy"})
-
-
-@app.get("/ready")
-def ready(request: Request) -> JSONResponse:
-    """Return whether the serving predictor is ready to accept predictions."""
-    if request.app.state.predictor is None:
-        return JSONResponse(status_code=503, content={"status": "not_ready"})
-    return JSONResponse(status_code=200, content={"status": "ready"})
-
-
-@app.post("/predict")
-def predict(
-    request: Request, features: InputFeatures, reference_date: datetime | None = None
-) -> PredictionResult:
-    """Predict target class for one validated input feature record.
-
-    Args:
-        features: Validated request payload containing input features.
-        reference_date: Optional reference date for the provided `features`.
-            If not provided, set to UTC time at execution.
-
-    Returns:
-        Prediction result produced by the configured registered model.
-    """
-    predictor = request.app.state.predictor
-
-    if predictor is None:
-        raise HTTPException(status_code=503, detail="Service is not ready.")
-
-    prediction_logger: PredictionLogger = request.app.state.prediction_logger
-
-    request_id = request.state.request_id
-
-    start = perf_counter()
-
-    try:
-        prediction = predictor.predict(features=features, reference_date=reference_date)
-
-        latency_ms = round(number=(perf_counter() - start) * 1000, ndigits=2)
-
-        prediction_logger.log_prediction(
-            request_id=request_id,
-            latency_ms=latency_ms,
-            prediction=prediction,
-            features=features,
-        )
-
-        logger.info(
-            "Prediction completed.",
-            extra={
-                "request_id": request_id,
-                "latency_ms": latency_ms,
-            },
-        )
-
-        return prediction
-
-    except Exception as exc:
-        latency_ms = round(number=(perf_counter() - start) * 1000, ndigits=2)
+    @asynccontextmanager
+    async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
+        settings = ServingSettings()
+        application.state.predictor = None
+        application.state.settings = settings
 
         try:
-            prediction_logger.log_error(
+            if settings.model_manifest is not None:
+                manifest = TrainingManifest.read(settings.model_manifest)
+                application.state.predictor = Predictor(
+                    load_model(use_case=use_case, manifest=manifest)
+                )
+            elif settings.model_version is None:
+                application.state.predictor = Predictor(load_model(use_case=use_case))
+            else:
+                application.state.predictor = Predictor(
+                    load_model(
+                        use_case=use_case,
+                        model_name=settings.model_name,
+                        model_version=settings.model_version,
+                    )
+                )
+
+            application.state.prediction_logger = PredictionLogger(
+                prediction_log_path=settings.prediction_log_path,
+                error_log_path=settings.error_log_path,
+                log_features=settings.log_features,
+                use_case=application.state.predictor.use_case,
+            )
+            logger.info("Serving predictor loaded for use case '%s'.", use_case.name)
+        except Exception:
+            logger.exception("Serving predictor failed to load during startup.")
+        yield
+
+    application = FastAPI(lifespan=lifespan)
+    application.state.use_case = use_case
+
+    @application.middleware("http")
+    async def add_request_id(request: Request, call_next):
+        request_id_header = getattr(
+            request.app.state,
+            "settings",
+            ServingSettings(),
+        ).request_id_header
+        request_id = request.headers.get(
+            key=request_id_header,
+            default=str(uuid4()),
+        )
+        request.state.request_id = request_id
+        response = await call_next(request)
+        response.headers[request_id_header] = request_id
+        return response
+
+    @application.get("/health")
+    def health() -> JSONResponse:
+        """Return the process liveness status."""
+        return JSONResponse(status_code=200, content={"status": "healthy"})
+
+    @application.get("/ready")
+    def ready(request: Request) -> JSONResponse:
+        """Return whether the serving predictor is ready."""
+        if request.app.state.predictor is None:
+            return JSONResponse(status_code=503, content={"status": "not_ready"})
+        return JSONResponse(status_code=200, content={"status": "ready"})
+
+    def predict(
+        request: Request,
+        features: BaseModel,
+        timestamp: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Predict the target class for one validated use-case input."""
+        predictor = request.app.state.predictor
+        if predictor is None:
+            raise HTTPException(status_code=503, detail="Service is not ready.")
+
+        prediction_logger: PredictionLogger = request.app.state.prediction_logger
+        request_id = request.state.request_id
+        start = perf_counter()
+        try:
+            prediction = predictor.predict(
+                features=features,
+                timestamp=timestamp,
+            )
+            latency_ms = round(number=(perf_counter() - start) * 1000, ndigits=2)
+            prediction_logger.log_prediction(
                 request_id=request_id,
                 latency_ms=latency_ms,
-                predictor=predictor,
-                exception=exc,
-                traceback_text=traceback.format_exc(),
+                prediction=prediction,
                 features=features,
             )
-        except Exception:
-            logger.exception("Failed to persist prediction error event.")
+            logger.info(
+                "Prediction completed.",
+                extra={"request_id": request_id, "latency_ms": latency_ms},
+            )
+            return prediction.to_response(time_column=predictor.use_case.time_column)
+        except Exception as exc:
+            latency_ms = round(number=(perf_counter() - start) * 1000, ndigits=2)
+            try:
+                prediction_logger.log_error(
+                    request_id=request_id,
+                    latency_ms=latency_ms,
+                    predictor=predictor,
+                    exception=exc,
+                    traceback_text=traceback.format_exc(),
+                    features=features,
+                )
+            except Exception:
+                logger.exception("Failed to persist prediction error event.")
+            logger.exception(
+                "Prediction request failed.",
+                extra={"request_id": request_id},
+            )
+            raise
 
-        logger.exception(
-            "Prediction request failed.",
-            extra={"request_id": request_id},
-        )
+    predict.__annotations__["features"] = request_model
+    application.post("/predict", response_model=response_model)(predict)
 
-        raise
+    return application
+
+
+def create_app_from_environment() -> FastAPI:
+    """Create the API using the required ``USE_CASE`` environment setting."""
+    use_case_name = os.environ.get("USE_CASE")
+    if not use_case_name:
+        raise ValueError("USE_CASE must name a registered use case before serving.")
+    return create_app(use_case=get_use_case(name=use_case_name))

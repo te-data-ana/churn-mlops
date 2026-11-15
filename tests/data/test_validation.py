@@ -3,6 +3,9 @@ import pytest
 from pandera.errors import SchemaError, SchemaErrors
 
 from churn_mlops.data import load_raw_data, validate_data
+from churn_mlops.use_cases import get_use_case
+
+CHURN_USE_CASE = get_use_case("churn")
 
 
 @pytest.fixture
@@ -18,7 +21,7 @@ def test_validate_data_accepts_valid_dataframe(
     ingested_df: pd.DataFrame,
 ) -> None:
 
-    validated_df = validate_data(ingested_df)
+    validated_df = validate_data(df=ingested_df, use_case=CHURN_USE_CASE)
 
     assert validated_df.shape == ingested_df.shape
 
@@ -32,7 +35,7 @@ def test_validate_data_rejects_invalid_dtype(
     df["age"] = "age"
 
     with pytest.raises(SchemaErrors):
-        validate_data(df)
+        validate_data(df=df, use_case=CHURN_USE_CASE)
 
 
 @pytest.mark.unit
@@ -43,7 +46,7 @@ def test_validate_data_rejects_missing_required_column(
     ingested_df = ingested_df.drop(columns=["age"])
 
     with pytest.raises(SchemaError):
-        validate_data(ingested_df)
+        validate_data(df=ingested_df, use_case=CHURN_USE_CASE)
 
 
 @pytest.mark.unit
@@ -54,7 +57,7 @@ def test_validate_data_rejects_invalid_churn_value(
     ingested_df.loc[ingested_df.index[0], "churn"] = 2
 
     with pytest.raises(SchemaError, match="churn"):
-        validate_data(ingested_df)
+        validate_data(df=ingested_df, use_case=CHURN_USE_CASE)
 
 
 @pytest.mark.unit
@@ -65,7 +68,7 @@ def test_validate_data_rejects_negative_total_spend(
     ingested_df.loc[ingested_df.index[0], "total_spend"] = -100
 
     with pytest.raises(SchemaError, match="total_spend"):
-        validate_data(ingested_df)
+        validate_data(df=ingested_df, use_case=CHURN_USE_CASE)
 
 
 @pytest.mark.unit
@@ -76,4 +79,4 @@ def test_validate_data_rejects_age_below_minimum(
     ingested_df.loc[ingested_df.index[0], "age"] = 10
 
     with pytest.raises(SchemaError, match="age"):
-        validate_data(ingested_df)
+        validate_data(df=ingested_df, use_case=CHURN_USE_CASE)

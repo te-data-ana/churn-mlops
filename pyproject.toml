@@ -1,6 +1,6 @@
 [project]
 name = "churn-mlops"
-version = "0.6.0"
+version = "0.7.0"
 description = "MLops project based on churn propensity use case, to evolve and demonstrate my ML engineering skills"
 readme = "README.md"
 license = "MIT"

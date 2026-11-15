@@ -2,17 +2,17 @@ import logging
 
 import pandas as pd
 
-from churn_mlops.data.schemas import DataSchema
+from churn_mlops.use_cases import UseCase
 
 logger = logging.getLogger(__name__)
 
 
-def validate_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Validate a DataFrame against the data schema.
+def validate_data(df: pd.DataFrame, use_case: UseCase) -> pd.DataFrame:
+    """Validate a DataFrame against an explicitly selected use-case contract.
 
     Args:
-        df: DataFrame containing features and optionally a ``customerid``,
-            a binary ``churn`` target and/or a ``reference_date`` column.
+        df: Input DataFrame.
+        use_case: Data contract to apply.
 
     Returns:
         The validated and type-coerced DataFrame.
@@ -22,7 +22,7 @@ def validate_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     try:
         logger.info("Validating data schema for %d rows.", len(df))
-        validated = DataSchema.validate(df)
+        validated = use_case.validate(df)
         logger.info("Data validation passed for %d rows.", len(validated))
         return validated
     except Exception:

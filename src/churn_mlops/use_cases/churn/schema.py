@@ -1,10 +1,10 @@
 import pandas as pd
 import pandera.pandas as pa
 from pandera import Float64, Int64
-from pandera.typing import Series  # , Index
+from pandera.typing import Series
 
 
-class DataSchema(pa.DataFrameModel):
+class ChurnDataSchema(pa.DataFrameModel):
     customerid: Series[Int64] | None
 
     age: Series[Int64]

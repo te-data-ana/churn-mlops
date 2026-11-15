@@ -16,7 +16,8 @@ SUBMODULE_COLORS = {
     "monitoring": "#59A14F",
     "serving": "#EDC949",
     "tracking": "#AF7AA1",
-    "training": "#FF9DA7",
+    "training": "#9DFF9F",
+    "use_cases": "#D12AC1",
     "root": "#9D9D9D",
 }
 
@@ -125,7 +126,7 @@ def discover_modules(package_root: Path) -> dict[str, Path]:
 
 def extract_internal_imports(
     package_root: Path,
-) -> nx.DiGraph:
+) -> nx.MultiDiGraph:
     """
     Determines the internal dependencies of a package.
 
@@ -133,17 +134,15 @@ def extract_internal_imports(
         package_root: Path to the root directory of the package.
 
     Returns:
-        nx.DiGraph: A directed graph representing the internal dependencies.
+        A directed graph (nx.MultiDiGraph) representing the internal dependencies.
     """
 
     modules = discover_modules(package_root)
 
-    G = nx.DiGraph()
+    G = nx.MultiDiGraph()
 
     for module_name in modules:
         G.add_node(module_name)
-
-    package_prefix = package_root.name
 
     for source_module, py_file in modules.items():
         try:
@@ -152,20 +151,36 @@ def extract_internal_imports(
             print(f"Skip {py_file}: {ex}")
             continue
 
+        is_package_init = py_file.name == "__init__.py"
+        package_parts = source_module.split(".")
+        if not is_package_init:
+            package_parts.pop()
+
         for node in ast.walk(tree):
-            # import xxx
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    imported = alias.name
+                    if alias.name in modules:
+                        G.add_edge(source_module, alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    base_parts = package_parts[: len(package_parts) - node.level + 1]
+                    if node.module:
+                        base_parts.extend(node.module.split("."))
+                    imported = ".".join(base_parts)
+                else:
+                    imported = node.module or ""
 
-                    if imported.startswith(package_prefix):
-                        G.add_edge(source_module, imported)
+                if node.module is None:
+                    imported = next(
+                        (
+                            f"{imported}.{alias.name}"
+                            for alias in node.names
+                            if f"{imported}.{alias.name}" in modules
+                        ),
+                        imported,
+                    )
 
-            # from xxx import yyy
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                imported = node.module
-
-                if imported.startswith(package_prefix):
+                if imported in modules:
                     G.add_edge(source_module, imported)
 
     return G

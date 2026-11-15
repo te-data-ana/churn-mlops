@@ -1,6 +1,7 @@
 import os
 import subprocess
 from argparse import Namespace
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import Mock
@@ -16,6 +17,9 @@ from churn_mlops.serving.serve_samples import (
     custom_parser,
     main,
 )
+from churn_mlops.use_cases import get_use_case
+
+CHURN_USE_CASE = get_use_case("churn")
 
 
 class MockResponse:
@@ -43,7 +47,7 @@ def test_load_sample_data_is_reproducible(
     monkeypatch.setattr(
         serve_samples,
         "validate_data",
-        lambda df: df,
+        lambda df, use_case: df,
     )
 
     settings = RuntimeSettings()
@@ -52,12 +56,14 @@ def test_load_sample_data_is_reproducible(
         sample_size=5,
         random_state=42,
         settings=settings,
+        use_case=CHURN_USE_CASE,
     )
 
     result_2 = serve_samples.load_sample_data(
         sample_size=5,
         random_state=42,
         settings=settings,
+        use_case=CHURN_USE_CASE,
     )
 
     assert len(result_1) == 5
@@ -91,6 +97,7 @@ def test_predict_samples_combines_predictions(
     result = serve_samples.predict_samples(
         df=df,
         settings=settings,
+        use_case=CHURN_USE_CASE,
     )
 
     assert "predicted_class" in result.columns
@@ -119,11 +126,12 @@ def test_predict_samples_raises_http_error(
         serve_samples.predict_samples(
             df=df,
             settings=RuntimeSettings(),
+            use_case=CHURN_USE_CASE,
         )
 
 
 @pytest.mark.unit
-def test_predict_samples_uses_dataframe_reference_date(
+def test_predict_samples_sends_use_case_timestamp_as_generic_query_parameter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured_params = []
@@ -149,9 +157,46 @@ def test_predict_samples_uses_dataframe_reference_date(
     serve_samples.predict_samples(
         df=df,
         settings=RuntimeSettings(),
+        use_case=CHURN_USE_CASE,
     )
 
-    assert "reference_date" in captured_params[0]
+    assert "timestamp" in captured_params[0]
+
+
+@pytest.mark.unit
+def test_predict_samples_supports_alternate_use_case_time_column(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    use_case = replace(CHURN_USE_CASE, time_column="event_date")
+    captured_params = []
+
+    def mock_post(*args, **kwargs):
+        captured_params.append(kwargs["params"])
+        return MockResponse(
+            {
+                "event_date": kwargs["params"]["timestamp"],
+                "predicted_class": 1,
+                "predicted_probability": 0.9,
+            }
+        )
+
+    monkeypatch.setattr(serve_samples.requests, "post", mock_post)
+    df = pd.DataFrame(
+        {
+            "age": [42],
+            "event_date": [datetime(2026, 1, 1, tzinfo=UTC)],
+        }
+    )
+
+    result = serve_samples.predict_samples(
+        df=df,
+        settings=RuntimeSettings(),
+        use_case=use_case,
+    )
+
+    assert captured_params == [{"timestamp": "2026-01-01T00:00:00+00:00"}]
+    assert result["event_date"].iloc[0] == "2026-01-01T00:00:00+00:00"
+    assert "reference_date" not in result.columns
 
 
 @pytest.mark.unit
@@ -207,6 +252,7 @@ def test_serve_samples_calls_dependencies(
         sample_size=1,
         random_state=42,
         settings=settings,
+        use_case=CHURN_USE_CASE,
         drop_columns=None,
     )
 
@@ -215,12 +261,14 @@ def test_serve_samples_calls_dependencies(
         sample_size=1,
         random_state=42,
         settings=settings,
+        use_case=CHURN_USE_CASE,
         drop_columns=None,
     )
     predict_samples_mock.assert_called_once_with(
         df=sample_df,
         settings=settings,
-        reference_date=None,
+        use_case=CHURN_USE_CASE,
+        timestamp=None,
     )
     save_predictions_mock.assert_called_once_with(
         df=prediction_df,
@@ -328,6 +376,7 @@ def test_custom_parser_uses_settings_defaults() -> None:
     assert args.host == "localhost"
     assert args.port == 8000
     assert args.reload is False
+    assert args.use_case is None
     assert args.model_name is None
     assert args.model_version is None
     assert args.model_manifest is None
@@ -380,11 +429,12 @@ def test_main_starts_api_serves_samples_and_stops_server(
     args = Namespace(
         sample_size=100,
         random_state=42,
-        reference_date=datetime(2026, 9, 30, tzinfo=UTC),
+        timestamp=datetime(2026, 9, 30, tzinfo=UTC),
         drop_columns=["reference_date"],
         host="localhost",
         port=8000,
         reload=False,
+        use_case="churn",
         model_name=None,
         model_version=None,
         model_manifest=None,
@@ -449,7 +499,8 @@ def test_main_starts_api_serves_samples_and_stops_server(
         sample_size=100,
         random_state=42,
         settings=mock_settings,
-        reference_date=args.reference_date,
+        use_case=CHURN_USE_CASE,
+        timestamp=args.timestamp,
         drop_columns=["reference_date"],
     )
 
@@ -467,11 +518,12 @@ def test_main_stops_server_when_serving_fails(
     args = Namespace(
         sample_size=100,
         random_state=42,
-        reference_date=None,
+        timestamp=None,
         drop_columns=[],
         host="localhost",
         port=8000,
         reload=False,
+        use_case="churn",
         model_name=None,
         model_version=None,
         model_manifest=None,
@@ -528,11 +580,12 @@ def test_main_rejects_manifest_and_model_version(
     parser.parse_args.return_value = Namespace(
         sample_size=100,
         random_state=42,
-        reference_date=None,
+        timestamp=None,
         drop_columns=[],
         host="localhost",
         port=8000,
         reload=False,
+        use_case="churn",
         model_name="model",
         model_version=1,
         model_manifest=Path("manifest.json"),

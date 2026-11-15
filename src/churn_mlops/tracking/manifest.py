@@ -89,6 +89,7 @@ class ManifestRun:
 class ManifestModel:
     """Model identity and logged artifact reference."""
 
+    use_case: str
     model_name: str
     model_version: int | None
     model_reference: LoggedModelReference
@@ -146,7 +147,7 @@ class TrainingManifest:
     training: ManifestTraining
     evaluation: ManifestEvaluation
     lifecycle: ManifestLifecycle
-    schema_version: int = 1
+    schema_version: int = 2
 
     def write(self, path: Path) -> None:
         """Write the manifest as formatted JSON.
@@ -173,6 +174,7 @@ class TrainingManifest:
                 "name": self.run.run_name,
             },
             "model": {
+                "use_case": self.model.use_case,
                 "name": self.model.model_name,
                 "version": self.model.model_version,
                 "reference": self.model.model_reference.to_dict(),
@@ -261,7 +263,7 @@ class TrainingManifest:
             raise TypeError(
                 f"Training manifest '{path}' has an invalid schema_version."
             )
-        if payload["schema_version"] != 1:
+        if payload["schema_version"] != 2:
             raise ValueError(
                 f"Training manifest '{path}' uses unsupported schema_version "
                 f"{payload['schema_version']}."
@@ -275,7 +277,12 @@ class TrainingManifest:
         lifecycle = _require_object(payload, "lifecycle", path)
 
         _require_fields(run, {"id", "name"}, "run", path)
-        _require_fields(model, {"name", "version", "reference"}, "model", path)
+        _require_fields(
+            model,
+            {"use_case", "name", "version", "reference"},
+            "model",
+            path,
+        )
         _require_fields(
             data,
             {"target_column", "time_column", "split"},
@@ -334,6 +341,7 @@ class TrainingManifest:
         text_fields = (
             (run, "id"),
             (run, "name"),
+            (model, "use_case"),
             (model, "name"),
             (data, "target_column"),
             (data, "time_column"),
@@ -406,6 +414,7 @@ class TrainingManifest:
             schema_version=payload["schema_version"],
             run=ManifestRun(run_id=run["id"], run_name=run["name"]),
             model=ManifestModel(
+                use_case=model["use_case"],
                 model_name=model["name"],
                 model_version=model_version,
                 model_reference=model_reference,

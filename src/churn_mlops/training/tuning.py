@@ -1,7 +1,6 @@
 """Optuna search for classifier hyperparameters using chronological CV."""
 
 import logging
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,6 +13,8 @@ from threadpoolctl import threadpool_limits
 from churn_mlops.config.schemas import TrainingConfig
 from churn_mlops.models import MODEL_CATALOG, build_classifier_pipeline, create_model
 from churn_mlops.training.calibration import make_temporal_cv_splits
+from churn_mlops.training.features import select_feature_columns
+from churn_mlops.use_cases import UseCase
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ def _suggest_parameters(
 def optimize_hyperparameters(
     config: TrainingConfig,
     train_df: pd.DataFrame,
-    exclude_columns: Sequence[str] = (),
+    use_case: UseCase,
 ) -> TuningResult:
     """Optimize the configured classifier on chronological CV folds.
 
@@ -79,15 +80,19 @@ def optimize_hyperparameters(
         train_df: Training data split, including the configured time column.
             A separate out-of-time test split should be kept aside for final
             evaluation.
-        exclude_columns: Optional columns to omit from hyperparameter tuning.
-
+        use_case: Use-case contract for the training data.
     Returns:
         Optimized catalog-defined parameters and study metadata.
 
     Raises:
         ValueError: If tuning settings, classifier search space, timestamps,
-            labels, or folds are invalid.
+            labels, required model features, or folds are invalid.
     """
+    if config.use_case != use_case.name:
+        raise ValueError(
+            f"Training config selects use case '{config.use_case}', but "
+            f"'{use_case.name}' was supplied."
+        )
     tuning = config.tuning
     if not tuning.enabled:
         raise ValueError("Optuna tuning is disabled in the training configuration.")
@@ -108,19 +113,19 @@ def optimize_hyperparameters(
             "search space."
         )
 
-    target_column = config.data.target_column
-    time_column = config.data.time_column
+    target_column = use_case.target_column
+    time_column = use_case.time_column
+    train_features = select_feature_columns(
+        df=train_df,
+        feature_columns=use_case.feature_columns,
+        data_name="Tuning",
+    )
     folds = make_temporal_cv_splits(
         df=train_df,
         target_column=target_column,
         time_column=time_column,
         n_splits=tuning.n_splits,
     )
-    feature_columns = [
-        column
-        for column in train_df.columns
-        if column not in {target_column, time_column, *exclude_columns}
-    ]
     metric = roc_auc_score if tuning.metric == "roc_auc" else average_precision_score
 
     def objective(trial: optuna.Trial) -> float:
@@ -134,29 +139,30 @@ def optimize_hyperparameters(
             )
             pipeline = build_classifier_pipeline(
                 classifier=classifier,
-                feature_params=config.feature_builder.feature_params,
+                feature_builder=use_case.build_feature_builder(
+                    feature_params=config.feature_builder.feature_params
+                ),
                 num_impute_strategy=config.preprocessing.numeric_impute_strategy,
                 cat_impute_strategy=config.preprocessing.categorical_impute_strategy,
             )
-            fold_train = train_df.iloc[train_indices]
-            fold_validation = train_df.iloc[validation_indices]
+            fold_train_features = train_features.iloc[train_indices]
+            fold_validation_features = train_features.iloc[validation_indices]
+            fold_train_targets = train_df.iloc[train_indices][target_column]
+            fold_validation_targets = train_df.iloc[validation_indices][target_column]
             pipeline.fit(
-                X=fold_train.loc[:, feature_columns],
-                y=fold_train[target_column],
+                X=fold_train_features,
+                y=fold_train_targets,
             )
-            validation_features = fold_validation.loc[:, feature_columns]
             if hasattr(pipeline, "predict_proba"):
-                ranking_scores = pipeline.predict_proba(validation_features)[:, 1]
+                ranking_scores = pipeline.predict_proba(fold_validation_features)[:, 1]
             elif hasattr(pipeline, "decision_function"):
-                ranking_scores = pipeline.decision_function(validation_features)
+                ranking_scores = pipeline.decision_function(fold_validation_features)
             else:
                 raise ValueError(
                     f"Classifier '{config.model.classifier}' supports neither "
                     "predict_proba nor decision_function for ranking metrics."
                 )
-            fold_scores.append(
-                float(metric(fold_validation[target_column], ranking_scores))
-            )
+            fold_scores.append(float(metric(fold_validation_targets, ranking_scores)))
         return float(np.mean(fold_scores))
 
     logger.info(

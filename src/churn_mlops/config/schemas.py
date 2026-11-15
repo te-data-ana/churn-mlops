@@ -17,19 +17,6 @@ class ClassifierConfig:
 
 
 @dataclass
-class DataConfig:
-    target_column: str = "target"
-    time_column: str = "reference_date"
-
-    def __post_init__(self) -> None:
-        """Validate column names."""
-        if not isinstance(self.target_column, str) or not self.target_column:
-            raise ValueError("target_column name must be provided as a string.")
-        if not isinstance(self.time_column, str) or not self.time_column:
-            raise ValueError("time_column name must be provided as a string.")
-
-
-@dataclass
 class FeatureBuilderConfig:
     feature_params: dict[str, int]
 
@@ -133,8 +120,8 @@ class PromotionConfig:
 
 @dataclass(frozen=True)
 class TrainingConfig:
+    use_case: str
     model: ClassifierConfig
-    data: DataConfig
     feature_builder: FeatureBuilderConfig
     n_jobs: int = 1
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
@@ -145,6 +132,8 @@ class TrainingConfig:
     promotion: PromotionConfig = field(default_factory=PromotionConfig)
 
     def __post_init__(self) -> None:
-        """Validate the total parallel-job budget."""
+        """Validate the selected use case and total parallel-job budget."""
+        if not isinstance(self.use_case, str) or not self.use_case:
+            raise ValueError("use_case must be provided as a non-empty name.")
         if not isinstance(self.n_jobs, int) or self.n_jobs == 0 or self.n_jobs < -1:
             raise ValueError("n_jobs must be a positive integer or -1.")

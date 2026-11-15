@@ -10,6 +10,9 @@ from fastapi.testclient import TestClient
 from churn_mlops.serving import api
 from churn_mlops.serving.model_loader import LoadedModel, load_model
 from churn_mlops.serving.prediction_logger import PredictionLogger
+from churn_mlops.use_cases import UseCase, get_use_case
+
+CHURN_USE_CASE = get_use_case("churn")
 
 
 @pytest.fixture
@@ -18,6 +21,7 @@ def temp_prediction_logger(tmp_path: Path):
         prediction_log_path=tmp_path / "predictions.jsonl",
         error_log_path=tmp_path / "prediction_errors.jsonl",
         log_features=True,
+        use_case=get_use_case("churn"),
     )
 
 
@@ -163,21 +167,24 @@ def test_predictor_loads_once_per_api_lifetime(
     sample_dict: dict[str, Any],
 ) -> None:
     load_count = 0
+    loaded_use_cases: list[UseCase] = []
 
-    def load_once() -> LoadedModel:
+    def load_once(*, use_case: UseCase) -> LoadedModel:
         nonlocal load_count
         load_count += 1
+        loaded_use_cases.append(use_case)
         return mock_model_factory()
 
     monkeypatch.setattr(api, "load_model", load_once)
 
-    with TestClient(api.app) as test_client:
+    with TestClient(api.create_app(get_use_case("churn"))) as test_client:
         first_response = test_client.post("/predict", json=sample_dict)
         second_response = test_client.post("/predict", json=sample_dict)
 
     assert first_response.status_code == 200
     assert second_response.status_code == 200
     assert load_count == 1
+    assert loaded_use_cases == [CHURN_USE_CASE]
 
 
 @pytest.mark.unit
@@ -204,11 +211,11 @@ def test_api_loads_model_from_manifest_at_startup(
     )
     monkeypatch.setattr(api, "load_model", load)
 
-    with TestClient(api.app) as test_client:
+    with TestClient(api.create_app(get_use_case("churn"))) as test_client:
         ready_response = test_client.get("/ready")
 
     assert ready_response.status_code == 200
-    load.assert_called_once_with(manifest=manifest)
+    load.assert_called_once_with(use_case=CHURN_USE_CASE, manifest=manifest)
 
 
 @pytest.mark.unit
@@ -216,12 +223,12 @@ def test_api_reports_not_ready_when_model_loading_fails(
     monkeypatch: pytest.MonkeyPatch,
     sample_dict: dict[str, Any],
 ) -> None:
-    def fail_to_load() -> None:
+    def fail_to_load(**kwargs: object) -> None:
         raise RuntimeError("model alias is unavailable")
 
     monkeypatch.setattr(api, "load_model", fail_to_load)
 
-    with TestClient(api.app) as test_client:
+    with TestClient(api.create_app(get_use_case("churn"))) as test_client:
         health_response = test_client.get("/health")
         ready_response = test_client.get("/ready")
         predict_response = test_client.post("/predict", json=sample_dict)
@@ -245,8 +252,9 @@ def test_api_serves_predictions_from_registered_model(
     registered_model: dict[str, object],
     sample_dict: dict[str, Any],
 ) -> None:
-    def load_registered_model() -> LoadedModel:
+    def load_registered_model(*, use_case: UseCase) -> LoadedModel:
         return load_model(
+            use_case=use_case,
             tracking_uri=str(registered_model["tracking_uri"]),
             model_name=str(registered_model["model_name"]),
             model_alias=str(registered_model["model_alias"]),
@@ -254,7 +262,7 @@ def test_api_serves_predictions_from_registered_model(
 
     monkeypatch.setattr(api, "load_model", load_registered_model)
 
-    with TestClient(api.app) as test_client:
+    with TestClient(api.create_app(get_use_case("churn"))) as test_client:
         health_response = test_client.get("/health")
         ready_response = test_client.get("/ready")
         predict_response = test_client.post("/predict", json=sample_dict)

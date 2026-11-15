@@ -15,6 +15,9 @@ from churn_mlops.training.tuning import (
     _suggest_parameters,
     optimize_hyperparameters,
 )
+from churn_mlops.use_cases import get_use_case
+
+CHURN_USE_CASE = get_use_case("churn")
 
 
 @pytest.mark.unit
@@ -133,7 +136,11 @@ def test_optimize_hyperparameters_returns_reproducible_study_result(
     monkeypatch.setattr(tuning, "create_model", create_model_spy)
     train_df = temporal_sample_training_df.copy()
 
-    result = optimize_hyperparameters(config, train_df)
+    result = optimize_hyperparameters(
+        config=config,
+        train_df=train_df,
+        use_case=CHURN_USE_CASE,
+    )
 
     assert set(result.best_params) == {
         "max_depth",
@@ -149,7 +156,7 @@ def test_optimize_hyperparameters_returns_reproducible_study_result(
 
 
 @pytest.mark.unit
-def test_optimize_hyperparameters_excludes_requested_columns(
+def test_optimize_hyperparameters_uses_declared_feature_columns(
     monkeypatch: pytest.MonkeyPatch,
     config_factory: Callable[..., TrainingConfig],
     temporal_sample_training_df: pd.DataFrame,
@@ -183,16 +190,15 @@ def test_optimize_hyperparameters_excludes_requested_columns(
     monkeypatch.setattr(tuning, "build_classifier_pipeline", build_pipeline)
 
     optimize_hyperparameters(
-        config,
-        train_df,
-        exclude_columns=["customerid"],
+        config=config,
+        train_df=train_df,
+        use_case=CHURN_USE_CASE,
     )
 
     assert observed_columns
-    assert all("customerid" not in columns for columns in observed_columns)
-    assert all("reference_date" not in columns for columns in observed_columns)
-    assert all("churn" not in columns for columns in observed_columns)
-    assert all("tenure" in columns for columns in observed_columns)
+    assert all(
+        columns == list(CHURN_USE_CASE.feature_columns) for columns in observed_columns
+    )
 
 
 @pytest.mark.unit
@@ -230,7 +236,11 @@ def test_optimize_hyperparameters_uses_decision_function_for_svm(
         lambda **_: DecisionFunctionPipeline(),
     )
 
-    result = optimize_hyperparameters(config, train_df)
+    result = optimize_hyperparameters(
+        config=config,
+        train_df=train_df,
+        use_case=CHURN_USE_CASE,
+    )
 
     assert result.n_trials == 1
     assert decision_scores
@@ -245,4 +255,8 @@ def test_optimize_hyperparameters_rejects_classifier_without_search_space(
     config = replace(config, tuning=TuningConfig(enabled=True))
 
     with pytest.raises(ValueError, match="does not define an Optuna search space"):
-        optimize_hyperparameters(config, sample_training_df)
+        optimize_hyperparameters(
+            config=config,
+            train_df=sample_training_df,
+            use_case=CHURN_USE_CASE,
+        )

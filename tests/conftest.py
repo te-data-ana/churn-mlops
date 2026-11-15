@@ -13,7 +13,6 @@ import yaml
 from churn_mlops.config.schemas import (
     CalibrationConfig,
     ClassifierConfig,
-    DataConfig,
     FeatureBuilderConfig,
     PreprocessingConfig,
     PromotionConfig,
@@ -32,6 +31,7 @@ from churn_mlops.tracking.manifest import (
     ManifestTraining,
     TrainingManifest,
 )
+from churn_mlops.use_cases import CHURN_USE_CASE
 
 
 @pytest.fixture
@@ -52,6 +52,7 @@ def training_manifest_factory() -> Callable[..., TrainingManifest]:
                 run_name="rf__oot_26q1",
             ),
             model=ManifestModel(
+                use_case=CHURN_USE_CASE.name,
                 model_name="churn-risk",
                 model_version=4,
                 model_reference=LoggedModelReference(
@@ -102,9 +103,7 @@ def config_factory() -> Callable[..., TrainingConfig]:
     def _create(**overrides) -> TrainingConfig:
 
         config = TrainingConfig(
-            data=DataConfig(
-                target_column="churn",
-            ),
+            use_case=CHURN_USE_CASE.name,
             feature_builder=FeatureBuilderConfig(
                 feature_params={
                     "engagement_window": 30,
@@ -145,6 +144,7 @@ def sample_training_df() -> pd.DataFrame:
     # Includes the churn target for training and end-to-end pipeline tests.
     df = pd.DataFrame(
         {
+            "age": [35, 42, 28, 55, 61, 39, 47, 33, 50, 44],
             "tenure": [0, 12, 24, 60, None, 50, 42, 14, 6, None],
             "contract_length": [
                 "Monthly",
@@ -163,6 +163,30 @@ def sample_training_df() -> pd.DataFrame:
             "total_spend": [0, 400, 1000, None, 750, 150, 450, 800, None, 250],
             "support_calls": [10, 6, 1, 2, None, 9, 7, 3, 4, 5],
             "payment_delay": [25, 10, 0, None, 30, 22, 12, 2, 0, None],
+            "gender": [
+                "Female",
+                "Male",
+                "Female",
+                "Male",
+                "Female",
+                "Male",
+                "Female",
+                "Male",
+                "Female",
+                "Male",
+            ],
+            "subscription_type": [
+                "Basic",
+                "Standard",
+                "Premium",
+                "Basic",
+                "Standard",
+                "Premium",
+                "Basic",
+                "Standard",
+                "Premium",
+                "Basic",
+            ],
             "churn": [1, 0, 0, 1, 0, 1, 0, 0, 1, 1],
         }
     )
@@ -321,10 +345,7 @@ def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
     config_path.write_text(
         yaml.safe_dump(
             {
-                "data": {
-                    "target_column": "churn",
-                    "time_column": "reference_date",
-                },
+                "use_case": CHURN_USE_CASE.name,
                 "feature_builder": {
                     "feature_params": {
                         "engagement_window": 30,

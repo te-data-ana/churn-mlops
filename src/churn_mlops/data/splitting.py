@@ -1,6 +1,5 @@
 import json
 import logging
-from collections.abc import Sequence
 from pathlib import Path
 from typing import TypedDict
 
@@ -10,6 +9,7 @@ from churn_mlops.config import RuntimeSettings
 from churn_mlops.data.ingestion import normalize_strings
 from churn_mlops.data.storage import read_partitioned_dataset
 from churn_mlops.data.validation import validate_data
+from churn_mlops.use_cases import UseCase
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,8 @@ class SplitMetadata(TypedDict):
 def load_and_validate_training_splits(
     split_name: str = "default",
     split_dir: Path | None = None,
-    preserve_time_column: str | Sequence[str] | None = None,
+    *,
+    use_case: UseCase,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load and validate the prepared train and test Parquet files.
 
@@ -34,11 +35,11 @@ def load_and_validate_training_splits(
         split_name: Prefix shared by the train and test split filenames.
         split_dir: Directory containing the split files. Defaults to the
             configured ``data/splits`` directory.
-        preserve_time_column: Optional timestamp column(s) to retain for
-            temporal evaluation. ``reference_date`` is dropped by default.
+        use_case: Explicit schema and time-column contract for validation.
 
     Returns:
-        Validated training and test DataFrames, in that order.
+        Validated training and test DataFrames, retaining the use-case time
+        column for temporal training operations.
 
     Raises:
         FileNotFoundError: If either split file does not exist.
@@ -53,16 +54,7 @@ def load_and_validate_training_splits(
         logger.info("Loading %s split from '%s'.", split, split_file)
         df = pd.read_parquet(split_file)
         df.columns = normalize_strings(df.columns)
-        preserved_columns = (
-            {preserve_time_column}
-            if isinstance(preserve_time_column, str)
-            else set(preserve_time_column or ())
-        )
-        columns_to_drop = (
-            ["reference_date"] if "reference_date" not in preserved_columns else []
-        )
-        df = df.drop(columns=columns_to_drop, errors="ignore")
-        split_data[split] = validate_data(df.convert_dtypes())
+        split_data[split] = validate_data(df.convert_dtypes(), use_case)
 
     return split_data["train"], split_data["test"]
 

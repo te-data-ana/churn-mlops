@@ -1,3 +1,5 @@
+use_case: churn
+
 split:
   name: OOT_26Q2
   start_date: '2025-04-01'
@@ -5,9 +7,8 @@ split:
   end_date: '2026-06-30'
 
 model:
-  classifier: hgb
-  register_model: false
-  exclude_columns: customerid
+  classifier: lr
+  register_model: true
 
 training:
   n_jobs: 16

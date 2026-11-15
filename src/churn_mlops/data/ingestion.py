@@ -8,6 +8,7 @@ from churn_mlops.config import RuntimeSettings, ServingSettings
 from churn_mlops.data.jsonl_logs import read_jsonl_log
 from churn_mlops.data.storage import write_partitioned_dataset
 from churn_mlops.data.validation import validate_data
+from churn_mlops.use_cases import UseCase
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,7 @@ def combine_sample_predictions(data_dir: Path | None = None) -> pd.DataFrame:
 def ingest_sample_data(
     dataset_name: str,
     timestamp_column: str,
+    use_case: UseCase,
 ) -> None:
     """
     Combine sample prediction files, validate the resulting data,
@@ -121,9 +123,10 @@ def ingest_sample_data(
             Name of the target dataset directory.
         timestamp_column:
             Name of the timestamp column used for partitioning.
+        use_case: Data contract to validate before writing.
     """
     df = combine_sample_predictions()
-    df = validate_data(df)
+    df = validate_data(df, use_case)
 
     write_partitioned_dataset(
         df=df,

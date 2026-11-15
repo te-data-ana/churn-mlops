@@ -1,38 +1,27 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
 
-class InputFeatures(BaseModel):
-    age: int = Field(ge=18, le=115)
-    tenure: int = Field(ge=0)
-    usage_frequency: int = Field(ge=0)
-    support_calls: int = Field(ge=0)
-    payment_delay: int = Field(ge=0)
-    last_interaction: int = Field(ge=0)
-    total_spend: float = Field(ge=0)
-
-    gender: Literal["Female", "Male"]
-
-    subscription_type: Literal[
-        "Basic",
-        "Standard",
-        "Premium",
-    ]
-
-    contract_length: Literal[
-        "Monthly",
-        "Quarterly",
-        "Annual",
-    ]
+def prediction_response_schema(time_column: str) -> type[BaseModel]:
+    """Create the API response schema for a use case's timestamp field."""
+    return create_model(
+        f"PredictionResponse_{time_column}",
+        **{
+            time_column: (datetime, ...),
+            "predicted_class": (Literal[0, 1], ...),
+            "predicted_probability": (float, Field(ge=0.0, le=1.0)),
+            "metadata": (dict[str, Any], ...),
+        },
+    )
 
 
 class BaseInferenceEvent(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     request_id: str
-    reference_date: datetime
+    timestamp: datetime
     latency_ms: float = Field(ge=0)
 
     model_name: str
@@ -40,7 +29,7 @@ class BaseInferenceEvent(BaseModel):
     model_version: int
 
     # Optional feature logging
-    features: InputFeatures | None = None
+    features: dict[str, Any] | None = None
 
 
 class PredictionEvent(BaseInferenceEvent):

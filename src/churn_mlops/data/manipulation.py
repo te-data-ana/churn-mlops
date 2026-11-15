@@ -7,6 +7,7 @@ import pandas as pd
 from churn_mlops.config import RuntimeSettings, configure_logging
 from churn_mlops.data.ingestion import load_raw_data
 from churn_mlops.data.validation import validate_data
+from churn_mlops.use_cases import UseCase, get_use_case
 
 
 def assign_split_values(
@@ -52,7 +53,9 @@ def preprocess_raw_data(
     start_date: str,
     end_date: str,
     freq: str = "MS",
-    date_column: str = "reference_date",
+    date_column: str | None = None,
+    *,
+    use_case: UseCase,
     data_dir: Path | None = None,
 ) -> Path:
     """Pre-process raw data and store the result as a CSV file.
@@ -72,7 +75,8 @@ def preprocess_raw_data(
         freq: Frequency string used to generate dates via
             :func:`pandas.date_range`. Defaults to ``"MS"`` (month start).
         date_column: Name of the column to add containing the generated date
-            values. Defaults to ``"reference_date"``.
+            values. Defaults to the use case's time column.
+        use_case: Explicit data contract used for validation.
         data_dir: Directory containing the input file and where the output
             file will be written. If ``None``, the raw data directory from
             :class:`RuntimeSettings` is used.
@@ -92,11 +96,15 @@ def preprocess_raw_data(
         index_col=None,
         data_dir=resolved_data_dir,
     )
-    df = validate_data(df)
+    df = validate_data(df=df, use_case=use_case)
 
     dates = pd.date_range(start=start_date, end=end_date, freq=freq)
 
-    df_dates = assign_split_values(df, values=dates, column_name=date_column)
+    df_dates = assign_split_values(
+        df=df,
+        values=dates,
+        column_name=date_column or use_case.time_column,
+    )
 
     output_path = resolved_data_dir / output_csv
     resolved_data_dir.mkdir(parents=True, exist_ok=True)
@@ -110,13 +118,14 @@ def main() -> None:
     """Pre-process raw data files and store result as CSV.
 
     The in-/output paths and start/end dates are supplied as command-line arguments.
-    The original data is enhanced by a ``reference_date`` column.
+    The original data is enhanced by the selected use case's time column.
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_csv", required=True)
     parser.add_argument("--output_csv", required=True)
     parser.add_argument("--start_date", required=True)
     parser.add_argument("--end_date", required=True)
+    parser.add_argument("--use-case", required=True)
 
     args = parser.parse_args()
 
@@ -125,6 +134,7 @@ def main() -> None:
         output_csv=args.output_csv,
         start_date=args.start_date,
         end_date=args.end_date,
+        use_case=get_use_case(args.use_case),
     )
 
 
