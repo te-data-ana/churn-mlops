@@ -91,8 +91,6 @@ def log_experiment_result(
             "column_time": use_case.time_column,
         }
     )
-    # log feature enginnering hyper-parameters
-    mlflow.log_params(config.feature_builder.feature_params)
     # log preprocessing hyper-parameters
     mlflow.log_params(
         {
@@ -140,9 +138,7 @@ def log_experiment_result(
         artifact_file="calibration/reliability_diagram.png",
     )
 
-    feature_builder = use_case.build_feature_builder(
-        config.feature_builder.feature_params
-    )
+    feature_builder = use_case.build_feature_builder()
     feature_builder_type = type(feature_builder)
     feature_builder_trusted_type = (
         f"{feature_builder_type.__module__}.{feature_builder_type.__name__}"

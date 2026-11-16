@@ -17,11 +17,6 @@ class ClassifierConfig:
 
 
 @dataclass
-class FeatureBuilderConfig:
-    feature_params: dict[str, int]
-
-
-@dataclass
 class PreprocessingConfig:
     numeric_impute_strategy: str = "median"
     categorical_impute_strategy: str = "most_frequent"
@@ -122,7 +117,6 @@ class PromotionConfig:
 class TrainingConfig:
     use_case: str
     model: ClassifierConfig
-    feature_builder: FeatureBuilderConfig
     n_jobs: int = 1
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
     tuning: TuningConfig = field(default_factory=TuningConfig)

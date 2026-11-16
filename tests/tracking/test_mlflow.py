@@ -174,9 +174,7 @@ def test_log_experiment_result_trusts_selected_use_case_feature_builder(
     assert not any(
         "ChurnFeatureBuilder" in trusted_type for trusted_type in trusted_types
     )
-    feature_builder_factory.assert_called_once_with(
-        config.feature_builder.feature_params
-    )
+    feature_builder_factory.assert_called_once()
 
 
 @pytest.mark.integration
@@ -210,9 +208,7 @@ def test_logged_calibrated_model_can_be_reloaded(
     )
     pipeline = build_classifier_pipeline(
         classifier=classifier,
-        feature_builder=use_case.build_feature_builder(
-            feature_params=config.feature_builder.feature_params
-        ),
+        feature_builder=use_case.build_feature_builder(),
         num_impute_strategy=config.preprocessing.numeric_impute_strategy,
         cat_impute_strategy=config.preprocessing.categorical_impute_strategy,
     )

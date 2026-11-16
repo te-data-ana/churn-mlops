@@ -117,9 +117,7 @@ def train_model(
 
         model_pipeline = build_classifier_pipeline(
             classifier=classifier,
-            feature_builder=use_case.build_feature_builder(
-                feature_params=config.feature_builder.feature_params
-            ),
+            feature_builder=use_case.build_feature_builder(),
             num_impute_strategy=config.preprocessing.numeric_impute_strategy,
             cat_impute_strategy=config.preprocessing.categorical_impute_strategy,
         )

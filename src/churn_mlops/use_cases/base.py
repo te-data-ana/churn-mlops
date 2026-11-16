@@ -35,8 +35,6 @@ class UseCase:
         """Validate and normalize a dataframe using this use case's data contract."""
         return self.data_validator(df)
 
-    def build_feature_builder(
-        self, feature_params: Mapping[str, Any] | None = None
-    ) -> BaseEstimator:
+    def build_feature_builder(self) -> BaseEstimator:
         """Create a fresh scikit-learn-compatible feature transformer."""
-        return self.feature_builder_factory(feature_params)
+        return self.feature_builder_factory()

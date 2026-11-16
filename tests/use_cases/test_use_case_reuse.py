@@ -39,7 +39,7 @@ ALTERNATE_USE_CASE = UseCase(
     time_column="event_date",
     feature_columns=("amount", "category"),
     data_validator=_validate_alternate_data,
-    feature_builder_factory=lambda _: IdentityFeatureBuilder(),
+    feature_builder_factory=IdentityFeatureBuilder,
     request_schema=AlternateInput,
 )
 

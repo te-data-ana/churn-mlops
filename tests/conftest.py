@@ -13,7 +13,6 @@ import yaml
 from churn_mlops.config.schemas import (
     CalibrationConfig,
     ClassifierConfig,
-    FeatureBuilderConfig,
     PreprocessingConfig,
     PromotionConfig,
     RegistryConfig,
@@ -104,13 +103,6 @@ def config_factory() -> Callable[..., TrainingConfig]:
 
         config = TrainingConfig(
             use_case=CHURN_USE_CASE.name,
-            feature_builder=FeatureBuilderConfig(
-                feature_params={
-                    "engagement_window": 30,
-                    "inactive_threshold": 15,
-                    "late_payer_threshold": 15,
-                }
-            ),
             preprocessing=PreprocessingConfig(
                 numeric_impute_strategy="mean",
                 categorical_impute_strategy="most_frequent",
@@ -346,13 +338,6 @@ def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
         yaml.safe_dump(
             {
                 "use_case": CHURN_USE_CASE.name,
-                "feature_builder": {
-                    "feature_params": {
-                        "engagement_window": 30,
-                        "inactive_threshold": 15,
-                        "late_payer_threshold": 15,
-                    }
-                },
                 "preprocessing": {
                     "numeric_impute_strategy": "median",
                     "categorical_impute_strategy": "most_frequent",

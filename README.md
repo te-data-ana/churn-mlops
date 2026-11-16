@@ -432,8 +432,6 @@ To add another classification problem:
    providing its target, time and feature columns, validator, transformer
    factory, and optional request schema.
 3. Add a training YAML with the registered `use_case` name and model settings.
-   The config's `feature_builder.feature_params` are passed to that use case's
-   transformer factory.
 4. Select the use case explicitly with `--use-case` for data preparation,
    batch prediction, monitoring, serving, and API log ingestion. Dataset and
    API log timestamps use the selected use case's time column.
@@ -515,12 +513,6 @@ model:
   classifier: dc
   classifier_params:
     random_state: 26
-
-feature_builder:
-  feature_params:
-    engagement_window: 30
-    inactive_threshold: 15
-    late_payer_threshold: 15
 
 preprocessing:
   numeric_impute_strategy: median

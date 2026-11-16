@@ -5,7 +5,6 @@ import yaml
 from churn_mlops.config.schemas import (
     CalibrationConfig,
     ClassifierConfig,
-    FeatureBuilderConfig,
     PreprocessingConfig,
     PromotionConfig,
     RegistryConfig,
@@ -44,7 +43,6 @@ def load_config(
 
     return TrainingConfig(
         use_case=raw["use_case"],
-        feature_builder=FeatureBuilderConfig(**raw["feature_builder"]),
         n_jobs=raw.get("n_jobs", 1),
         preprocessing=PreprocessingConfig(**raw["preprocessing"]),
         model=ClassifierConfig(**raw["model"]),

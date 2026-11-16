@@ -1,4 +1,3 @@
-from collections.abc import Mapping
 from typing import Self
 
 import numpy as np
@@ -9,21 +8,13 @@ from sklearn.base import BaseEstimator, TransformerMixin
 class ChurnFeatureBuilder(BaseEstimator, TransformerMixin):
     """Engineer customer engagement and spending features for churn models."""
 
-    def __init__(self, feature_params: Mapping[str, int] | None = None):
-        """Initialize churn feature-engineering thresholds.
-
-        Args:
-            feature_params: Optional mapping containing ``engagement_window``,
-                ``late_payer_threshold``, and ``inactive_threshold`` values.
-                Defaults are used when omitted.
-        """
-        if feature_params is None:
-            feature_params = {
-                "engagement_window": 30,
-                "late_payer_threshold": 15,
-                "inactive_threshold": 15,
-            }
-        self.feature_params = feature_params
+    def __init__(self):
+        """Initialize churn feature-engineering thresholds."""
+        self.feature_params = {
+            "engagement_window": 30,
+            "late_payer_threshold": 15,
+            "inactive_threshold": 15,
+        }
 
     def fit(self, X: pd.DataFrame, y: pd.Series | None = None) -> Self:
         """Fit a sklearn-compatible transformer without learning state."""
