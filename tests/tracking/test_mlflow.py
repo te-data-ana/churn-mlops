@@ -101,6 +101,10 @@ def test_log_experiment_result_logs_metrics_parameters_model_and_artifacts(
         result=mock_training_result,
         config=config_factory(),
         config_file_path=sample_config_yaml,
+        calibration_method="sigmoid",
+        n_jobs=3,
+        register_model=True,
+        promote_model=True,
     )
 
     mock_log_metrics.assert_called_once()
@@ -108,11 +112,21 @@ def test_log_experiment_result_logs_metrics_parameters_model_and_artifacts(
     logged_parameters = {
         name for call in mock_log_params.call_args_list for name in call.args[0]
     }
+    logged_parameter_values = {
+        name: value
+        for call in mock_log_params.call_args_list
+        for name, value in call.args[0].items()
+    }
     assert "test_size" not in logged_parameters
     assert "data_random_state" not in logged_parameters
     assert "random_state" in logged_parameters
     assert "threshold" in logged_parameters
     assert "calibration_method" in logged_parameters
+    assert "model_registration_enabled" in logged_parameters
+    assert "model_promotion_enabled" in logged_parameters
+    assert logged_parameter_values["calibration_method"] == "sigmoid"
+    assert logged_parameter_values["model_registration_enabled"] is True
+    assert logged_parameter_values["model_promotion_enabled"] is True
     assert "threshold_strategy" in logged_parameters
     assert "threshold_data" in logged_parameters
     mock_set_tags.assert_called_once()
@@ -164,6 +178,10 @@ def test_log_experiment_result_trusts_selected_use_case_feature_builder(
         result=mock_training_result,
         config=config,
         config_file_path=sample_config_yaml,
+        calibration_method="none",
+        n_jobs=1,
+        register_model=False,
+        promote_model=False,
     )
 
     expected_trusted_type = (
@@ -189,7 +207,6 @@ def test_logged_calibrated_model_can_be_reloaded(
 ) -> None:
     use_case = get_use_case("churn")
     config = config_factory(classifier="lr")
-    config.calibration.method = method
     config.calibration.n_splits = 2
     train_df = sample_training_df.copy()
     train_df["reference_date"] = pd.date_range(
@@ -236,12 +253,7 @@ def test_logged_calibrated_model_can_be_reloaded(
     )
     config_path = tmp_path / f"{method}.yaml"
     config_path.write_text(
-        sample_config_yaml.read_text(encoding="utf-8")
-        .replace(
-            "method: none",
-            f"method: {method}",
-        )
-        .replace(
+        sample_config_yaml.read_text(encoding="utf-8").replace(
             "n_splits: 3",
             "n_splits: 2",
         ),
@@ -258,6 +270,10 @@ def test_logged_calibrated_model_can_be_reloaded(
             result=result,
             config=config,
             config_file_path=config_path,
+            calibration_method=method,
+            n_jobs=1,
+            register_model=False,
+            promote_model=False,
         )
         reloaded_model = mlflow.sklearn.load_model(model_info.model_uri)
 

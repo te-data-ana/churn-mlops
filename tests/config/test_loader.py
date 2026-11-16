@@ -6,7 +6,6 @@ import pytest
 
 from churn_mlops.config import load_config
 from churn_mlops.config.schemas import (
-    CalibrationConfig,
     PromotionConfig,
     ThresholdConfig,
     TrainingConfig,
@@ -25,7 +24,7 @@ def test_load_config_returns_config_and_resolved_path(sample_config_yaml) -> Non
 
     assert config.use_case == "churn"
     assert not config.tuning.enabled
-    assert config.calibration.method == "none"
+    assert config.calibration.n_splits == 3
     assert config.threshold.strategy == "max_f1"
     assert sum(config.promotion.metric_weights.values()) > 0
     assert path == sample_config_yaml
@@ -52,35 +51,8 @@ def test_shipped_training_configs_have_valid_settings(
 
     config, _ = load_config(file=filename, path=config_directory)
 
-    assert config.calibration.method in {"none", "sigmoid", "isotonic"}
+    assert config.calibration.n_splits >= 2
     assert sum(config.promotion.metric_weights.values()) > 0
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("n_jobs", [1, 2, -1])
-def test_training_config_accepts_supported_job_counts(
-    config_factory: Callable[..., TrainingConfig],
-    n_jobs: int,
-) -> None:
-    config = replace(config_factory(), n_jobs=n_jobs)
-
-    assert config.n_jobs == n_jobs
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("n_jobs", [0, -2, False, 1.5])
-def test_training_config_rejects_invalid_job_counts(
-    config_factory: Callable[..., TrainingConfig],
-    n_jobs: object,
-) -> None:
-    with pytest.raises(ValueError, match="n_jobs must be a positive integer or -1"):
-        replace(config_factory(), n_jobs=n_jobs)
-
-
-@pytest.mark.unit
-def test_calibration_config_rejects_unsupported_method() -> None:
-    with pytest.raises(ValueError, match="calibration method"):
-        CalibrationConfig(method="temperature")
 
 
 @pytest.mark.unit

@@ -33,16 +33,11 @@ class TuningConfig:
 
 @dataclass
 class CalibrationConfig:
-    method: str = "none"
     n_splits: int = 3
     n_bins: int = 10
 
     def __post_init__(self) -> None:
         """Validate calibration settings."""
-        if self.method not in {"none", "sigmoid", "isotonic"}:
-            raise ValueError(
-                "calibration method must be one of 'none', 'sigmoid', or 'isotonic'."
-            )
         if not isinstance(self.n_splits, int) or self.n_splits < 2:
             raise ValueError("calibration n_splits must be at least 2.")
         if not isinstance(self.n_bins, int) or self.n_bins < 1:
@@ -61,14 +56,12 @@ class ThresholdConfig:
 
 @dataclass
 class RegistryConfig:
-    register_model: bool = False
     model_name: str = "churn-risk"
     alias: str = "candidate"
 
 
 @dataclass
 class PromotionConfig:
-    promote_model: bool = False
     min_delta: float = 0.005
     metric_weights: dict[str, float] = field(
         default_factory=lambda: {
@@ -117,7 +110,6 @@ class PromotionConfig:
 class TrainingConfig:
     use_case: str
     model: ClassifierConfig
-    n_jobs: int = 1
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
     tuning: TuningConfig = field(default_factory=TuningConfig)
     calibration: CalibrationConfig = field(default_factory=CalibrationConfig)
@@ -126,8 +118,6 @@ class TrainingConfig:
     promotion: PromotionConfig = field(default_factory=PromotionConfig)
 
     def __post_init__(self) -> None:
-        """Validate the selected use case and total parallel-job budget."""
+        """Validate the selected use case."""
         if not isinstance(self.use_case, str) or not self.use_case:
             raise ValueError("use_case must be provided as a non-empty name.")
-        if not isinstance(self.n_jobs, int) or self.n_jobs == 0 or self.n_jobs < -1:
-            raise ValueError("n_jobs must be a positive integer or -1.")

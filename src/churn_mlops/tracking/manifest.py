@@ -115,6 +115,7 @@ class ManifestTraining:
     feature_names_in: list[str]
     feature_names_out: list[str]
     tuning_enabled: bool
+    n_jobs: int
     calibration: str
     threshold_strategy: str
     threshold_data: str
@@ -147,7 +148,7 @@ class TrainingManifest:
     training: ManifestTraining
     evaluation: ManifestEvaluation
     lifecycle: ManifestLifecycle
-    schema_version: int = 2
+    schema_version: int = 3
 
     def write(self, path: Path) -> None:
         """Write the manifest as formatted JSON.
@@ -200,6 +201,7 @@ class TrainingManifest:
                 "tuning": {
                     "enabled": self.training.tuning_enabled,
                 },
+                "n_jobs": self.training.n_jobs,
                 "calibration": {
                     "method": self.training.calibration,
                 },
@@ -263,7 +265,7 @@ class TrainingManifest:
             raise TypeError(
                 f"Training manifest '{path}' has an invalid schema_version."
             )
-        if payload["schema_version"] != 2:
+        if payload["schema_version"] != 3:
             raise ValueError(
                 f"Training manifest '{path}' uses unsupported schema_version "
                 f"{payload['schema_version']}."
@@ -291,7 +293,14 @@ class TrainingManifest:
         )
         _require_fields(
             training,
-            {"classifier", "features", "tuning", "calibration", "threshold"},
+            {
+                "classifier",
+                "features",
+                "tuning",
+                "n_jobs",
+                "calibration",
+                "threshold",
+            },
             "training",
             path,
         )
@@ -374,6 +383,12 @@ class TrainingManifest:
             raise TypeError(
                 f"Training manifest '{path}' has invalid training.tuning.enabled."
             )
+        if (
+            type(training["n_jobs"]) is not int
+            or training["n_jobs"] == 0
+            or training["n_jobs"] < -1
+        ):
+            raise TypeError(f"Training manifest '{path}' has invalid training.n_jobs.")
         if type(registration["enabled"]) is not bool:
             raise TypeError(
                 f"Training manifest '{path}' has invalid lifecycle.registration.enabled."
@@ -432,6 +447,7 @@ class TrainingManifest:
                 feature_names_in=features["names_in"],
                 feature_names_out=features["names_out"],
                 tuning_enabled=tuning["enabled"],
+                n_jobs=training["n_jobs"],
                 calibration=calibration["method"],
                 threshold_strategy=threshold["strategy"],
                 threshold_data=threshold["selected_on"],

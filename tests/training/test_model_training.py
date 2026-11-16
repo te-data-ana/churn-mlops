@@ -1,6 +1,5 @@
 import logging
 from collections.abc import Callable
-from dataclasses import replace
 from typing import Literal
 from unittest.mock import Mock
 
@@ -204,8 +203,7 @@ def test_train_fits_time_aware_calibrated_classifier(
     config_factory: Callable[..., TrainingConfig],
     sample_training_df: pd.DataFrame,
 ) -> None:
-    cfg = replace(config_factory(classifier="rf"), n_jobs=2)
-    cfg.calibration.method = method
+    cfg = config_factory(classifier="rf")
     train_df = pd.concat([sample_training_df] * 8, ignore_index=True)
     train_df["reference_date"] = pd.date_range(
         "2026-01-01",
@@ -217,6 +215,8 @@ def test_train_fits_time_aware_calibrated_classifier(
         train_df=train_df,
         test_df=sample_training_df.copy(),
         use_case=CHURN_USE_CASE,
+        calibration_method=method,
+        n_jobs=2,
     )
 
     assert isinstance(result.trained_pipeline, CalibratedClassifierCV)
@@ -227,7 +227,7 @@ def test_train_fits_time_aware_calibrated_classifier(
         .n_jobs
         == 1
     )
-    assert cfg.calibration.method == method
+    assert result.trained_pipeline.method == method
     assert 0 <= result.threshold <= 1
     assert 0 <= result.metrics["calibration_error"] <= 1
 
@@ -237,7 +237,7 @@ def test_train_uses_job_budget_for_uncalibrated_classifier(
     config_factory: Callable[..., TrainingConfig],
     temporal_sample_training_df: pd.DataFrame,
 ) -> None:
-    cfg = replace(config_factory(classifier="rf"), n_jobs=2)
+    cfg = config_factory(classifier="rf")
     train_df = temporal_sample_training_df.iloc[:6]
     test_df = temporal_sample_training_df.iloc[6:]
 
@@ -246,6 +246,7 @@ def test_train_uses_job_budget_for_uncalibrated_classifier(
         train_df=train_df,
         test_df=test_df,
         use_case=CHURN_USE_CASE,
+        n_jobs=2,
     )
 
     classifier = result.trained_pipeline.named_steps["classifier"]

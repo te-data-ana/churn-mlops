@@ -94,9 +94,9 @@ The root [dvc.yaml](dvc.yaml) defines a pipeline that adds the selected use
 case's time column, prepares partitioned data, creates a time split, trains a
 model, then scores the held-out cohort. The top-level `use_case` parameter
 selects a registered contract for preparation, splitting, training, and
-scoring. Registration is controlled by a DVC parameter. DVC tracks stage
-inputs and outputs; MLflow stores runs, metrics, model artifacts, and
-registered versions.
+scoring. Run-time training options are passed as CLI arguments by the DVC
+stage. DVC tracks stage inputs and outputs; MLflow stores runs, metrics,
+model artifacts, and registered versions.
 
 Optuna tuning, when enabled in the training config, runs as part of training.
 
@@ -151,16 +151,17 @@ and overrides the value in the selected training config for this pipeline run.
 To run another registered use case, also update the corresponding input CSVs
 and date ranges in `dvc.yaml`.
 
-The `calibration.method` parameter overrides the config's calibration method.
-`training.n_jobs` controls the total CPU job budget: use a positive integer or
-`-1` for all available CPUs. Only the outermost operation in each training
-phase uses this budget; nested estimator jobs remain at one to avoid
-oversubscription.
-Registration is enabled by default; set `model.register_model=false` to keep
-the run in MLflow without adding it to the model registry. The pipeline still
-scores that run's logged MLflow model artifact. Registered runs score the exact
-registered version identified by their manifest under `data/manifests`; neither
-path changes the `candidate` or `champion` aliases.
+The `calibration.method` DVC parameter is passed directly to the training
+command as `--calibration-method`; its default is `none`. `training.n_jobs` is
+passed as `--n-jobs` and controls the total CPU job budget: use a positive
+integer or `-1` for all available CPUs, the default is `1`. Only the outermost
+operation in each training phase uses this budget; nested estimators use only
+one job to avoid oversubscription. Registration and promotion default to
+disabled on direct training calls. The DVC `model.register_model` parameter
+enables registration for this pipeline run; promotion remains disabled by the
+stage's `--no-promote-model` argument. The pipeline scores the logged MLflow
+model artifact, using the exact registered version from the manifest when
+registration is enabled.
 
 The source CSVs are represented in Git by `.dvc` pointer files, not by their
 contents. This repository has no DVC remote, so a fresh clone must be supplied
@@ -183,12 +184,31 @@ uv run churn-mlops train \
 
 Configuration filenames resolve under `src/config` by default. The default
 split name is `default`. The training configuration controls the classifier,
-data columns, feature engineering, preprocessing, calibration, threshold
-selection, tuning, and model registration/promotion. The selected use case's
-`feature_columns` define model inputs and must be present in both splits;
-other validated columns remain available in batch prediction outputs. See the
+preprocessing, calibration fold/bin counts, threshold selection, and tuning.
+
+Run-time arguments control calibration method, CPU job budget, model
+registration and promotion. The selected use case's `feature_columns` define
+model inputs and must be present in both splits; other validated columns
+remain available in batch prediction outputs. See the
 [model configuration and tracking reference](#model-configuration-and-tracking-reference)
 for configuration details and model behavior.
+
+Python callers can set the same per-run options directly. They default to
+`register_model=False`, `promote_model=False`, `calibration_method="none"`, and
+`n_jobs=1`:
+
+```python
+from churn_mlops.train import run_training_job
+
+run_training_job(
+    config_file="rf.yaml",
+    split_name="OOT_26Q2",
+    register_model=True,
+    promote_model=False,
+    calibration_method="sigmoid",
+    n_jobs=4,
+)
+```
 
 #### Tune hyperparameters
 
@@ -474,10 +494,13 @@ Its HTTP request features are validated with Pydantic:
 ### Configuration and classifiers
 
 Training configurations are YAML files under [src/config](src/config). They
-select a registered use case and define feature-engineering parameters,
-preprocessing strategies, classifier parameters, calibration and
-threshold-selection strategy, optional tuning, and registry behavior. Example
-configurations are provided for `dc`, `dt`, `hgb`, `lr`, `nb`, and `rf`.
+select a registered use case and define classifier parameters, preprocessing
+strategies, calibration and threshold-selection strategy, optional tuning,
+and registry/promotion thresholds and weights. Calibration method, job budget,
+registration and promotion are selected/enabled for each training invocation
+instead.
+
+Example configurations are provided for `dc`, `dt`, `hgb`, `lr`, `nb`, and `rf`.
 
 The model catalog currently supports:
 
@@ -507,7 +530,6 @@ Example training configuration:
 
 ```yaml
 use_case: churn
-n_jobs: 1
 
 model:
   classifier: dc
@@ -526,7 +548,6 @@ tuning:
   random_state: 26
 
 calibration:
-  method: sigmoid
   n_splits: 3
   n_bins: 10
 
@@ -534,12 +555,10 @@ threshold:
   strategy: max_f1
 
 registry:
-  register_model: false
   model_name: churn-risk
   alias: candidate
 
 promotion:
-  promote_model: true
   min_delta: 0.005
   metric_weights:
     roc_auc: 0.2
@@ -553,22 +572,24 @@ promotion:
 feature columns used by training, rather than duplicating those values in the
 training YAML.
 
-`n_jobs` is the total CPU job budget. It defaults to `1`, accepts positive
-integers, and uses `-1` to request all available CPUs. An explicit CLI
-`--n-jobs` value overrides the YAML setting. During tuning, trials run in
-parallel while individual estimators use one job; during calibration, folds
-run in parallel while inner estimators use one job. For uncalibrated fitting,
-the classifier uses the budget if it supports `n_jobs`.
+`--n-jobs` sets the total CPU job budget for a run. It defaults to `1`, accepts
+positive integers, and uses `-1` to request all available CPUs. During tuning,
+trials run in parallel while individual estimators use one job; during
+calibration, folds run in parallel while inner estimators use one job. For
+uncalibrated fitting, the classifier uses the budget if it supports `n_jobs`.
 
 ### Calibration
 
-Calibration is configurable per run as `none`, `sigmoid` (Platt scaling), or
-`isotonic`. For calibrated runs, `CalibratedClassifierCV` uses expanding
-historical folds: each calibration fold is later than the fold's model-fitting
-data. To compare calibration approaches, run separate experiments with the same
-data and classifier while changing `calibration.method`.
+Calibration is selected per run with `--calibration-method` as `none`,
+`sigmoid` (Platt scaling), or `isotonic`; it defaults to `none`. The training
+config YAML sets the number of folds and bins used for calibration. For
+calibrated runs, `CalibratedClassifierCV` uses expanding historical folds: each
+calibration fold is later than the fold's model-fitting data. To compare
+calibration approaches, run separate experiments with the same data and
+classifier while changing `--calibration-method`.
 
-`LinearSVC` and `SVC` require `calibration.method` to be `sigmoid` or `isotonic`.
+`LinearSVC` and `SVC` require `--calibration-method` to be `sigmoid` or
+`isotonic`.
 They do not provide probabilities when used without calibration. During Optuna
 ranking-metric evaluation, these estimators are scored using their decision
 function.
@@ -592,19 +613,22 @@ and prediction time are computed and recorded.
 
 ### Registry and promotion
 
-When enabled by configuration or a CLI override, a run registers an immutable
-model version. Champion promotion compares the weighted score configured in
+Registration and promotion are selected for each run with `--register-model`
+and `--promote-model`; both default to disabled. A run registers an immutable
+model version when registration is enabled.
+
+Champion promotion compares the weighted score configured in
 `promotion.metric_weights`: ROC AUC, PR AUC, and F1 contribute positively,
 while Brier score and ECE are inverted so lower values improve the score.
 The candidate must exceed the champion's score by `promotion.min_delta`.
 Champions from older runs that lack any configured metric are not comparable
 and are not automatically replaced; retrain the baseline with calibration
 evaluation before enabling automated promotion. The prior champion is retained
-under `former_champion`. CLI options can override registration with
-`--register-model`, for example `--register-model false` or
-`--no-register-model`; the bare `--register-model` flag enables registration.
-Promotion remains separately controlled with `--promote-model` /
-`--no-promote-model`.
+under `former_champion`.
+
+Use `--register-model false` or `--no-register-model` to disable registration;
+the bare `--register-model` flag enables it. Promotion remains separately
+controlled with `--promote-model` / `--no-promote-model`.
 
 ### Manifests and model cards
 
@@ -614,11 +638,13 @@ either an exact registered model version or the logged model URI for an
 unregistered run. Use the manifest for reproducible batch scoring or serving
 instead of relying on a mutable alias. Its versioned JSON groups run and model
 identity (including the use case), target/time columns, split metadata, training
-details, evaluation, and registration/promotion settings. Promotion is marked
-enabled only when both registration and promotion are enabled for that run.
+details (including calibration method and CPU job budget), evaluation, and
+registration/promotion settings. Promotion is marked enabled only when both
+registration and promotion are enabled for that run.
+
 Serving validates the manifest's use case against the selected `USE_CASE`;
 older manifest schema versions are rejected, so retrain models and regenerate
-manifests to use this schema.
+manifests to use the latest schema.
 
 MLflow runs also include a Markdown model card with model, data, feature,
 evaluation, and promotion details, including calibration method, calibration
@@ -629,7 +655,8 @@ error, optimal threshold, and threshold-selection strategy. See the
 
 MLflow run metadata (metrics, parameters, and tags) is separate from files and
 models logged to the run. Training runs log evaluation metrics and training
-parameters such as classifier, feature, calibration, and threshold settings.
+parameters such as classifier, feature, calibration, threshold, registration
+and promotion settings.
 They also include tags for calibration, threshold-data source, and feature
 count. Logged files and models include:
 

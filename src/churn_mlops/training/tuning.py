@@ -72,6 +72,7 @@ def optimize_hyperparameters(
     config: TrainingConfig,
     train_df: pd.DataFrame,
     use_case: UseCase,
+    n_jobs: int = 1,
 ) -> TuningResult:
     """Optimize the configured classifier on chronological CV folds.
 
@@ -81,6 +82,7 @@ def optimize_hyperparameters(
             A separate out-of-time test split should be kept aside for final
             evaluation.
         use_case: Use-case contract for the training data.
+        n_jobs: Total CPU job budget for parallel trials.
     Returns:
         Optimized catalog-defined parameters and study metadata.
 
@@ -93,6 +95,8 @@ def optimize_hyperparameters(
             f"Training config selects use case '{config.use_case}', but "
             f"'{use_case.name}' was supplied."
         )
+    if type(n_jobs) is not int or n_jobs == 0 or n_jobs < -1:
+        raise ValueError("n_jobs must be a positive integer or -1.")
     tuning = config.tuning
     if not tuning.enabled:
         raise ValueError("Optuna tuning is disabled in the training configuration.")
@@ -176,7 +180,7 @@ def optimize_hyperparameters(
         sampler=optuna.samplers.TPESampler(seed=tuning.random_state),
     )
     with threadpool_limits(limits=1):
-        study.optimize(func=objective, n_trials=tuning.n_trials, n_jobs=config.n_jobs)
+        study.optimize(func=objective, n_trials=tuning.n_trials, n_jobs=n_jobs)
     logger.info(
         "Optuna study completed: best %s=%.6f with params %s.",
         tuning.metric,

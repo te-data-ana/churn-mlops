@@ -118,7 +118,7 @@ def fit_estimator_with_calibration(
         if not hasattr(estimator, "predict_proba"):
             raise ValueError(
                 f"Classifier '{estimator.__class__.__name__}' does not expose "
-                "predict_proba; configure calibration.method as 'sigmoid' or "
+                "predict_proba; set calibration_method to 'sigmoid' or "
                 "'isotonic'."
             )
         return estimator.fit(X_train, y_train)

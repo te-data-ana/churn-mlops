@@ -64,6 +64,10 @@ def log_experiment_result(
     result: TrainingResult,
     config: TrainingConfig,
     config_file_path: Path,
+    calibration_method: str,
+    n_jobs: int,
+    register_model: bool,
+    promote_model: bool,
 ) -> ModelInfo:
     """Log training parameters, metrics, artifacts, and the fitted pipeline.
 
@@ -72,7 +76,10 @@ def log_experiment_result(
             classifier configuration, and feature metadata.
         config: Training configuration whose settings are logged as parameters.
         config_file_path: Path to the full configuration file artifact.
-        artifact_dir: Directory used for supporting artifacts.
+        calibration_method: Calibration method selected for this run.
+        n_jobs: Total CPU job budget selected for this run.
+        register_model: Whether the run registers its model.
+        promote_model: Whether a registered model is evaluated for promotion.
 
     Returns:
         MLflow model metadata for the logged scikit-learn model.
@@ -100,7 +107,7 @@ def log_experiment_result(
     )
     # log calibration parameters
     calibration_parameters: dict[str, str | int] = {
-        "calibration_method": config.calibration.method,
+        "calibration_method": calibration_method,
         "calibration_n_splits": config.calibration.n_splits,
         "calibration_n_bins": config.calibration.n_bins,
     }
@@ -112,8 +119,14 @@ def log_experiment_result(
         "threshold_data": result.threshold_data,
     }
     mlflow.log_params(threshold_parameters)
+    # log registration parameters
+    registration_parameters: dict[str, str | int] = {
+        "model_registration_enabled": register_model,
+        "model_promotion_enabled": register_model and promote_model,
+    }
+    mlflow.log_params(registration_parameters)
     # log promotion parameters
-    if config.promotion.promote_model:
+    if register_model and promote_model:
         promotion_parameters = {
             f"promotion_weight_{metric}": weight
             for metric, weight in config.promotion.metric_weights.items()
@@ -124,7 +137,7 @@ def log_experiment_result(
     # log relevant tags
     mlflow.set_tags(
         {
-            "calibration": config.calibration.method,
+            "calibration": calibration_method,
             "threshold_data": result.threshold_data,
             "feature_count": len(result.feature_names_out),
         }

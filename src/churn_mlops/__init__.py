@@ -133,10 +133,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         nargs="?",
         const=True,
         type=_parse_boolean,
-        default=None,
+        default=False,
         help=(
-            "Override model registration (optionally provide true/false); "
-            "without a value, this enables registration."
+            "Register the trained model (optionally provide true/false; "
+            "without a value, this enables registration)."
         ),
     )
     register_model_group.add_argument(
@@ -145,25 +145,27 @@ def main(argv: Sequence[str] | None = None) -> None:
         action="store_false",
         help="Disable model registration for this run.",
     )
-    train_parser.set_defaults(register_model=None)
+    train_parser.set_defaults(register_model=False)
     train_parser.add_argument(
         "--calibration-method",
         choices=("none", "sigmoid", "isotonic"),
-        help="Override the calibration method in the training config.",
+        default="none",
+        help="Calibration method for this training run.",
     )
     train_parser.add_argument(
         "--n-jobs",
         type=int,
+        default=1,
         help=(
-            "Override the total CPU job budget in the training config "
+            "Total CPU job budget for this training run "
             "(positive integer or -1 for all available CPUs)."
         ),
     )
     train_parser.add_argument(
         "--promote-model",
         action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Enable or disable candidate/champion alias updates for this run.",
+        default=False,
+        help="Enable or disable candidate/champion promotion for this run.",
     )
 
     batch_parser = subparsers.add_parser(

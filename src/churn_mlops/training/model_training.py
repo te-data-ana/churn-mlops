@@ -47,17 +47,21 @@ def train_model(
     test_df: pd.DataFrame,
     use_case: UseCase,
     model_params_override: Mapping[str, Any] | None = None,
+    calibration_method: str = "none",
+    n_jobs: int = 1,
 ) -> TrainingResult:
     """Fit and evaluate a configured classifier pipeline.
 
     Args:
-        config: Training, feature, preprocessing, model, calibration, threshold,
-            promotion, and MLflow registration settings.
+        config: Training, feature, preprocessing, model, calibration-fold,
+            threshold, promotion, and registry settings.
         use_case: Explicit data contract to be used for model training.
         train_df: Validated training DataFrame containing features and target.
         test_df: Validated test DataFrame containing features and target.
         model_params_override: Optional model parameters overriding configured
             values for this fit.
+        calibration_method: Probability calibration method for this fit.
+        n_jobs: Total CPU job budget for tuning, fitting, or calibration folds.
     Returns:
         TrainingResult containing the fitted pipeline, evaluation metrics,
         effective classifier configuration, feature names, and threshold
@@ -73,6 +77,16 @@ def train_model(
             f"Training config selects use case '{config.use_case}', but "
             f"'{use_case.name}' was supplied."
         )
+    if not isinstance(calibration_method, str) or calibration_method not in {
+        "none",
+        "sigmoid",
+        "isotonic",
+    }:
+        raise ValueError(
+            "Calibration method must be one of 'none', 'sigmoid', or 'isotonic'."
+        )
+    if type(n_jobs) is not int or n_jobs == 0 or n_jobs < -1:
+        raise ValueError("n_jobs must be a positive integer or -1.")
     logger = logging.getLogger(__name__)
     target_column = use_case.target_column
     time_column = use_case.time_column
@@ -107,7 +121,7 @@ def train_model(
             model_params=(
                 config.model.classifier_params | (model_params_override or {})
             ),
-            n_jobs=(config.n_jobs if config.calibration.method == "none" else 1),
+            n_jobs=(n_jobs if calibration_method == "none" else 1),
         )
         logger.info(
             "Using classifier '%s' with params %s.",
@@ -124,14 +138,14 @@ def train_model(
         logger.info(
             "Starting model fit for classifier '%s' with calibration method '%s'.",
             config.model.classifier,
-            config.calibration.method,
+            calibration_method,
         )
 
         thread_limit = (
             1
-            if config.calibration.method != "none"
+            if calibration_method != "none"
             or MODEL_CATALOG[config.model.classifier].get("supports_n_jobs", False)
-            else effective_n_jobs(config.n_jobs)
+            else effective_n_jobs(n_jobs)
         )
         with threadpool_limits(limits=thread_limit), Timer() as fit_timer:
             trained_model = fit_estimator_with_calibration(
@@ -140,9 +154,9 @@ def train_model(
                 target_column=target_column,
                 time_column=time_column,
                 feature_columns=use_case.feature_columns,
-                method=config.calibration.method,
+                method=calibration_method,
                 n_splits=config.calibration.n_splits,
-                n_jobs=config.n_jobs,
+                n_jobs=n_jobs,
             )
         logger.info("Model pipeline fit completed in %.3f seconds.", fit_timer.duration)
 

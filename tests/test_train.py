@@ -25,7 +25,7 @@ CHURN_USE_CASE = get_use_case("churn")
         (["--no-register-model"], False),
     ],
 )
-def test_training_cli_parses_config_overrides(
+def test_training_cli_passes_run_time_options(
     monkeypatch: pytest.MonkeyPatch,
     registration_args: list[str],
     expected_registration: bool,
@@ -54,6 +54,31 @@ def test_training_cli_parses_config_overrides(
     assert training_job.call_args.kwargs["register_model"] is expected_registration
     assert training_job.call_args.kwargs["calibration_method"] == "isotonic"
     assert training_job.call_args.kwargs["n_jobs"] == 2
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("options", "error", "message"),
+    [
+        ({"calibration_method": "temperature"}, ValueError, "Calibration method"),
+        ({"n_jobs": 0}, ValueError, "n_jobs"),
+        ({"register_model": "true"}, TypeError, "must be booleans"),
+    ],
+)
+def test_run_training_job_rejects_invalid_run_time_options(
+    monkeypatch: pytest.MonkeyPatch,
+    options: dict[str, object],
+    error: type[Exception],
+    message: str,
+) -> None:
+    monkeypatch.setattr(train, "configure_logging", MagicMock())
+
+    with pytest.raises(error, match=message):
+        train.run_training_job(
+            config_file="config.yaml",
+            split_name="test",
+            **options,
+        )
 
 
 @pytest.mark.unit
@@ -115,13 +140,12 @@ def test_run_training_job_resolves_input_arguments(
     )
     config = SimpleNamespace(
         use_case="churn",
-        n_jobs=1,
         model=SimpleNamespace(classifier="lr"),
+        calibration=SimpleNamespace(n_splits=3, n_bins=10),
         threshold=SimpleNamespace(
             strategy="max_f1",
         ),
         promotion=SimpleNamespace(
-            promote_model=True,
             metric_weights={
                 "roc_auc": 0.2,
                 "pr_auc": 0.2,
@@ -131,7 +155,6 @@ def test_run_training_job_resolves_input_arguments(
             },
         ),
         registry=SimpleNamespace(
-            register_model=False,
             model_name="churn-risk",
         ),
     )
@@ -192,6 +215,8 @@ def test_run_training_job_resolves_input_arguments(
         train_df=load_splits.return_value[0],
         test_df=load_splits.return_value[1],
         use_case=CHURN_USE_CASE,
+        calibration_method="none",
+        n_jobs=1,
     )
     log_messages = [
         "Loaded training configuration",
@@ -210,7 +235,7 @@ def test_run_training_job_resolves_input_arguments(
 
 
 @pytest.mark.unit
-def test_run_training_job_overrides_config_params_and_writes_unregistered_manifest(
+def test_run_training_job_uses_run_time_options_and_writes_unregistered_manifest(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     config_factory: Callable[..., TrainingConfig],
@@ -223,7 +248,6 @@ def test_run_training_job_overrides_config_params_and_writes_unregistered_manife
         mlflow_experiment_name="experiment",
     )
     config = config_factory()
-    config.promotion.promote_model = True
     training_result = SimpleNamespace(
         metrics={
             "roc_auc": 0.84,
@@ -293,16 +317,17 @@ def test_run_training_job_overrides_config_params_and_writes_unregistered_manife
         n_jobs=3,
     )
 
-    assert train_model_mock.call_args.kwargs["config"].calibration.method == "isotonic"
-    assert train_model_mock.call_args.kwargs["config"].n_jobs == 3
-    assert config.calibration.method == "none"
-    assert config.n_jobs == 1
+    assert train_model_mock.call_args.kwargs["calibration_method"] == "isotonic"
+    assert train_model_mock.call_args.kwargs["n_jobs"] == 3
+    assert config.calibration.n_splits == 3
     from churn_mlops.tracking import TrainingManifest
 
     manifest = TrainingManifest.read(tmp_path / "manifests/lr_temporal.json")
     assert manifest.model.use_case == "churn"
     assert manifest.data.time_column == "reference_date"
     assert manifest.training.tuning_enabled is False
+    assert manifest.training.calibration == "isotonic"
+    assert manifest.training.n_jobs == 3
     assert manifest.lifecycle.registration_enabled is False
     assert manifest.lifecycle.promotion_enabled is False
     assert manifest.model.model_version is None
@@ -316,12 +341,10 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
 ) -> None:
     config = SimpleNamespace(
         use_case="churn",
-        n_jobs=1,
         model=SimpleNamespace(classifier="rf"),
-        calibration=SimpleNamespace(method="sigmoid"),
+        calibration=SimpleNamespace(n_splits=3, n_bins=10),
         threshold=SimpleNamespace(strategy="max_f1"),
         promotion=SimpleNamespace(
-            promote_model=True,
             metric_weights={
                 "roc_auc": 0.2,
                 "pr_auc": 0.2,
@@ -331,7 +354,6 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
             },
         ),
         registry=SimpleNamespace(
-            register_model=False,
             model_name="churn-risk",
         ),
         tuning=TuningConfig(
@@ -421,12 +443,15 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
     assert optimizer.call_args.kwargs["config"] is config
     assert optimizer.call_args.kwargs["train_df"].equals(train_df)
     assert optimizer.call_args.kwargs["use_case"] is CHURN_USE_CASE
+    assert optimizer.call_args.kwargs["n_jobs"] == 1
     train_model.assert_called_once_with(
         config=config,
         train_df=train_df,
         test_df=test_df,
         use_case=CHURN_USE_CASE,
         model_params_override={"n_estimators": 150, "max_depth": None},
+        calibration_method="none",
+        n_jobs=1,
     )
     log_params.assert_called_once_with(
         {
@@ -450,12 +475,10 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
 ) -> None:
     config = SimpleNamespace(
         use_case="churn",
-        n_jobs=1,
         model=SimpleNamespace(classifier="rf"),
-        calibration=SimpleNamespace(method="sigmoid"),
+        calibration=SimpleNamespace(n_splits=3, n_bins=10),
         threshold=SimpleNamespace(strategy="max_f1"),
         promotion=SimpleNamespace(
-            promote_model=True,
             min_delta=0.005,
             metric_weights={
                 "roc_auc": 0.2,
@@ -466,7 +489,6 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
             },
         ),
         registry=SimpleNamespace(
-            register_model=False,
             model_name="churn-risk",
             alias="candidate",
         ),

@@ -81,6 +81,7 @@ def training_manifest_factory() -> Callable[..., TrainingManifest]:
                 feature_names_in=["feature_in_1", "feature_in_2"],
                 feature_names_out=["feature_out_1", "feature_out_2"],
                 tuning_enabled=False,
+                n_jobs=1,
                 calibration="none",
                 threshold_strategy="max_f1",
                 threshold_data="out_of_time_test",
@@ -114,7 +115,6 @@ def config_factory() -> Callable[..., TrainingConfig]:
                 },
             ),
             registry=RegistryConfig(
-                register_model=False,
                 model_name="churn-risk",
                 alias="candidate",
             ),
@@ -347,7 +347,6 @@ def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
                     "classifier_params": {"random_state": 42},
                 },
                 "calibration": {
-                    "method": "none",
                     "n_splits": 3,
                     "n_bins": 10,
                 },
@@ -355,7 +354,6 @@ def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
                     "strategy": "max_f1",
                 },
                 "promotion": {
-                    "promote_model": True,
                     "min_delta": 0.005,
                     "metric_weights": {
                         "roc_auc": 0.2,
@@ -366,7 +364,6 @@ def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
                     },
                 },
                 "registry": {
-                    "register_model": True,
                     "model_name": model_name,
                     "alias": model_alias,
                 },

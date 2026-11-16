@@ -200,7 +200,7 @@ def test_uncalibrated_svm_is_rejected(classifier: LinearSVC | SVC) -> None:
         }
     )
 
-    with pytest.raises(ValueError, match="configure calibration.method"):
+    with pytest.raises(ValueError, match="set calibration_method"):
         fit_estimator_with_calibration(
             estimator=classifier,
             train_df=train_df,

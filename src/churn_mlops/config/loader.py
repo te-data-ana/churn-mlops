@@ -43,7 +43,6 @@ def load_config(
 
     return TrainingConfig(
         use_case=raw["use_case"],
-        n_jobs=raw.get("n_jobs", 1),
         preprocessing=PreprocessingConfig(**raw["preprocessing"]),
         model=ClassifierConfig(**raw["model"]),
         calibration=CalibrationConfig(**raw.get("calibration", {})),

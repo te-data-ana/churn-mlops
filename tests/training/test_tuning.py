@@ -105,7 +105,6 @@ def test_optimize_hyperparameters_returns_reproducible_study_result(
     config: TrainingConfig = config_factory(classifier="dt")
     config = replace(
         config,
-        n_jobs=2,
         tuning=TuningConfig(
             enabled=True,
             n_trials=2,
@@ -140,6 +139,7 @@ def test_optimize_hyperparameters_returns_reproducible_study_result(
         config=config,
         train_df=train_df,
         use_case=CHURN_USE_CASE,
+        n_jobs=2,
     )
 
     assert set(result.best_params) == {
