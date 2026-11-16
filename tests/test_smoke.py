@@ -49,10 +49,11 @@ def test_package_main_dispatches_train_command(monkeypatch) -> None:
         "config_file": "config.yaml",
         "split_name": "default",
         "experiment_name": "my-exp",
-        "register_model": False,
-        "promote_model": False,
         "calibration_method": "none",
         "n_jobs": 1,
+        "tune_model": False,
+        "register_model": False,
+        "promote_model": False,
         "use_case_name": "alternate",
     }
 

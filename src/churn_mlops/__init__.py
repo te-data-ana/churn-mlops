@@ -127,6 +127,39 @@ def main(argv: Sequence[str] | None = None) -> None:
         required=False,
         help="Experiment name used for MLflow tracking.",
     )
+    train_parser.add_argument(
+        "--calibration-method",
+        choices=("none", "sigmoid", "isotonic"),
+        default="none",
+        help="Calibration method for this training run.",
+    )
+    train_parser.add_argument(
+        "--n-jobs",
+        type=int,
+        default=1,
+        help=(
+            "Total CPU job budget for this training run "
+            "(positive integer or -1 for all available CPUs)."
+        ),
+    )
+    tuning_group = train_parser.add_mutually_exclusive_group()
+    tuning_group.add_argument(
+        "--tune-model",
+        nargs="?",
+        const=True,
+        type=_parse_boolean,
+        default=False,
+        help=(
+            "Run hyperparameter tuning (optionally provide true/false; default: false)."
+        ),
+    )
+    tuning_group.add_argument(
+        "--no-tune-model",
+        dest="tune_model",
+        action="store_false",
+        help="Disable hyperparameter tuning for this run.",
+    )
+    train_parser.set_defaults(tune_model=False)
     register_model_group = train_parser.add_mutually_exclusive_group()
     register_model_group.add_argument(
         "--register-model",
@@ -146,21 +179,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Disable model registration for this run.",
     )
     train_parser.set_defaults(register_model=False)
-    train_parser.add_argument(
-        "--calibration-method",
-        choices=("none", "sigmoid", "isotonic"),
-        default="none",
-        help="Calibration method for this training run.",
-    )
-    train_parser.add_argument(
-        "--n-jobs",
-        type=int,
-        default=1,
-        help=(
-            "Total CPU job budget for this training run "
-            "(positive integer or -1 for all available CPUs)."
-        ),
-    )
     train_parser.add_argument(
         "--promote-model",
         action=argparse.BooleanOptionalAction,
@@ -460,22 +478,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command == "train":
         from .train import run_training_job
 
-        training_kwargs: dict[str, object] = {
-            "config_file": args.config,
-            "split_name": args.split_name,
-        }
-        optional_kwargs = {
-            "experiment_name": args.experiment_name,
-            "register_model": args.register_model,
-            "promote_model": args.promote_model,
-            "calibration_method": args.calibration_method,
-            "n_jobs": args.n_jobs,
-            "use_case_name": args.use_case,
-        }
-        training_kwargs.update(
-            {key: value for key, value in optional_kwargs.items() if value is not None}
+        result = run_training_job(
+            config_file=args.config,
+            split_name=args.split_name,
+            experiment_name=args.experiment_name,
+            calibration_method=args.calibration_method,
+            n_jobs=args.n_jobs,
+            tune_model=args.tune_model,
+            register_model=args.register_model,
+            promote_model=args.promote_model,
+            use_case_name=args.use_case,
         )
-        result = run_training_job(**training_kwargs)
         logger.info(
             "Successfully trained %s model: AUC=%.4f",
             result.classifier_config["model_name"],

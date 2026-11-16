@@ -12,6 +12,7 @@ model:
 
 training:
   n_jobs: 16
+  tune_model: false
 
 calibration:
   method: sigmoid

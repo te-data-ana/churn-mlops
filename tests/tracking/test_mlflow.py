@@ -102,7 +102,7 @@ def test_log_experiment_result_logs_metrics_parameters_model_and_artifacts(
         config=config_factory(),
         config_file_path=sample_config_yaml,
         calibration_method="sigmoid",
-        n_jobs=3,
+        tune_model=True,
         register_model=True,
         promote_model=True,
     )
@@ -122,9 +122,11 @@ def test_log_experiment_result_logs_metrics_parameters_model_and_artifacts(
     assert "random_state" in logged_parameters
     assert "threshold" in logged_parameters
     assert "calibration_method" in logged_parameters
+    assert "model_tuning_enabled" in logged_parameters
     assert "model_registration_enabled" in logged_parameters
     assert "model_promotion_enabled" in logged_parameters
     assert logged_parameter_values["calibration_method"] == "sigmoid"
+    assert logged_parameter_values["model_tuning_enabled"] is True
     assert logged_parameter_values["model_registration_enabled"] is True
     assert logged_parameter_values["model_promotion_enabled"] is True
     assert "threshold_strategy" in logged_parameters
@@ -179,7 +181,7 @@ def test_log_experiment_result_trusts_selected_use_case_feature_builder(
         config=config,
         config_file_path=sample_config_yaml,
         calibration_method="none",
-        n_jobs=1,
+        tune_model=False,
         register_model=False,
         promote_model=False,
     )
@@ -271,7 +273,7 @@ def test_logged_calibrated_model_can_be_reloaded(
             config=config,
             config_file_path=config_path,
             calibration_method=method,
-            n_jobs=1,
+            tune_model=False,
             register_model=False,
             promote_model=False,
         )

@@ -65,7 +65,7 @@ def log_experiment_result(
     config: TrainingConfig,
     config_file_path: Path,
     calibration_method: str,
-    n_jobs: int,
+    tune_model: bool,
     register_model: bool,
     promote_model: bool,
 ) -> ModelInfo:
@@ -77,7 +77,7 @@ def log_experiment_result(
         config: Training configuration whose settings are logged as parameters.
         config_file_path: Path to the full configuration file artifact.
         calibration_method: Calibration method selected for this run.
-        n_jobs: Total CPU job budget selected for this run.
+        tune_model: Whether hyperparameter tuning was run.
         register_model: Whether the run registers its model.
         promote_model: Whether a registered model is evaluated for promotion.
 
@@ -119,12 +119,13 @@ def log_experiment_result(
         "threshold_data": result.threshold_data,
     }
     mlflow.log_params(threshold_parameters)
-    # log registration parameters
-    registration_parameters: dict[str, str | int] = {
+    # log invocation parameters
+    invocation_parameters: dict[str, bool] = {
+        "model_tuning_enabled": tune_model,
         "model_registration_enabled": register_model,
         "model_promotion_enabled": register_model and promote_model,
     }
-    mlflow.log_params(registration_parameters)
+    mlflow.log_params(invocation_parameters)
     # log promotion parameters
     if register_model and promote_model:
         promotion_parameters = {

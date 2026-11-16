@@ -98,7 +98,8 @@ scoring. Run-time training options are passed as CLI arguments by the DVC
 stage. DVC tracks stage inputs and outputs; MLflow stores runs, metrics,
 model artifacts, and registered versions.
 
-Optuna tuning, when enabled in the training config, runs as part of training.
+Optuna tuning is disabled by default in the DVC pipeline; opt in for a run with
+`training.tune_model=true`.
 
 The `data/manifests` and `data/predictions` directories are persistent DVC
 outputs, so results for different `{classifier}_{split}` combinations remain
@@ -137,31 +138,38 @@ uv run dvc exp run --name churn-12m-oot \
   --set-param 'split.split_date="2026-04-01"' \
   --set-param 'split.end_date="2026-06-30"' \
   --set-param model.classifier=lr \
-  --set-param training.n_jobs=4 \
   --set-param calibration.method=isotonic \
+  --set-param training.n_jobs=4 \
+  --set-param training.tune_model=true \
   --set-param model.register_model=true \
   --set-param tracking.experiment_name=churn-12m-oot
 ```
-
-`model.classifier` selects `src/config/{classifier}.yaml`, so each classifier
-alias used by this pipeline must have a matching config file.
 
 The `use_case` parameter (set in `params.yaml`) selects the registry contract
 and overrides the value in the selected training config for this pipeline run.
 To run another registered use case, also update the corresponding input CSVs
 and date ranges in `dvc.yaml`.
 
+`model.classifier` selects `src/config/{classifier}.yaml`, so each classifier
+alias used by this pipeline must have a matching config file.
+
 The `calibration.method` DVC parameter is passed directly to the training
-command as `--calibration-method`; its default is `none`. `training.n_jobs` is
-passed as `--n-jobs` and controls the total CPU job budget: use a positive
-integer or `-1` for all available CPUs, the default is `1`. Only the outermost
-operation in each training phase uses this budget; nested estimators use only
-one job to avoid oversubscription. Registration and promotion default to
-disabled on direct training calls. The DVC `model.register_model` parameter
-enables registration for this pipeline run; promotion remains disabled by the
-stage's `--no-promote-model` argument. The pipeline scores the logged MLflow
-model artifact, using the exact registered version from the manifest when
-registration is enabled.
+command as `--calibration-method`; its default is `none`.
+
+`training.n_jobs` is passed as `--n-jobs` and controls the total CPU job budget:
+use a positive integer or `-1` for all available CPUs, the default is `1`. Only
+the outermost operation in each training phase uses this budget, nested
+estimators use only one job to avoid oversubscription.
+
+`training.tune_model` is also passed as a run-time option and defaults to `false`.
+Set it to `true` to enable Optuna tuning using the budgets in the selected
+classifier YAML.
+
+Registration and promotion default to disabled on direct training calls. The DVC
+`model.register_model` parameter enables registration for this pipeline run.
+Promotion remains disabled by the stage's `--no-promote-model` argument. The
+pipeline scores the logged MLflow model artifact, using the exact registered
+version from the manifest when registration is enabled.
 
 The source CSVs are represented in Git by `.dvc` pointer files, not by their
 contents. This repository has no DVC remote, so a fresh clone must be supplied
@@ -184,18 +192,23 @@ uv run churn-mlops train \
 
 Configuration filenames resolve under `src/config` by default. The default
 split name is `default`. The training configuration controls the classifier,
-preprocessing, calibration fold/bin counts, threshold selection, and tuning.
+preprocessing, calibration fold/bin counts, threshold selection, and tuning
+search parameters.
 
-Run-time arguments control calibration method, CPU job budget, model
-registration and promotion. The selected use case's `feature_columns` define
+Run-time arguments control calibration method, CPU job budget and whether
+tuning, model registration and promotion is executed. The latter options
+are disabled by default. The selected use case's `feature_columns` define
 model inputs and must be present in both splits; other validated columns
 remain available in batch prediction outputs. See the
 [model configuration and tracking reference](#model-configuration-and-tracking-reference)
 for configuration details and model behavior.
 
 Python callers can set the same per-run options directly. They default to
-`register_model=False`, `promote_model=False`, `calibration_method="none"`, and
-`n_jobs=1`:
+- `calibration_method="none"`,
+- `n_jobs=1`,
+- `tune_model=False`,
+- `register_model=False`,
+- `promote_model=False`.
 
 ```python
 from churn_mlops.train import run_training_job
@@ -212,12 +225,13 @@ run_training_job(
 
 #### Tune hyperparameters
 
-Optuna tuning is disabled by default. To enable it, choose a classifier with
-a catalog search space and set tuning options in its YAML configuration:
+Optuna tuning is disabled by default (`tune_model=False`). To enable it,
+choose a classifier with a catalog search space, set `tune_model=True` in a
+Python call (or pass `--tune-model` in the CLI) and configure the search
+budget in its YAML:
 
 ```yaml
 tuning:
-  enabled: true
   n_trials: 64
   n_splits: 4
   metric: roc_auc
@@ -495,10 +509,10 @@ Its HTTP request features are validated with Pydantic:
 
 Training configurations are YAML files under [src/config](src/config). They
 select a registered use case and define classifier parameters, preprocessing
-strategies, calibration and threshold-selection strategy, optional tuning,
+strategies, calibration and threshold-selection strategy, tuning parameters,
 and registry/promotion thresholds and weights. Calibration method, job budget,
-registration and promotion are selected/enabled for each training invocation
-instead.
+tuning, registration and promotion are selected/enabled for each training
+invocation instead.
 
 Example configurations are provided for `dc`, `dt`, `hgb`, `lr`, `nb`, and `rf`.
 
@@ -541,7 +555,6 @@ preprocessing:
   categorical_impute_strategy: most_frequent
 
 tuning:
-  enabled: false
   n_trials: 64
   n_splits: 4
   metric: roc_auc

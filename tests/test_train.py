@@ -48,12 +48,14 @@ def test_training_cli_passes_run_time_options(
             "isotonic",
             "--n-jobs",
             "2",
+            "--tune-model",
         ]
     )
 
     assert training_job.call_args.kwargs["register_model"] is expected_registration
     assert training_job.call_args.kwargs["calibration_method"] == "isotonic"
     assert training_job.call_args.kwargs["n_jobs"] == 2
+    assert training_job.call_args.kwargs["tune_model"] is True
 
 
 @pytest.mark.unit
@@ -63,11 +65,12 @@ def test_training_cli_passes_run_time_options(
         ({"calibration_method": "temperature"}, ValueError, "Calibration method"),
         ({"n_jobs": 0}, ValueError, "n_jobs"),
         ({"register_model": "true"}, TypeError, "must be booleans"),
+        ({"tune_model": "true"}, TypeError, "must be booleans"),
     ],
 )
 def test_run_training_job_rejects_invalid_run_time_options(
     monkeypatch: pytest.MonkeyPatch,
-    options: dict[str, object],
+    options: dict[str, bool | int | str],
     error: type[Exception],
     message: str,
 ) -> None:
@@ -357,7 +360,6 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
             model_name="churn-risk",
         ),
         tuning=TuningConfig(
-            enabled=True,
             n_trials=3,
             n_splits=2,
             metric="roc_auc",
@@ -405,6 +407,7 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
     mlflow_run = MagicMock()
     log_params = MagicMock()
     log_metric = MagicMock()
+    log_experiment_result = MagicMock()
 
     monkeypatch.setattr(train, "RuntimeSettings", lambda: settings)
     monkeypatch.setattr(train, "load_config", lambda **_: (config, Path(config_file)))
@@ -412,7 +415,7 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
     monkeypatch.setattr(train, "optimize_hyperparameters", optimizer)
     monkeypatch.setattr(train, "train_model", train_model)
     monkeypatch.setattr(train, "setup_local_experiment", MagicMock(return_value="id"))
-    monkeypatch.setattr(train, "log_experiment_result", MagicMock())
+    monkeypatch.setattr(train, "log_experiment_result", log_experiment_result)
     monkeypatch.setattr(train.mlflow, "get_experiment", MagicMock())
     monkeypatch.setattr(train.mlflow, "start_run", MagicMock(return_value=mlflow_run))
     monkeypatch.setattr(train.mlflow, "log_param", MagicMock())
@@ -429,6 +432,7 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
     result = train.run_training_job(
         config_file=config_file,
         split_name=split_name,
+        tune_model=True,
         register_model=False,
         write_manifest=False,
     )
@@ -444,6 +448,7 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
     assert optimizer.call_args.kwargs["train_df"].equals(train_df)
     assert optimizer.call_args.kwargs["use_case"] is CHURN_USE_CASE
     assert optimizer.call_args.kwargs["n_jobs"] == 1
+    assert log_experiment_result.call_args.kwargs["tune_model"] is True
     train_model.assert_called_once_with(
         config=config,
         train_df=train_df,
@@ -455,7 +460,6 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
     )
     log_params.assert_called_once_with(
         {
-            "tuning_enabled": "true",
             "tuning_n_trials": 3,
             "tuning_n_splits": 2,
             "tuning_n_jobs": 1,

@@ -24,7 +24,6 @@ class PreprocessingConfig:
 
 @dataclass(frozen=True)
 class TuningConfig:
-    enabled: bool = False
     n_trials: int = 50
     n_splits: int = 4
     metric: str = "roc_auc"

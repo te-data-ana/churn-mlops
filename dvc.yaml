@@ -87,9 +87,10 @@ stages:
       --split_name ${split.name}
       --use-case ${use_case}
       --experiment_name ${tracking.experiment_name}
-      --register-model ${model.register_model}
       --calibration-method ${calibration.method}
       --n-jobs ${training.n_jobs}
+      --tune-model ${training.tune_model}
+      --register-model ${model.register_model}
       --no-promote-model
     deps:
       - data/splits/${split.name}_test.parquet
@@ -103,8 +104,9 @@ stages:
       - use_case
       - model.classifier
       - model.register_model
-      - training.n_jobs
       - calibration.method
+      - training.n_jobs
+      - training.tune_model
       - split.name
       - tracking.experiment_name
     outs:

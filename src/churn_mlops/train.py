@@ -11,7 +11,6 @@ from churn_mlops.config import (
     configure_logging,
     load_config,
 )
-from churn_mlops.config.schemas import TuningConfig
 from churn_mlops.config.settings import RuntimeSettings
 from churn_mlops.data.splitting import load_and_validate_training_splits
 from churn_mlops.tracking import (
@@ -48,10 +47,11 @@ def run_training_job(
     experiment_name: str | None = None,
     tracking_uri: str | None = None,
     artifact_dir: Path | None = None,
-    register_model: bool = False,
-    promote_model: bool = False,
     calibration_method: str = "none",
     n_jobs: int = 1,
+    tune_model: bool = False,
+    register_model: bool = False,
+    promote_model: bool = False,
     write_manifest: bool = True,
     use_case_name: str | None = None,
 ) -> TrainingResult:
@@ -66,11 +66,12 @@ def run_training_job(
             the ``MLFLOW_EXPERIMENT_NAME`` runtime setting is used.
         tracking_uri: Optional MLflow tracking URI.
         artifact_dir: Directory used for training artifacts.
-        register_model: Whether to register the trained model (default: False).
-        promote_model: Whether to promote a registered model (default: False).
         calibration_method: Calibration method for this run (default: "none").
             Options are "none", "sigmoid", or "isotonic".
         n_jobs: Total CPU job budget for this run (default: 1).
+        tune_model: Whether to run hyperparameter tuning (default: False).
+        register_model: Whether to register the trained model (default: False).
+        promote_model: Whether to promote a registered model (default: False).
         write_manifest: Boolean flag for writing manifest JSON file, which
             contains experiment details like run and registered model version
             (default: True).
@@ -84,7 +85,7 @@ def run_training_job(
         FileNotFoundError: If the configuration or training data file is not
             found.
         pandera.errors.SchemaError: If the training data violates its schema.
-        TypeError: If registration or promotion flags are not booleans.
+        TypeError: If run-time boolean options are not booleans.
         ValueError: If a run-time training option, classifier, or promotion
             operation is invalid.
 
@@ -107,8 +108,14 @@ def run_training_job(
         )
     if type(n_jobs) is not int or n_jobs == 0 or n_jobs < -1:
         raise ValueError("n_jobs must be a positive integer or -1.")
-    if type(register_model) is not bool or type(promote_model) is not bool:
-        raise TypeError("register_model and promote_model must be booleans.")
+    if (
+        type(register_model) is not bool
+        or type(promote_model) is not bool
+        or type(tune_model) is not bool
+    ):
+        raise TypeError(
+            "register_model, promote_model, and tune_model must be booleans."
+        )
 
     settings = RuntimeSettings()
     resolved_config_dir = config_dir or settings.config_dir
@@ -184,7 +191,6 @@ def run_training_job(
         logger.info("Tracking URI: %s", mlflow.get_tracking_uri())
         logger.info("MLflow artifact location: %s", experiment.artifact_location)
 
-        tuning_config = getattr(config, "tuning", TuningConfig())
         train_df, test_df = load_and_validate_training_splits(
             split_name=split_name,
             split_dir=resolved_split_dir,
@@ -250,7 +256,7 @@ def run_training_job(
                     }
                 )
                 logger.info("Logged split metadata to MLflow: %s.", split_metadata)
-            if tuning_config.enabled:
+            if tune_model:
                 tuning_result = optimize_hyperparameters(
                     config=config,
                     train_df=train_df,
@@ -259,7 +265,6 @@ def run_training_job(
                 )
                 mlflow.log_params(
                     {
-                        "tuning_enabled": "true",
                         "tuning_n_trials": tuning_result.n_trials,
                         "tuning_n_splits": tuning_result.n_splits,
                         "tuning_n_jobs": n_jobs,
@@ -293,8 +298,8 @@ def run_training_job(
                 )
             else:
                 logger.info(
-                    "Hyperparameter tuning is disabled; using configured classifier "
-                    "parameters."
+                    "Hyperparameter tuning is disabled for this run; using configured "
+                    "classifier parameters."
                 )
                 result = train_model(
                     config=config,
@@ -315,7 +320,7 @@ def run_training_job(
                 config=config,
                 config_file_path=config_file_path,
                 calibration_method=calibration_method,
-                n_jobs=n_jobs,
+                tune_model=tune_model,
                 register_model=register_model,
                 promote_model=promote_model,
             )
@@ -422,9 +427,9 @@ def run_training_job(
                     feature_count=len(result.feature_names_out),
                     feature_names_in=result.feature_names_in,
                     feature_names_out=result.feature_names_out,
-                    tuning_enabled=config.tuning.enabled,
                     calibration=calibration_method,
                     n_jobs=n_jobs,
+                    tuning_enabled=tune_model,
                     threshold_strategy=config.threshold.strategy,
                     threshold_data=result.threshold_data,
                     threshold=result.threshold,

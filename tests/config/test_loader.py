@@ -13,7 +13,7 @@ from churn_mlops.config.schemas import (
 
 
 @pytest.mark.unit
-def test_load_config_returns_config_and_resolved_path(sample_config_yaml) -> None:
+def test_load_config_returns_config_and_resolved_path(sample_config_yaml: Path) -> None:
     config_file_name = sample_config_yaml.name
     config_file_dir = sample_config_yaml.parent
 
@@ -23,7 +23,7 @@ def test_load_config_returns_config_and_resolved_path(sample_config_yaml) -> Non
     )
 
     assert config.use_case == "churn"
-    assert not config.tuning.enabled
+    assert config.tuning.n_trials == 50
     assert config.calibration.n_splits == 3
     assert config.threshold.strategy == "max_f1"
     assert sum(config.promotion.metric_weights.values()) > 0
@@ -51,6 +51,7 @@ def test_shipped_training_configs_have_valid_settings(
 
     config, _ = load_config(file=filename, path=config_directory)
 
+    assert config.tuning.n_trials >= 1
     assert config.calibration.n_splits >= 2
     assert sum(config.promotion.metric_weights.values()) > 0
 

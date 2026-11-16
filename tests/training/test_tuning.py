@@ -106,7 +106,6 @@ def test_optimize_hyperparameters_returns_reproducible_study_result(
     config = replace(
         config,
         tuning=TuningConfig(
-            enabled=True,
             n_trials=2,
             n_splits=2,
             metric="roc_auc",
@@ -165,7 +164,6 @@ def test_optimize_hyperparameters_uses_declared_feature_columns(
     config = replace(
         config,
         tuning=TuningConfig(
-            enabled=True,
             n_trials=1,
             n_splits=2,
             metric="roc_auc",
@@ -211,7 +209,6 @@ def test_optimize_hyperparameters_uses_decision_function_for_svm(
     config = replace(
         config,
         tuning=TuningConfig(
-            enabled=True,
             n_trials=1,
             n_splits=2,
             metric="roc_auc",
@@ -252,7 +249,7 @@ def test_optimize_hyperparameters_rejects_classifier_without_search_space(
     sample_training_df: pd.DataFrame,
 ) -> None:
     config: TrainingConfig = config_factory(classifier="dc")
-    config = replace(config, tuning=TuningConfig(enabled=True))
+    config = replace(config, tuning=TuningConfig())
 
     with pytest.raises(ValueError, match="does not define an Optuna search space"):
         optimize_hyperparameters(

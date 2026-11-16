@@ -77,7 +77,7 @@ def optimize_hyperparameters(
     """Optimize the configured classifier on chronological CV folds.
 
     Args:
-        config: Training configuration with tuning enabled.
+        config: Training configuration with tuning parameters.
         train_df: Training data split, including the configured time column.
             A separate out-of-time test split should be kept aside for final
             evaluation.
@@ -98,8 +98,6 @@ def optimize_hyperparameters(
     if type(n_jobs) is not int or n_jobs == 0 or n_jobs < -1:
         raise ValueError("n_jobs must be a positive integer or -1.")
     tuning = config.tuning
-    if not tuning.enabled:
-        raise ValueError("Optuna tuning is disabled in the training configuration.")
     if tuning.n_trials < 1:
         raise ValueError("Tuning n_trials must be at least 1.")
     if tuning.metric not in {"roc_auc", "pr_auc"}:
