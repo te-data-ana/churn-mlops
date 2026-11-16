@@ -42,10 +42,10 @@ class TrainingResult:
 
 
 def train_model(
+    use_case: UseCase,
     config: TrainingConfig,
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
-    use_case: UseCase,
     model_params_override: Mapping[str, Any] | None = None,
     calibration_method: str = "none",
     n_jobs: int = 1,
@@ -53,9 +53,9 @@ def train_model(
     """Fit and evaluate a configured classifier pipeline.
 
     Args:
+        use_case: Explicit data contract to be used for model training.
         config: Training, feature, preprocessing, model, calibration-fold,
             threshold, promotion, and registry settings.
-        use_case: Explicit data contract to be used for model training.
         train_df: Validated training DataFrame containing features and target.
         test_df: Validated test DataFrame containing features and target.
         model_params_override: Optional model parameters overriding configured
@@ -68,15 +68,9 @@ def train_model(
         selection details.
 
     Raises:
-        ValueError: If the use-case contract does not match the configuration,
-            required model features are missing, or the classifier/labels are
-            invalid.
+        ValueError: If required model features are missing or the
+            classifier/labels are invalid.
     """
-    if config.use_case != use_case.name:
-        raise ValueError(
-            f"Training config selects use case '{config.use_case}', but "
-            f"'{use_case.name}' was supplied."
-        )
     if not isinstance(calibration_method, str) or calibration_method not in {
         "none",
         "sigmoid",

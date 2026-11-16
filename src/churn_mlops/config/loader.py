@@ -7,7 +7,6 @@ from churn_mlops.config.schemas import (
     ClassifierConfig,
     PreprocessingConfig,
     PromotionConfig,
-    RegistryConfig,
     ThresholdConfig,
     TrainingConfig,
     TuningConfig,
@@ -42,12 +41,10 @@ def load_config(
         raw = yaml.safe_load(f)
 
     return TrainingConfig(
-        use_case=raw["use_case"],
         preprocessing=PreprocessingConfig(**raw["preprocessing"]),
         model=ClassifierConfig(**raw["model"]),
         calibration=CalibrationConfig(**raw.get("calibration", {})),
         threshold=ThresholdConfig(**raw.get("threshold", {})),
         promotion=PromotionConfig(**raw.get("promotion", {})),
-        registry=RegistryConfig(**raw["registry"]),
         tuning=TuningConfig(**raw.get("tuning", {})),
     ), config_file_path

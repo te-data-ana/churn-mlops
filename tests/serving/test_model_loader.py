@@ -55,6 +55,24 @@ def test_load_model_returns_model_with_registry_metadata(
 
 
 @pytest.mark.unit
+def test_load_model_requires_registry_name_without_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = SimpleNamespace(
+        model_name=None,
+        model_alias="champion",
+        model_version=None,
+        mlflow_tracking_uri="sqlite:///mlflow.db",
+    )
+    monkeypatch.setattr(model_loader, "ServingSettings", lambda: settings)
+    monkeypatch.setattr(model_loader, "ModelRegistry", Mock())
+    monkeypatch.setattr(model_loader.mlflow, "set_tracking_uri", Mock())
+
+    with pytest.raises(ValueError, match="Provide a model manifest or set MODEL_NAME"):
+        model_loader.load_model(use_case=CHURN_USE_CASE)
+
+
+@pytest.mark.unit
 def test_load_model_uses_exact_registered_version(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

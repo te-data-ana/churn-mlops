@@ -83,10 +83,9 @@ stages:
   train_model:
     cmd: >-
       uv run churn-mlops train
+      --use-case ${use_case}
       --config ${model.classifier}.yaml
       --split_name ${split.name}
-      --use-case ${use_case}
-      --experiment_name ${tracking.experiment_name}
       --calibration-method ${calibration.method}
       --n-jobs ${training.n_jobs}
       --tune-model ${training.tune_model}
@@ -103,12 +102,11 @@ stages:
     params:
       - use_case
       - model.classifier
-      - model.register_model
+      - split.name
       - calibration.method
       - training.n_jobs
       - training.tune_model
-      - split.name
-      - tracking.experiment_name
+      - model.register_model
     outs:
       - data/manifests:
           persist: true
@@ -117,11 +115,11 @@ stages:
       uv run churn-mlops batch-predict
       --use-case ${use_case}
       --input_dataset splits/${split.name}_test.parquet
-      --output_dataset predictions/${model.classifier}_${split.name}
-      --model_manifest manifests/${model.classifier}_${split.name}.json
+      --output_dataset predictions/${use_case}_${model.classifier}_${split.name}
+      --model_manifest manifests/${use_case}-${model.classifier}-${split.name}.json
     deps:
       - data/splits/${split.name}_test.parquet
-      - data/manifests/${model.classifier}_${split.name}.json
+      - data/manifests/${use_case}-${model.classifier}-${split.name}.json
       - src/churn_mlops
       - pyproject.toml
       - uv.lock

@@ -1,15 +1,10 @@
-from collections.abc import Callable
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
+import yaml
 
 from churn_mlops.config import load_config
-from churn_mlops.config.schemas import (
-    PromotionConfig,
-    ThresholdConfig,
-    TrainingConfig,
-)
+from churn_mlops.config.schemas import PromotionConfig, ThresholdConfig
 
 
 @pytest.mark.unit
@@ -22,7 +17,6 @@ def test_load_config_returns_config_and_resolved_path(sample_config_yaml: Path) 
         path=config_file_dir,
     )
 
-    assert config.use_case == "churn"
     assert config.tuning.n_trials == 50
     assert config.calibration.n_splits == 3
     assert config.threshold.strategy == "max_f1"
@@ -50,7 +44,12 @@ def test_shipped_training_configs_have_valid_settings(
     config_directory = Path(__file__).resolve().parents[2] / "src" / "config"
 
     config, _ = load_config(file=filename, path=config_directory)
+    raw_config = yaml.safe_load(
+        (config_directory / filename).read_text(encoding="utf-8")
+    )
 
+    assert "use_case" not in raw_config
+    assert "registry" not in raw_config
     assert config.tuning.n_trials >= 1
     assert config.calibration.n_splits >= 2
     assert sum(config.promotion.metric_weights.values()) > 0
@@ -60,14 +59,6 @@ def test_shipped_training_configs_have_valid_settings(
 def test_promotion_config_rejects_negative_min_delta() -> None:
     with pytest.raises(ValueError, match="min_delta"):
         PromotionConfig(min_delta=-0.1)
-
-
-@pytest.mark.unit
-def test_training_config_rejects_empty_use_case(
-    config_factory: Callable[..., TrainingConfig],
-) -> None:
-    with pytest.raises(ValueError, match="use_case"):
-        replace(config_factory(), use_case="")
 
 
 @pytest.mark.unit

@@ -1,6 +1,5 @@
 import logging
 from collections.abc import Callable
-from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -98,6 +97,7 @@ def test_log_experiment_result_logs_metrics_parameters_model_and_artifacts(
 
     mock_training_result.classifier_config["random_state"] = 42
     tracking.log_experiment_result(
+        use_case=get_use_case("churn"),
         result=mock_training_result,
         config=config_factory(),
         config_file_path=sample_config_yaml,
@@ -120,6 +120,7 @@ def test_log_experiment_result_logs_metrics_parameters_model_and_artifacts(
     assert "test_size" not in logged_parameters
     assert "data_random_state" not in logged_parameters
     assert "random_state" in logged_parameters
+    assert logged_parameter_values["use_case"] == "churn"
     assert "threshold" in logged_parameters
     assert "calibration_method" in logged_parameters
     assert "model_tuning_enabled" in logged_parameters
@@ -161,14 +162,13 @@ def test_log_experiment_result_trusts_selected_use_case_feature_builder(
         data_validator=lambda frame: frame,
         feature_builder_factory=feature_builder_factory,
     )
-    config = replace(config_factory(), use_case=use_case.name)
+    config = config_factory()
     mock_training_result.trained_pipeline.steps[0] = (
         "features",
         IdentityFeatureBuilder(),
     )
     mock_log_model = MagicMock()
 
-    monkeypatch.setattr(tracking, "get_use_case", lambda _: use_case)
     monkeypatch.setattr(tracking.mlflow, "log_params", MagicMock())
     monkeypatch.setattr(tracking.mlflow, "set_tags", MagicMock())
     monkeypatch.setattr(tracking.mlflow, "log_metrics", MagicMock())
@@ -177,6 +177,7 @@ def test_log_experiment_result_trusts_selected_use_case_feature_builder(
     monkeypatch.setattr(tracking.mlflow.sklearn, "log_model", mock_log_model)
 
     tracking.log_experiment_result(
+        use_case=use_case,
         result=mock_training_result,
         config=config,
         config_file_path=sample_config_yaml,
@@ -269,6 +270,7 @@ def test_logged_calibrated_model_can_be_reloaded(
 
     with mlflow.start_run(experiment_id=experiment_id):
         model_info = tracking.log_experiment_result(
+            use_case=use_case,
             result=result,
             config=config,
             config_file_path=config_path,

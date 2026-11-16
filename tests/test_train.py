@@ -41,14 +41,16 @@ def test_training_cli_passes_run_time_options(
     churn_mlops.main(
         [
             "train",
+            "--use-case",
+            "churn",
             "--config",
             "lr.yaml",
-            *registration_args,
             "--calibration-method",
             "isotonic",
             "--n-jobs",
             "2",
             "--tune-model",
+            *registration_args,
         ]
     )
 
@@ -56,6 +58,14 @@ def test_training_cli_passes_run_time_options(
     assert training_job.call_args.kwargs["calibration_method"] == "isotonic"
     assert training_job.call_args.kwargs["n_jobs"] == 2
     assert training_job.call_args.kwargs["tune_model"] is True
+
+
+@pytest.mark.unit
+def test_training_cli_requires_use_case(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit, match="2"):
+        churn_mlops.main(["train", "--config", "lr.yaml"])
+
+    assert "--use-case" in capsys.readouterr().err
 
 
 @pytest.mark.unit
@@ -78,6 +88,7 @@ def test_run_training_job_rejects_invalid_run_time_options(
 
     with pytest.raises(error, match=message):
         train.run_training_job(
+            use_case="churn",
             config_file="config.yaml",
             split_name="test",
             **options,
@@ -85,7 +96,7 @@ def test_run_training_job_rejects_invalid_run_time_options(
 
 
 @pytest.mark.unit
-def test_run_training_job_applies_use_case_override_before_registry_lookup(
+def test_run_training_job_resolves_required_use_case_before_training(
     monkeypatch: pytest.MonkeyPatch,
     config_factory: Callable[..., TrainingConfig],
     tmp_path: Path,
@@ -110,27 +121,17 @@ def test_run_training_job_applies_use_case_override_before_registry_lookup(
 
     with pytest.raises(ValueError, match="stop after use-case lookup"):
         train.run_training_job(
+            use_case="alternate",
             config_file="lr.yaml",
             split_name="test",
-            use_case_name="alternate",
         )
 
     registry_lookup.assert_called_once_with("alternate")
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    ("provided_name", "configured_name", "expected_name"),
-    [
-        (None, "configured-experiment", "configured-experiment"),
-        ("explicit-experiment", "configured-experiment", "explicit-experiment"),
-    ],
-)
-def test_run_training_job_resolves_input_arguments(
+def test_run_training_job_derives_experiment_from_use_case_and_split(
     monkeypatch: pytest.MonkeyPatch,
-    provided_name: str | None,
-    configured_name: str,
-    expected_name: str,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.INFO)
@@ -139,10 +140,8 @@ def test_run_training_job_resolves_input_arguments(
         data_dir=Path("data"),
         artifact_dir=Path("artifacts"),
         mlflow_tracking_uri="sqlite:///tracking.db",
-        mlflow_experiment_name=configured_name,
     )
     config = SimpleNamespace(
-        use_case="churn",
         model=SimpleNamespace(classifier="lr"),
         calibration=SimpleNamespace(n_splits=3, n_bins=10),
         threshold=SimpleNamespace(
@@ -157,10 +156,8 @@ def test_run_training_job_resolves_input_arguments(
                 "calibration_error": 0.2,
             },
         ),
-        registry=SimpleNamespace(
-            model_name="churn-risk",
-        ),
     )
+    use_case = CHURN_USE_CASE.name
     config_file = "train.yaml"
     split_name = "temporal"
     load_splits = MagicMock(return_value=(MagicMock(), MagicMock()))
@@ -198,14 +195,17 @@ def test_run_training_job_resolves_input_arguments(
     monkeypatch.setattr(train.mlflow, "set_tag", set_tag)
 
     train.run_training_job(
+        use_case=use_case,
         config_file=config_file,
         split_name=split_name,
-        experiment_name=provided_name,
         register_model=False,
         write_manifest=False,
     )
 
-    assert setup_experiment.call_args.kwargs["experiment_name"] == expected_name
+    assert (
+        setup_experiment.call_args.kwargs["experiment_name"]
+        == f"{use_case}-{split_name}"
+    )
     assert get_active_run() is None
     set_tag.assert_any_call("git_commit", ANY)
     load_splits.assert_called_once_with(
@@ -243,6 +243,7 @@ def test_run_training_job_uses_run_time_options_and_writes_unregistered_manifest
     tmp_path: Path,
     config_factory: Callable[..., TrainingConfig],
 ) -> None:
+    use_case = CHURN_USE_CASE.name
     settings = SimpleNamespace(
         config_dir=tmp_path,
         data_dir=tmp_path,
@@ -312,9 +313,15 @@ def test_run_training_job_uses_run_time_options_and_writes_unregistered_manifest
     monkeypatch.setattr(train.mlflow, "set_tag", MagicMock())
     monkeypatch.setattr(train.mlflow, "log_artifact", MagicMock())
 
+    config_file = "lr.yaml"
+    split_name = "temporal"
+    classifier_alias = config.model.classifier
+    run_name = f"{use_case}-{classifier_alias}-{split_name}"
+
     train.run_training_job(
-        config_file="lr.yaml",
-        split_name="temporal",
+        use_case=use_case,
+        config_file=config_file,
+        split_name=split_name,
         register_model=False,
         calibration_method="isotonic",
         n_jobs=3,
@@ -325,8 +332,8 @@ def test_run_training_job_uses_run_time_options_and_writes_unregistered_manifest
     assert config.calibration.n_splits == 3
     from churn_mlops.tracking import TrainingManifest
 
-    manifest = TrainingManifest.read(tmp_path / "manifests/lr_temporal.json")
-    assert manifest.model.use_case == "churn"
+    manifest = TrainingManifest.read(tmp_path / f"manifests/{run_name}.json")
+    assert manifest.model.use_case == use_case
     assert manifest.data.time_column == "reference_date"
     assert manifest.training.tuning_enabled is False
     assert manifest.training.calibration == "isotonic"
@@ -342,8 +349,8 @@ def test_run_training_job_uses_run_time_options_and_writes_unregistered_manifest
 def test_run_training_job_logs_tuning_result_and_fits_final_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    use_case = CHURN_USE_CASE.name
     config = SimpleNamespace(
-        use_case="churn",
         model=SimpleNamespace(classifier="rf"),
         calibration=SimpleNamespace(n_splits=3, n_bins=10),
         threshold=SimpleNamespace(strategy="max_f1"),
@@ -355,9 +362,6 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
                 "brier_score": 0.2,
                 "calibration_error": 0.2,
             },
-        ),
-        registry=SimpleNamespace(
-            model_name="churn-risk",
         ),
         tuning=TuningConfig(
             n_trials=3,
@@ -430,6 +434,7 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
     monkeypatch.setattr(train.mlflow, "log_metric", log_metric)
 
     result = train.run_training_job(
+        use_case=use_case,
         config_file=config_file,
         split_name=split_name,
         tune_model=True,
@@ -473,12 +478,14 @@ def test_run_training_job_logs_tuning_result_and_fits_final_model(
 
 
 @pytest.mark.unit
-def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
+@pytest.mark.parametrize("promote_model", [False, True])
+def test_registration_uses_derived_name_and_only_promotion_aliases(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    promote_model: bool,
 ) -> None:
+    use_case = CHURN_USE_CASE.name
     config = SimpleNamespace(
-        use_case="churn",
         model=SimpleNamespace(classifier="rf"),
         calibration=SimpleNamespace(n_splits=3, n_bins=10),
         threshold=SimpleNamespace(strategy="max_f1"),
@@ -491,10 +498,6 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
                 "brier_score": 0.2,
                 "calibration_error": 0.2,
             },
-        ),
-        registry=SimpleNamespace(
-            model_name="churn-risk",
-            alias="candidate",
         ),
         tuning=TuningConfig(),
     )
@@ -528,13 +531,15 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
     )
     registry = MagicMock()
     registry.register_model.return_value = registered_version
+    registry.get_champion_version.return_value = None
     model_card_builder = MagicMock()
     model_card_builder.build.return_value = "# Model Card"
 
     config_file = "train.yaml"
     split_name = "temporal"
     classifier_alias = config.model.classifier
-    run_name = f"{classifier_alias}_{split_name}"
+    run_name = f"{use_case}-{classifier_alias}-{split_name}"
+    model_name = f"{use_case}-model"
     manifest_file = settings.data_dir / f"manifests/{run_name}.json"
 
     monkeypatch.setattr(train, "RuntimeSettings", lambda: settings)
@@ -572,32 +577,47 @@ def test_experiment_registration_does_not_update_aliases_and_writes_manifest(
     monkeypatch.setattr(train.mlflow, "set_tag", set_tag)
 
     result = train.run_training_job(
+        use_case=use_case,
         config_file=config_file,
         split_name=split_name,
         register_model=True,
-        promote_model=False,
+        promote_model=promote_model,
         write_manifest=True,
     )
 
     assert result is training_result
+    setup_experiment = train.setup_local_experiment
+    setup_experiment.assert_called_once_with(
+        experiment_name=f"{use_case}-{split_name}",
+        tracking_uri="sqlite:///tracking.db",
+        artifact_dir=tmp_path / "artifacts",
+    )
     registry.register_model.assert_called_once_with(
         model_info=model_info,
-        model_name="churn-risk",
+        model_name=model_name,
     )
-    registry.set_alias.assert_not_called()
-    registry.get_champion_version.assert_not_called()
+    if promote_model:
+        registry.set_alias.assert_called_once_with(
+            model_name=model_name,
+            model_alias="champion",
+            model_version=7,
+        )
+        registry.get_champion_version.assert_called_once_with(model_name=model_name)
+    else:
+        registry.set_alias.assert_not_called()
+        registry.get_champion_version.assert_not_called()
     assert manifest_file.is_file()
     from churn_mlops.tracking import TrainingManifest
 
     manifest = TrainingManifest.read(manifest_file)
-    assert manifest.model.model_name == "churn-risk"
+    assert manifest.model.model_name == f"{use_case}-model"
     assert manifest.model.model_version == 7
     assert manifest.run.run_id == "training-run"
     assert manifest.run.run_name == run_name
-    assert manifest.model.use_case == "churn"
+    assert manifest.model.use_case == use_case
     assert manifest.data.time_column == "reference_date"
     assert manifest.lifecycle.registration_enabled is True
-    assert manifest.lifecycle.promotion_enabled is False
+    assert manifest.lifecycle.promotion_enabled is promote_model
     set_tag.assert_any_call("git_commit", ANY)
     train.mlflow.log_artifact.assert_called_once_with(
         local_path=str(manifest_file),

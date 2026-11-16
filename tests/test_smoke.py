@@ -36,25 +36,22 @@ def test_package_main_dispatches_train_command(monkeypatch) -> None:
     churn_mlops.main(
         [
             "train",
-            "--config",
-            "config.yaml",
-            "--experiment_name",
-            "my-exp",
             "--use-case",
             "alternate",
+            "--config",
+            "config.yaml",
         ]
     )
 
     assert observed["kwargs"] == {
+        "use_case": "alternate",
         "config_file": "config.yaml",
         "split_name": "default",
-        "experiment_name": "my-exp",
         "calibration_method": "none",
         "n_jobs": 1,
         "tune_model": False,
         "register_model": False,
         "promote_model": False,
-        "use_case_name": "alternate",
     }
 
 
@@ -235,13 +232,15 @@ def test_package_main_uses_monitoring_model_manifest(
             "--use-case",
             "churn",
             "--model_manifest",
-            "manifests/hgb_OOT_26Q2.json",
+            "manifests/churn-hgb-OOT_26Q2.json",
             "--mlflow_experiment_name",
             "churn-monitoring",
         ]
     )
 
-    manifest_read.assert_called_once_with(tmp_path / "manifests/hgb_OOT_26Q2.json")
+    manifest_read.assert_called_once_with(
+        tmp_path / "manifests/churn-hgb-OOT_26Q2.json"
+    )
     assert observed_report == {
         "reference": datasets["reference"],
         "analysis": datasets["analysis"],
@@ -396,6 +395,7 @@ def test_package_main_dispatches_serve_command(monkeypatch) -> None:
 
     fake_uvicorn_module = type("module", (), {"run": staticmethod(FakeUvicorn.run)})
     monkeypatch.setitem(importlib.sys.modules, "uvicorn", fake_uvicorn_module)
+    monkeypatch.setenv("MODEL_NAME", "churn-rf-OOT_26Q2")
 
     churn_mlops.main(
         [

@@ -102,10 +102,10 @@ Optuna tuning is disabled by default in the DVC pipeline; opt in for a run with
 `training.tune_model=true`.
 
 The `data/manifests` and `data/predictions` directories are persistent DVC
-outputs, so results for different `{classifier}_{split}` combinations remain
-available after subsequent experiments. Repeating a combination reuses its
-manifest and prediction paths; it does not create a separate archive for each
-run.
+outputs. Manifest files are named by `{use_case}-{classifier}-{split}`; the
+prediction dataset path uses `{use_case}_{classifier}_{split}`. Repeating a
+pipeline combination reuses its output paths; it does not create a separate
+archive for each run.
 
 The checked-in [params.yaml](params.yaml) selects the `churn` use case and
 configures `OOT_26Q2`: training from 2025-04-01 through 2026-03-31 and testing
@@ -133,20 +133,22 @@ To run another quarter/classifier combination as a named DVC experiment:
 ```bash
 uv run dvc exp run --name churn-12m-oot \
   --set-param use_case=churn \
+  --set-param model.classifier=lr \
   --set-param split.name=OOT_26Q2 \
   --set-param 'split.start_date="2025-04-01"' \
   --set-param 'split.split_date="2026-04-01"' \
   --set-param 'split.end_date="2026-06-30"' \
-  --set-param model.classifier=lr \
   --set-param calibration.method=isotonic \
   --set-param training.n_jobs=4 \
   --set-param training.tune_model=true \
-  --set-param model.register_model=true \
-  --set-param tracking.experiment_name=churn-12m-oot
+  --set-param model.register_model=true
 ```
 
-The `use_case` parameter (set in `params.yaml`) selects the registry contract
-and overrides the value in the selected training config for this pipeline run.
+The `use_case` parameter (set in `params.yaml`) selects the registered contract
+and is passed as the required `--use-case` argument to training. Training
+derives the MLflow experiment name as `{use_case}-{split_name}` and registry
+model name as `{use_case}-model`. A registered model receives no alias until it
+is promoted; successful promotion assigns `champion`.
 To run another registered use case, also update the corresponding input CSVs
 and date ranges in `dvc.yaml`.
 
@@ -185,9 +187,9 @@ MLflow.
 
 ```bash
 uv run churn-mlops train \
+  --use-case churn \
   --config rf.yaml \
-  --split_name OOT_26Q2 \
-  --experiment_name churn-experiments
+  --split_name OOT_26Q2
 ```
 
 Configuration filenames resolve under `src/config` by default. The default
@@ -197,9 +199,11 @@ search parameters.
 
 Run-time arguments control calibration method, CPU job budget and whether
 tuning, model registration and promotion is executed. The latter options
-are disabled by default. The selected use case's `feature_columns` define
-model inputs and must be present in both splits; other validated columns
-remain available in batch prediction outputs. See the
+are disabled by default. The required `--use-case` selects the data contract.
+Training derives its experiment name from the use case and split, and its
+registry model name from the use case. The selected use case's
+`feature_columns` define model inputs and must be present in both splits;
+other validated columns remain available in batch prediction outputs. See the
 [model configuration and tracking reference](#model-configuration-and-tracking-reference)
 for configuration details and model behavior.
 
@@ -214,6 +218,7 @@ Python callers can set the same per-run options directly. They default to
 from churn_mlops.train import run_training_job
 
 run_training_job(
+    use_case="churn",
     config_file="rf.yaml",
     split_name="OOT_26Q2",
     register_model=True,
@@ -246,11 +251,11 @@ out from hyperparameter tuning.
 
 ### Generate batch predictions
 
-Batch prediction validates input data and loads the configured model. Use a
-training manifest or an explicit model name and version when the exact model
-version matters; otherwise the configured model alias is used. A training
-manifest identifies the logged MLflow model and prediction threshold, whether
-or not that model is registered.
+Batch prediction validates input data and loads the selected model. Use a
+training manifest, an explicit model name and version, or set `MODEL_NAME` to
+select a registered model and its configured alias. A training manifest
+identifies the logged MLflow model and prediction threshold, whether or not
+that model is registered.
 
 For CSV input, the input filename is resolved under `data/raw` and the output
 is written under `output`:
@@ -290,7 +295,7 @@ uv run churn-mlops batch-predict \
   --use-case churn \
   --input_dataset splits/OOT_26Q2_test.parquet \
   --output_dataset predictions/rf_OOT_26Q2 \
-  --model_manifest manifests/rf_OOT_26Q2.json
+  --model_manifest manifests/churn-rf-OOT_26Q2.json
 ```
 
 The manifest option cannot be combined with `--model_name` or
@@ -298,14 +303,16 @@ The manifest option cannot be combined with `--model_name` or
 
 ### Serve predictions over HTTP
 
-Start the FastAPI service locally. By default, it loads the configured
-registered model; `--model_manifest` selects the exact model recorded by a
-training manifest and can also serve an unregistered run. The selected model
-must have been trained for the selected use case; mismatches prevent readiness:
+Start the FastAPI service locally. Set `MODEL_NAME` to a registered model name
+derived from its use case name, or use `--model_manifest` to select the exact
+model recorded by a training manifest (including unregistered runs). The
+selected model must have been trained for the selected use case; mismatches
+prevent readiness:
 
 ```bash
-uv run churn-mlops serve --use-case churn --host 127.0.0.1 --port 8000 --reload
-uv run churn-mlops serve --use-case churn --model_manifest manifests/rf_OOT_26Q2.json
+MODEL_NAME=churn-model \
+  uv run churn-mlops serve --use-case churn --host 127.0.0.1 --port 8000 --reload
+uv run churn-mlops serve --use-case churn --model_manifest manifests/churn-rf-OOT_26Q2.json
 ```
 
 The service loads the selected model once per process. Its
@@ -465,7 +472,8 @@ To add another classification problem:
 2. Register a `UseCase` in [registry.py](src/churn_mlops/use_cases/registry.py),
    providing its target, time and feature columns, validator, transformer
    factory, and optional request schema.
-3. Add a training YAML with the registered `use_case` name and model settings.
+3. Add a training YAML with model settings; pass the registered use case
+   explicitly when invoking training.
 4. Select the use case explicitly with `--use-case` for data preparation,
    batch prediction, monitoring, serving, and API log ingestion. Dataset and
    API log timestamps use the selected use case's time column.
@@ -508,11 +516,12 @@ Its HTTP request features are validated with Pydantic:
 ### Configuration and classifiers
 
 Training configurations are YAML files under [src/config](src/config). They
-select a registered use case and define classifier parameters, preprocessing
-strategies, calibration and threshold-selection strategy, tuning parameters,
-and registry/promotion thresholds and weights. Calibration method, job budget,
-tuning, registration and promotion are selected/enabled for each training
-invocation instead.
+define classifier parameters, preprocessing strategies, calibration and
+threshold-selection strategy, tuning parameters, and promotion thresholds and
+weights.
+
+Use case, calibration method, job budget, tuning, registration and promotion
+need to be explicitly selected/enabled for each training invocation instead.
 
 Example configurations are provided for `dc`, `dt`, `hgb`, `lr`, `nb`, and `rf`.
 
@@ -543,8 +552,6 @@ preprocessing and classification.
 Example training configuration:
 
 ```yaml
-use_case: churn
-
 model:
   classifier: dc
   classifier_params:
@@ -567,10 +574,6 @@ calibration:
 threshold:
   strategy: max_f1
 
-registry:
-  model_name: churn-risk
-  alias: candidate
-
 promotion:
   min_delta: 0.005
   metric_weights:
@@ -581,9 +584,9 @@ promotion:
     calibration_error: 0.2
 ```
 
-`use_case` is required. The selected contract supplies the target, time, and
-feature columns used by training, rather than duplicating those values in the
-training YAML.
+Pass the required use case with `--use-case` in the CLI or `use_case=` in a
+Python training call. The selected contract supplies the target, time, and
+feature columns used by training.
 
 `--n-jobs` sets the total CPU job budget for a run. It defaults to `1`, accepts
 positive integers, and uses `-1` to request all available CPUs. During tuning,
@@ -633,7 +636,10 @@ model version when registration is enabled.
 Champion promotion compares the weighted score configured in
 `promotion.metric_weights`: ROC AUC, PR AUC, and F1 contribute positively,
 while Brier score and ECE are inverted so lower values improve the score.
-The candidate must exceed the champion's score by `promotion.min_delta`.
+The model name is `{use_case}-model`, so each use case has its own registered
+model and champion lifecycle. The candidate must exceed the champion's score by
+`promotion.min_delta`.
+
 Champions from older runs that lack any configured metric are not comparable
 and are not automatically replaced; retrain the baseline with calibration
 evaluation before enabling automated promotion. The prior champion is retained
@@ -720,8 +726,8 @@ Environment variables can override the runtime defaults:
 | --- | --- | --- |
 | `USE_CASE` | Required for serving | Registered use-case contract selected by the API |
 | `MLFLOW_TRACKING_URI` | SQLite at `tracking_local/mlflow.db` | MLflow tracking and registry |
-| `MLFLOW_EXPERIMENT_NAME` | `test` | Default training experiment |
-| `MODEL_NAME` | `churn-risk` | Registered model name for serving |
+| `MLFLOW_EXPERIMENT_NAME` | `test` | Default monitoring experiment |
+| `MODEL_NAME` | Unset | Registered model name for serving (required unless using a manifest) |
 | `MODEL_ALIAS` | `champion` | Alias used to load a serving model |
 | `MODEL_VERSION` | Unset | Optional exact model version |
 | `MODEL_MANIFEST` | Unset | Optional manifest selecting a logged model |

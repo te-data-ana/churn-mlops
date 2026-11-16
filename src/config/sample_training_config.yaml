@@ -1,5 +1,3 @@
-use_case: churn
-
 model:
   classifier: dc
   classifier_params:
@@ -21,10 +19,6 @@ calibration:
 
 threshold:
   strategy: max_f1
-
-registry:
-  model_name: churn-risk
-  alias: candidate
 
 promotion:
   min_delta: 0.005

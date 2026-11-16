@@ -15,7 +15,6 @@ from churn_mlops.config.schemas import (
     ClassifierConfig,
     PreprocessingConfig,
     PromotionConfig,
-    RegistryConfig,
     ThresholdConfig,
     TrainingConfig,
 )
@@ -103,7 +102,6 @@ def config_factory() -> Callable[..., TrainingConfig]:
     def _create(**overrides) -> TrainingConfig:
 
         config = TrainingConfig(
-            use_case=CHURN_USE_CASE.name,
             preprocessing=PreprocessingConfig(
                 numeric_impute_strategy="mean",
                 categorical_impute_strategy="most_frequent",
@@ -113,10 +111,6 @@ def config_factory() -> Callable[..., TrainingConfig]:
                 classifier_params={
                     "random_state": 42,
                 },
-            ),
-            registry=RegistryConfig(
-                model_name="churn-risk",
-                alias="candidate",
             ),
             calibration=CalibrationConfig(),
             threshold=ThresholdConfig(),
@@ -318,9 +312,6 @@ def mlflow_test_setup(tmp_path: Path) -> dict[str, Any]:
     """Return a dictionary of MLflow test parameters for use in training and inference tests."""
     return {
         "tmp_path": tmp_path,
-        "model_name": "test-model",
-        "model_alias": "test-champion",
-        "experiment_name": "test-experiment",
         "tracking_uri": f"sqlite:///{tmp_path / 'mlflow.db'}",
     }
 
@@ -330,14 +321,10 @@ def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
     """Write a sample training configuration to a temporary YAML file."""
 
     tmp_path = mlflow_test_setup["tmp_path"]
-    model_name = mlflow_test_setup["model_name"]
-    model_alias = mlflow_test_setup["model_alias"]
-
     config_path = tmp_path / "training.yaml"
     config_path.write_text(
         yaml.safe_dump(
             {
-                "use_case": CHURN_USE_CASE.name,
                 "preprocessing": {
                     "numeric_impute_strategy": "median",
                     "categorical_impute_strategy": "most_frequent",
@@ -363,10 +350,6 @@ def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
                         "calibration_error": 0.2,
                     },
                 },
-                "registry": {
-                    "model_name": model_name,
-                    "alias": model_alias,
-                },
             }
         )
     )
@@ -384,10 +367,8 @@ def registered_model(
     from churn_mlops import train
     from churn_mlops.data import splitting, storage
 
+    use_case = CHURN_USE_CASE.name
     tmp_path = mlflow_test_setup["tmp_path"]
-    model_name = mlflow_test_setup["model_name"]
-    model_alias = mlflow_test_setup["model_alias"]
-    experiment_name = mlflow_test_setup["experiment_name"]
     tracking_uri = mlflow_test_setup["tracking_uri"]
     artifact_dir = tmp_path / "artifacts"
 
@@ -396,7 +377,6 @@ def registered_model(
         data_dir=tmp_path,
         artifact_dir=tmp_path / "artifacts",
         mlflow_tracking_uri=tracking_uri,
-        mlflow_experiment_name=experiment_name,
     )
     monkeypatch.setattr(storage, "RuntimeSettings", lambda: settings)
     monkeypatch.setattr(splitting, "RuntimeSettings", lambda: settings)
@@ -423,10 +403,10 @@ def registered_model(
     )
 
     result = train.run_training_job(
+        use_case=use_case,
         config_file=sample_config_yaml.name,
         split_name=split_name,
         config_dir=tmp_path,
-        experiment_name=experiment_name,
         tracking_uri=tracking_uri,
         artifact_dir=artifact_dir,
         register_model=True,
@@ -437,6 +417,6 @@ def registered_model(
         "result": result,
         "tracking_uri": tracking_uri,
         "artifact_dir": artifact_dir,
-        "model_name": model_name,
-        "model_alias": model_alias,
+        "model_name": f"{use_case}-model",
+        "model_alias": "champion",
     }

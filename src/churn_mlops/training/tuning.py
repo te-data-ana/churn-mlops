@@ -69,19 +69,17 @@ def _suggest_parameters(
 
 
 def optimize_hyperparameters(
+    use_case: UseCase,
     config: TrainingConfig,
     train_df: pd.DataFrame,
-    use_case: UseCase,
     n_jobs: int = 1,
 ) -> TuningResult:
     """Optimize the configured classifier on chronological CV folds.
 
     Args:
+        use_case: Use-case contract for the training data.
         config: Training configuration with tuning parameters.
         train_df: Training data split, including the configured time column.
-            A separate out-of-time test split should be kept aside for final
-            evaluation.
-        use_case: Use-case contract for the training data.
         n_jobs: Total CPU job budget for parallel trials.
     Returns:
         Optimized catalog-defined parameters and study metadata.
@@ -90,11 +88,6 @@ def optimize_hyperparameters(
         ValueError: If tuning settings, classifier search space, timestamps,
             labels, required model features, or folds are invalid.
     """
-    if config.use_case != use_case.name:
-        raise ValueError(
-            f"Training config selects use case '{config.use_case}', but "
-            f"'{use_case.name}' was supplied."
-        )
     if type(n_jobs) is not int or n_jobs == 0 or n_jobs < -1:
         raise ValueError("n_jobs must be a positive integer or -1.")
     tuning = config.tuning

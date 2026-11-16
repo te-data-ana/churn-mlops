@@ -66,11 +66,15 @@ def load_model(
     tracking_uri = tracking_uri or settings.mlflow_tracking_uri
     if tracking_uri:
         mlflow.set_tracking_uri(tracking_uri)
-    registry = ModelRegistry()
 
     model_name = model_name or settings.model_name
     model_alias = model_alias or settings.model_alias
     model_version = model_version or settings.model_version
+    if manifest is None and model_name is None:
+        raise ValueError(
+            "Provide a model manifest or set MODEL_NAME to a registered model name."
+        )
+    registry = ModelRegistry()
     model_reference = None
     if manifest is not None:
         model_name = manifest.model.model_name

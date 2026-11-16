@@ -1,5 +1,4 @@
 import json
-from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -62,13 +61,13 @@ def test_alternate_use_case_runs_training_batch_api_and_monitoring(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    config = replace(config_factory(classifier="dt"), use_case="alternate")
+    config = config_factory(classifier="dt")
     df = _alternate_df()
     result = train_model(
-        config,
-        df.iloc[:8],
-        df.iloc[8:],
         use_case=ALTERNATE_USE_CASE,
+        config=config,
+        train_df=df.iloc[:8],
+        test_df=df.iloc[8:],
     )
     assert result.feature_names_in == list(ALTERNATE_USE_CASE.feature_columns)
     loaded_model = LoadedModel(

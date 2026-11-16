@@ -110,22 +110,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Train and evaluate a model from a YAML config.",
     )
     train_parser.add_argument(
+        "--use-case",
+        required=True,
+        help="Registered use-case contract for this training run.",
+    )
+    train_parser.add_argument(
         "--config", required=True, help="Training config file path."
     )
     train_parser.add_argument(
         "--split_name",
         default="default",
         help="Name prefix of prepared train/test Parquet files in data/splits.",
-    )
-    train_parser.add_argument(
-        "--use-case",
-        default=None,
-        help="Override the use case configured in the training YAML.",
-    )
-    train_parser.add_argument(
-        "--experiment_name",
-        required=False,
-        help="Experiment name used for MLflow tracking.",
     )
     train_parser.add_argument(
         "--calibration-method",
@@ -274,7 +269,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--model-name",
         type=str,
         default=None,
-        help="Registered model name (defaults to the configured serving model).",
+        help="Registered model name to use with --model-version.",
     )
     serve_parser.add_argument(
         "--model-version",
@@ -479,15 +474,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         from .train import run_training_job
 
         result = run_training_job(
+            use_case=args.use_case,
             config_file=args.config,
             split_name=args.split_name,
-            experiment_name=args.experiment_name,
             calibration_method=args.calibration_method,
             n_jobs=args.n_jobs,
             tune_model=args.tune_model,
             register_model=args.register_model,
             promote_model=args.promote_model,
-            use_case_name=args.use_case,
         )
         logger.info(
             "Successfully trained %s model: AUC=%.4f",
@@ -585,6 +579,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command == "serve":
         if not args.use_case:
             parser.error("--use-case or USE_CASE is required.")
+        if (
+            args.model_manifest is None
+            and args.model_name is None
+            and not os.environ.get("MODEL_NAME")
+        ):
+            parser.error(
+                "Provide --model_manifest or set MODEL_NAME for registry-backed serving."
+            )
         if args.model_manifest is not None and (
             args.model_name is not None or args.model_version is not None
         ):

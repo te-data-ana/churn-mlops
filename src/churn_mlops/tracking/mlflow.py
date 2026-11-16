@@ -10,7 +10,7 @@ from mlflow.exceptions import MlflowException
 from mlflow.models.model import ModelInfo
 
 from churn_mlops.config.settings import RuntimeSettings
-from churn_mlops.use_cases import get_use_case
+from churn_mlops.use_cases import UseCase
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,7 @@ def setup_local_experiment(
 
 
 def log_experiment_result(
+    use_case: UseCase,
     result: TrainingResult,
     config: TrainingConfig,
     config_file_path: Path,
@@ -72,6 +73,7 @@ def log_experiment_result(
     """Log training parameters, metrics, artifacts, and the fitted pipeline.
 
     Args:
+        use_case: Use-case contract selected for this training invocation.
         result: Training result containing the fitted pipeline, metrics,
             classifier configuration, and feature metadata.
         config: Training configuration whose settings are logged as parameters.
@@ -84,8 +86,6 @@ def log_experiment_result(
     Returns:
         MLflow model metadata for the logged scikit-learn model.
     """
-    use_case = get_use_case(config.use_case)
-
     logger.info("Logging training parameters and tags to MLflow.")
     # log all parameters required for reproducibility
     # log classifier and its hyper-parameters
@@ -93,7 +93,7 @@ def log_experiment_result(
     # log data parameters
     mlflow.log_params(
         {
-            "use_case": config.use_case,
+            "use_case": use_case.name,
             "column_target": use_case.target_column,
             "column_time": use_case.time_column,
         }

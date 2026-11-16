@@ -54,12 +54,6 @@ class ThresholdConfig:
 
 
 @dataclass
-class RegistryConfig:
-    model_name: str = "churn-risk"
-    alias: str = "candidate"
-
-
-@dataclass
 class PromotionConfig:
     min_delta: float = 0.005
     metric_weights: dict[str, float] = field(
@@ -107,16 +101,9 @@ class PromotionConfig:
 
 @dataclass(frozen=True)
 class TrainingConfig:
-    use_case: str
     model: ClassifierConfig
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
     tuning: TuningConfig = field(default_factory=TuningConfig)
     calibration: CalibrationConfig = field(default_factory=CalibrationConfig)
     threshold: ThresholdConfig = field(default_factory=ThresholdConfig)
-    registry: RegistryConfig = field(default_factory=RegistryConfig)
     promotion: PromotionConfig = field(default_factory=PromotionConfig)
-
-    def __post_init__(self) -> None:
-        """Validate the selected use case."""
-        if not isinstance(self.use_case, str) or not self.use_case:
-            raise ValueError("use_case must be provided as a non-empty name.")
