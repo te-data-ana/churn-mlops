@@ -33,7 +33,7 @@ class RuntimeSettings(BaseSettings):
 
 
 class ServingSettings(RuntimeSettings):
-    model_name: str = Field(default="churn-risk", alias="MODEL_NAME")
+    model_name: str | None = Field(default=None, alias="MODEL_NAME")
     model_alias: str = Field(default="champion", alias="MODEL_ALIAS")
     model_version: int | None = Field(default=None, alias="MODEL_VERSION")
     model_manifest: Path | None = Field(default=None, alias="MODEL_MANIFEST")

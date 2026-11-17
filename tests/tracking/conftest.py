@@ -6,7 +6,7 @@ import pytest
 from matplotlib.figure import Figure
 from sklearn.pipeline import Pipeline
 
-from churn_mlops.models.features import FeatureBuilder
+from churn_mlops.models.features import IdentityFeatureBuilder
 from churn_mlops.tracking.registry import ModelRegistry
 from churn_mlops.training import TrainingResult
 
@@ -21,7 +21,7 @@ def registry() -> ModelRegistry:
 @pytest.fixture
 def mock_training_result() -> TrainingResult:
     return TrainingResult(
-        trained_pipeline=Pipeline(steps=[("features", FeatureBuilder())]),
+        trained_pipeline=Pipeline(steps=[("features", IdentityFeatureBuilder())]),
         metrics={},
         classifier_config={},
         feature_names_in=["a", "b"],

@@ -10,6 +10,7 @@ from mlflow.exceptions import MlflowException
 from mlflow.models.model import ModelInfo
 
 from churn_mlops.config.settings import RuntimeSettings
+from churn_mlops.use_cases import UseCase
 
 logger = logging.getLogger(__name__)
 
@@ -60,23 +61,31 @@ def setup_local_experiment(
 
 
 def log_experiment_result(
+    use_case: UseCase,
     result: TrainingResult,
     config: TrainingConfig,
     config_file_path: Path,
+    calibration_method: str,
+    tune_model: bool,
+    register_model: bool,
+    promote_model: bool,
 ) -> ModelInfo:
     """Log training parameters, metrics, artifacts, and the fitted pipeline.
 
     Args:
+        use_case: Use-case contract selected for this training invocation.
         result: Training result containing the fitted pipeline, metrics,
             classifier configuration, and feature metadata.
         config: Training configuration whose settings are logged as parameters.
         config_file_path: Path to the full configuration file artifact.
-        artifact_dir: Directory used for supporting artifacts.
+        calibration_method: Calibration method selected for this run.
+        tune_model: Whether hyperparameter tuning was run.
+        register_model: Whether the run registers its model.
+        promote_model: Whether a registered model is evaluated for promotion.
 
     Returns:
         MLflow model metadata for the logged scikit-learn model.
     """
-
     logger.info("Logging training parameters and tags to MLflow.")
     # log all parameters required for reproducibility
     # log classifier and its hyper-parameters
@@ -84,12 +93,11 @@ def log_experiment_result(
     # log data parameters
     mlflow.log_params(
         {
-            "column_target": config.data.target_column,
-            "column_time": config.data.time_column,
+            "use_case": use_case.name,
+            "column_target": use_case.target_column,
+            "column_time": use_case.time_column,
         }
     )
-    # log feature enginnering hyper-parameters
-    mlflow.log_params(config.feature_builder.feature_params)
     # log preprocessing hyper-parameters
     mlflow.log_params(
         {
@@ -99,7 +107,7 @@ def log_experiment_result(
     )
     # log calibration parameters
     calibration_parameters: dict[str, str | int] = {
-        "calibration_method": config.calibration.method,
+        "calibration_method": calibration_method,
         "calibration_n_splits": config.calibration.n_splits,
         "calibration_n_bins": config.calibration.n_bins,
     }
@@ -111,8 +119,15 @@ def log_experiment_result(
         "threshold_data": result.threshold_data,
     }
     mlflow.log_params(threshold_parameters)
+    # log invocation parameters
+    invocation_parameters: dict[str, bool] = {
+        "model_tuning_enabled": tune_model,
+        "model_registration_enabled": register_model,
+        "model_promotion_enabled": register_model and promote_model,
+    }
+    mlflow.log_params(invocation_parameters)
     # log promotion parameters
-    if config.promotion.promote_model:
+    if register_model and promote_model:
         promotion_parameters = {
             f"promotion_weight_{metric}": weight
             for metric, weight in config.promotion.metric_weights.items()
@@ -123,12 +138,11 @@ def log_experiment_result(
     # log relevant tags
     mlflow.set_tags(
         {
-            "calibration": config.calibration.method,
+            "calibration": calibration_method,
             "threshold_data": result.threshold_data,
             "feature_count": len(result.feature_names_out),
         }
     )
-    # mlflow.log_param("feature_count", len(result.feature_names_out))
 
     logger.info("Logging evaluation metrics to MLflow: %s.", result.metrics)
     mlflow.log_metrics(result.metrics)
@@ -138,12 +152,18 @@ def log_experiment_result(
         artifact_file="calibration/reliability_diagram.png",
     )
 
+    feature_builder = use_case.build_feature_builder()
+    feature_builder_type = type(feature_builder)
+    feature_builder_trusted_type = (
+        f"{feature_builder_type.__module__}.{feature_builder_type.__name__}"
+    )
+
     logger.info("Logging fitted model pipeline to MLflow.")
     model_info = mlflow.sklearn.log_model(
         result.trained_pipeline,
         name="model",
         skops_trusted_types=[
-            "churn_mlops.models.features.FeatureBuilder",
+            feature_builder_trusted_type,
             "numpy.dtype",
             "numpy.number",
             "sklearn.compose._column_transformer.make_column_selector",

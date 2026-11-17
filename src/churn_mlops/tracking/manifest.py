@@ -89,6 +89,7 @@ class ManifestRun:
 class ManifestModel:
     """Model identity and logged artifact reference."""
 
+    use_case: str
     model_name: str
     model_version: int | None
     model_reference: LoggedModelReference
@@ -114,6 +115,7 @@ class ManifestTraining:
     feature_names_in: list[str]
     feature_names_out: list[str]
     tuning_enabled: bool
+    n_jobs: int
     calibration: str
     threshold_strategy: str
     threshold_data: str
@@ -146,7 +148,7 @@ class TrainingManifest:
     training: ManifestTraining
     evaluation: ManifestEvaluation
     lifecycle: ManifestLifecycle
-    schema_version: int = 1
+    schema_version: int = 3
 
     def write(self, path: Path) -> None:
         """Write the manifest as formatted JSON.
@@ -173,6 +175,7 @@ class TrainingManifest:
                 "name": self.run.run_name,
             },
             "model": {
+                "use_case": self.model.use_case,
                 "name": self.model.model_name,
                 "version": self.model.model_version,
                 "reference": self.model.model_reference.to_dict(),
@@ -198,6 +201,7 @@ class TrainingManifest:
                 "tuning": {
                     "enabled": self.training.tuning_enabled,
                 },
+                "n_jobs": self.training.n_jobs,
                 "calibration": {
                     "method": self.training.calibration,
                 },
@@ -261,7 +265,7 @@ class TrainingManifest:
             raise TypeError(
                 f"Training manifest '{path}' has an invalid schema_version."
             )
-        if payload["schema_version"] != 1:
+        if payload["schema_version"] != 3:
             raise ValueError(
                 f"Training manifest '{path}' uses unsupported schema_version "
                 f"{payload['schema_version']}."
@@ -275,7 +279,12 @@ class TrainingManifest:
         lifecycle = _require_object(payload, "lifecycle", path)
 
         _require_fields(run, {"id", "name"}, "run", path)
-        _require_fields(model, {"name", "version", "reference"}, "model", path)
+        _require_fields(
+            model,
+            {"use_case", "name", "version", "reference"},
+            "model",
+            path,
+        )
         _require_fields(
             data,
             {"target_column", "time_column", "split"},
@@ -284,7 +293,14 @@ class TrainingManifest:
         )
         _require_fields(
             training,
-            {"classifier", "features", "tuning", "calibration", "threshold"},
+            {
+                "classifier",
+                "features",
+                "tuning",
+                "n_jobs",
+                "calibration",
+                "threshold",
+            },
             "training",
             path,
         )
@@ -334,6 +350,7 @@ class TrainingManifest:
         text_fields = (
             (run, "id"),
             (run, "name"),
+            (model, "use_case"),
             (model, "name"),
             (data, "target_column"),
             (data, "time_column"),
@@ -366,6 +383,12 @@ class TrainingManifest:
             raise TypeError(
                 f"Training manifest '{path}' has invalid training.tuning.enabled."
             )
+        if (
+            type(training["n_jobs"]) is not int
+            or training["n_jobs"] == 0
+            or training["n_jobs"] < -1
+        ):
+            raise TypeError(f"Training manifest '{path}' has invalid training.n_jobs.")
         if type(registration["enabled"]) is not bool:
             raise TypeError(
                 f"Training manifest '{path}' has invalid lifecycle.registration.enabled."
@@ -406,6 +429,7 @@ class TrainingManifest:
             schema_version=payload["schema_version"],
             run=ManifestRun(run_id=run["id"], run_name=run["name"]),
             model=ManifestModel(
+                use_case=model["use_case"],
                 model_name=model["name"],
                 model_version=model_version,
                 model_reference=model_reference,
@@ -423,6 +447,7 @@ class TrainingManifest:
                 feature_names_in=features["names_in"],
                 feature_names_out=features["names_out"],
                 tuning_enabled=tuning["enabled"],
+                n_jobs=training["n_jobs"],
                 calibration=calibration["method"],
                 threshold_strategy=threshold["strategy"],
                 threshold_data=threshold["selected_on"],

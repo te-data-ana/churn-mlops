@@ -6,8 +6,8 @@ import pytest
 
 
 @pytest.fixture
-def valid_reference_frame() -> pd.DataFrame:
-    frame = pd.DataFrame(
+def valid_reference_df() -> pd.DataFrame:
+    df = pd.DataFrame(
         {
             "age": [30, 45, 52],
             "tenure": [12, 24, 8],
@@ -28,12 +28,12 @@ def valid_reference_frame() -> pd.DataFrame:
             "model_version": [1, 1, 1],
         }
     )
-    return frame
+    return df
 
 
 @pytest.fixture
-def valid_analysis_frame() -> pd.DataFrame:
-    frame = pd.DataFrame(
+def valid_analysis_df() -> pd.DataFrame:
+    df = pd.DataFrame(
         {
             "age": [31, 48],
             "tenure": [15, 19],
@@ -51,7 +51,7 @@ def valid_analysis_frame() -> pd.DataFrame:
             "model_version": [1, 1],
         }
     )
-    return frame
+    return df
 
 
 @pytest.fixture

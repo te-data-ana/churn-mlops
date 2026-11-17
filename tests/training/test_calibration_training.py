@@ -180,7 +180,7 @@ def test_fit_estimator_with_calibration_supports_configured_methods(
         train_df=train_df,
         target_column="target",
         time_column="reference_date",
-        exclude_columns=["target", "reference_date"],
+        feature_columns=("signal",),
         method=method,
         n_splits=3,
     )
@@ -200,12 +200,12 @@ def test_uncalibrated_svm_is_rejected(classifier: LinearSVC | SVC) -> None:
         }
     )
 
-    with pytest.raises(ValueError, match="configure calibration.method"):
+    with pytest.raises(ValueError, match="set calibration_method"):
         fit_estimator_with_calibration(
             estimator=classifier,
             train_df=train_df,
             target_column="target",
             time_column="reference_date",
-            exclude_columns=["target", "reference_date"],
+            feature_columns=("signal",),
             method="none",
         )

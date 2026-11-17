@@ -12,10 +12,11 @@ from churn_mlops.serving import api
 from churn_mlops.serving.model_loader import LoadedModel, ModelMetadata
 from churn_mlops.serving.predictor import PredictionResult
 from churn_mlops.serving.schemas import (
-    InputFeatures,
     PredictionErrorEvent,
     PredictionEvent,
 )
+from churn_mlops.use_cases import get_use_case
+from churn_mlops.use_cases.churn.serving import ChurnInputFeatures
 
 
 @pytest.fixture
@@ -23,14 +24,14 @@ def client(
     monkeypatch: pytest.MonkeyPatch,
     mock_model_factory: Callable[..., LoadedModel],
 ) -> Generator[Any, Any, Any]:
-    monkeypatch.setattr(api, "load_model", mock_model_factory)
-    with TestClient(api.app) as test_client:
+    monkeypatch.setattr(api, "load_model", lambda **_: mock_model_factory())
+    with TestClient(api.create_app(get_use_case("churn"))) as test_client:
         yield test_client
 
 
 @pytest.fixture
-def sample_input() -> InputFeatures:
-    return InputFeatures(
+def sample_input() -> ChurnInputFeatures:
+    return ChurnInputFeatures(
         age=45,
         tenure=24,
         usage_frequency=12,
@@ -45,29 +46,7 @@ def sample_input() -> InputFeatures:
 
 
 @pytest.fixture
-def sample_input_factory() -> Callable[..., dict]:
-    def factory(**kwargs) -> dict:
-        data = {
-            "age": 45,
-            "tenure": 24,
-            "usage_frequency": 12,
-            "support_calls": 1,
-            "payment_delay": 0,
-            "last_interaction": 5,
-            "total_spend": 800.0,
-            "gender": "Female",
-            "subscription_type": "Premium",
-            "contract_length": "Annual",
-        }
-        data.update(kwargs)
-
-        return data
-
-    return factory
-
-
-@pytest.fixture
-def sample_dict(sample_input: InputFeatures) -> dict[str, Any]:
+def sample_dict(sample_input: ChurnInputFeatures) -> dict[str, Any]:
     return sample_input.model_dump()
 
 
@@ -86,7 +65,7 @@ def sample_prediction_result(sample_metadata) -> PredictionResult:
     return PredictionResult(
         predicted_class=1,
         predicted_probability=0.87,
-        reference_date=datetime.now(UTC),
+        timestamp=datetime.now(UTC),
         metadata=sample_metadata,
     )
 
@@ -108,6 +87,7 @@ def mock_model_factory() -> Callable[..., LoadedModel]:
         return LoadedModel(
             model=MockModel(),
             metadata=metadata,
+            use_case=get_use_case("churn"),
         )
 
     return factory
@@ -117,7 +97,7 @@ def mock_model_factory() -> Callable[..., LoadedModel]:
 def sample_prediction_event() -> PredictionEvent:
     return PredictionEvent(
         request_id="req-1",
-        reference_date=datetime.now(UTC),
+        timestamp=datetime.now(UTC),
         latency_ms=10.0,
         features=None,
         model_name="model",
@@ -135,7 +115,7 @@ def sample_prediction_error_event() -> PredictionErrorEvent:
 
     return PredictionErrorEvent(
         request_id="req-1",
-        reference_date=datetime.now(UTC),
+        timestamp=datetime.now(UTC),
         latency_ms=10.0,
         model_name="model",
         model_alias="champion",
@@ -151,7 +131,7 @@ def prediction_event_factory() -> Callable[..., PredictionEvent]:
     def factory(**kwargs) -> PredictionEvent:
         return PredictionEvent(
             request_id=kwargs.get("request_id", "req-1"),
-            reference_date=kwargs.get("reference_date", datetime.now(UTC)),
+            timestamp=kwargs.get("timestamp", datetime.now(UTC)),
             latency_ms=kwargs.get("latency_ms", 10.0),
             features=kwargs.get("features"),
             model_name=kwargs.get("model_name", "model"),

@@ -22,10 +22,10 @@ class ModelCardBuilder:
 
         Args:
             config: Training configuration used to build and evaluate the
-                model, including preprocessing, model, data, and evaluation
-                settings.
+                model, including preprocessing settings.
             context: Additional model card context containing the registered
-                model name, model version, and optional promotion decision.
+                model identity, run-time training options, evaluation, and
+                optional promotion decision.
 
         Returns:
             A Markdown-formatted string representing the model card.
@@ -91,11 +91,11 @@ class ModelCardBuilder:
 
 ## Intended Use
 
-Predict customer {context.data.target_column} probability.
+Predict {context.model.use_case} probability / class label.
 
 ## Training Dataset
 
-Trained on historical {context.data.target_column} data.
+Trained on historical {context.model.use_case} data.
 
 | Property | Value |
 |----------|-------|

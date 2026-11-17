@@ -2,6 +2,7 @@ stages:
   add_reference_dates:
     cmd: >-
       uv run python -m churn_mlops.data.manipulation
+      --use_case ${use_case}
       --input_csv customer_churn_dataset-training.csv
       --output_csv training.csv
       --start_date 2023-01-01
@@ -10,13 +11,17 @@ stages:
       - data/raw/customer_churn_dataset-training.csv
       - src/churn_mlops/config
       - src/churn_mlops/data
+      - src/churn_mlops/use_cases
       - pyproject.toml
       - uv.lock
+    params:
+      - use_case
     outs:
       - data/raw/training.csv
   add_inference_reference_dates:
     cmd: >-
       uv run python -m churn_mlops.data.manipulation
+      --use_case ${use_case}
       --input_csv customer_churn_dataset-inference.csv
       --output_csv inference.csv
       --start_date 2026-01-01
@@ -25,32 +30,38 @@ stages:
       - data/raw/customer_churn_dataset-inference.csv
       - src/churn_mlops/config
       - src/churn_mlops/data
+      - src/churn_mlops/use_cases
       - pyproject.toml
       - uv.lock
+    params:
+      - use_case
     outs:
       - data/raw/inference.csv
   prepare_partitioned_data:
     cmd: >-
       uv run churn-mlops prepare-data
-      --input_csv training.csv
-      --timestamp_column reference_date &&
+      --use_case ${use_case}
+      --input_csv training.csv &&
       uv run churn-mlops prepare-data
+      --use_case ${use_case}
       --input_csv inference.csv
-      --timestamp_column reference_date
     deps:
       - data/raw/training.csv
       - data/raw/inference.csv
       - src/churn_mlops/config
       - src/churn_mlops/data
+      - src/churn_mlops/use_cases
       - pyproject.toml
       - uv.lock
+    params:
+      - use_case
     outs:
       - data/partitioned
   create_oot_split:
     cmd: >-
       uv run churn-mlops create-split
+      --use_case ${use_case}
       --dataset_name partitioned
-      --timestamp_column reference_date
       --start_date ${split.start_date}
       --split_date ${split.split_date}
       --end_date ${split.end_date}
@@ -59,9 +70,11 @@ stages:
       - data/partitioned
       - src/churn_mlops/config
       - src/churn_mlops/data
+      - src/churn_mlops/use_cases
       - pyproject.toml
       - uv.lock
     params:
+      - use_case
       - split
     outs:
       - data/splits/${split.name}_test.parquet
@@ -70,14 +83,14 @@ stages:
   train_model:
     cmd: >-
       uv run churn-mlops train
+      --use_case ${use_case}
       --config ${model.classifier}.yaml
       --split_name ${split.name}
-      --exclude-columns ${model.exclude_columns}
-      --experiment_name ${tracking.experiment_name}
+      --calibration_method ${calibration.method}
+      --n_jobs ${training.n_jobs}
+      --tune-model ${training.tune_model}
       --register-model ${model.register_model}
-      --calibration-method ${calibration.method}
-      --n-jobs ${training.n_jobs}
-      --no-promote-model
+      --promote-model ${model.promote_model}
     deps:
       - data/splits/${split.name}_test.parquet
       - data/splits/${split.name}_train.parquet
@@ -87,29 +100,32 @@ stages:
       - pyproject.toml
       - uv.lock
     params:
+      - use_case
       - model.classifier
-      - model.register_model
-      - model.exclude_columns
-      - training.n_jobs
-      - calibration.method
       - split.name
-      - tracking.experiment_name
+      - calibration.method
+      - training.n_jobs
+      - training.tune_model
+      - model.register_model
+      - model.promote_model
     outs:
       - data/manifests:
           persist: true
   batch_predict_oot:
     cmd: >-
       uv run churn-mlops batch-predict
+      --use_case ${use_case}
       --input_dataset splits/${split.name}_test.parquet
-      --output_dataset predictions/${model.classifier}_${split.name}
-      --model_manifest manifests/${model.classifier}_${split.name}.json
+      --output_dataset predictions/${use_case}_${model.classifier}_${split.name}
+      --model_manifest manifests/${use_case}-${model.classifier}-${split.name}.json
     deps:
       - data/splits/${split.name}_test.parquet
-      - data/manifests/${model.classifier}_${split.name}.json
+      - data/manifests/${use_case}-${model.classifier}-${split.name}.json
       - src/churn_mlops
       - pyproject.toml
       - uv.lock
     params:
+      - use_case
       - model.classifier
       - split.name
     outs:

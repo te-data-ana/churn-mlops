@@ -223,9 +223,43 @@ class ModelRegistry:
             )
             raise
 
+    @staticmethod
+    def _ensure_run_use_case(
+        run_id: str,
+        recorded_use_case: str | None,
+        expected_use_case: str,
+    ) -> None:
+        if not recorded_use_case:
+            raise ValueError(f"MLflow run '{run_id}' does not record a use-case name.")
+        if recorded_use_case != expected_use_case:
+            raise ValueError(
+                f"MLflow run '{run_id}' was trained for use case "
+                f"'{recorded_use_case}', not selected use case "
+                f"'{expected_use_case}'."
+            )
+
+    def validate_run_use_case(self, run_id: str, expected_use_case: str) -> None:
+        """Ensure an MLflow run belongs to the selected use case.
+
+        Args:
+            run_id: MLflow run whose use case should be checked.
+            expected_use_case: Use-case name selected by the caller.
+
+        Raises:
+            ValueError: If the run has no use-case parameter or it does not
+                match the selected use case.
+        """
+        run = self.client.get_run(run_id=run_id)
+        self._ensure_run_use_case(
+            run_id=run_id,
+            recorded_use_case=run.data.params.get("use_case"),
+            expected_use_case=expected_use_case,
+        )
+
     def load_registered_model(
         self,
         model_name: str,
+        expected_use_case: str,
         model_alias: str | None = None,
         model_version: int | None = None,
     ) -> RegisteredModel:
@@ -233,6 +267,7 @@ class ModelRegistry:
 
         Args:
             model_name: Registered model name.
+            expected_use_case: Use case selected by the caller.
             model_alias: Alias identifying the desired version.
             model_version: Exact registered version number.
 
@@ -241,6 +276,8 @@ class ModelRegistry:
 
         Raises:
             ValueError: If exactly one of alias or version is not supplied.
+            ValueError: If the run has no use-case parameter or it does not
+                match the selected use case.
         """
         if (model_alias is None) == (model_version is None):
             raise ValueError("Provide exactly one model alias or version.")
@@ -255,11 +292,16 @@ class ModelRegistry:
             )
         )
         resolved_version = int(model_version_object.version)
+        run = self.client.get_run(run_id=model_version_object.run_id)
+        self._ensure_run_use_case(
+            run_id=model_version_object.run_id,
+            recorded_use_case=run.data.params.get("use_case"),
+            expected_use_case=expected_use_case,
+        )
         model = self.load_model_by_version(
             model_name=model_name,
             model_version=resolved_version,
         )
-        run = self.client.get_run(run_id=model_version_object.run_id)
         threshold = float(run.data.params["threshold"])
         logger.info(
             "Loaded model '%s' version %s with threshold %.4f.",

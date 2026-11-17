@@ -11,6 +11,9 @@ from churn_mlops import batch_predict, data
 from churn_mlops.data import storage
 from churn_mlops.tracking.manifest import TrainingManifest
 from churn_mlops.tracking.registry import ModelRegistry
+from churn_mlops.use_cases import get_use_case
+
+CHURN_USE_CASE = get_use_case("churn")
 
 
 @pytest.mark.unit
@@ -47,6 +50,8 @@ def test_batch_predict_cli_reads_csv_and_writes_predictions(
             "predictions.csv",
             "--index_col",
             "customerid",
+            "--use_case",
+            "churn",
         ]
     )
 
@@ -57,6 +62,7 @@ def test_batch_predict_cli_reads_csv_and_writes_predictions(
     )
     predict.assert_called_once_with(
         df=input_df,
+        use_case=CHURN_USE_CASE,
         model_name=None,
         model_version=None,
         manifest=None,
@@ -86,10 +92,14 @@ def test_run_batch_prediction_validates_and_returns_prediction_dataframe(
     monkeypatch.setattr(batch_predict, "load_model", load_model)
     monkeypatch.setattr(batch_predict, "Predictor", Mock(return_value=predictor))
 
-    result = batch_predict.run_batch_prediction(df=input_df)
+    result = batch_predict.run_batch_prediction(
+        df=input_df,
+        use_case=CHURN_USE_CASE,
+    )
 
-    validate_data.assert_called_once_with(input_df)
+    validate_data.assert_called_once_with(df=input_df, use_case=CHURN_USE_CASE)
     load_model.assert_called_once_with(
+        use_case=CHURN_USE_CASE,
         tracking_uri=None,
         model_name=None,
         model_alias=None,
@@ -111,17 +121,19 @@ def test_run_batch_prediction_uses_exact_model_version(
         {"predicted_probability": [0.7]}
     )
 
-    monkeypatch.setattr(batch_predict, "validate_data", lambda df: df)
+    monkeypatch.setattr(batch_predict, "validate_data", lambda df, use_case: df)
     monkeypatch.setattr(batch_predict, "load_model", load_model)
     monkeypatch.setattr(batch_predict, "Predictor", Mock(return_value=predictor))
 
     batch_predict.run_batch_prediction(
         df=pd.DataFrame({"age": [30]}),
+        use_case=CHURN_USE_CASE,
         model_name="churn-risk",
         model_version=8,
     )
 
     load_model.assert_called_once_with(
+        use_case=CHURN_USE_CASE,
         tracking_uri=None,
         model_name="churn-risk",
         model_alias=None,
@@ -145,16 +157,18 @@ def test_run_batch_prediction_uses_manifest(
     predictor.predict_batch.return_value = pd.DataFrame(
         {"predicted_probability": [0.7]}
     )
-    monkeypatch.setattr(batch_predict, "validate_data", lambda df: df)
+    monkeypatch.setattr(batch_predict, "validate_data", lambda df, use_case: df)
     monkeypatch.setattr(batch_predict, "load_model", load_model)
     monkeypatch.setattr(batch_predict, "Predictor", Mock(return_value=predictor))
 
     batch_predict.run_batch_prediction(
         df=pd.DataFrame({"age": [30]}),
+        use_case=CHURN_USE_CASE,
         manifest=manifest,
     )
 
     load_model.assert_called_once_with(
+        use_case=CHURN_USE_CASE,
         tracking_uri=None,
         model_name=None,
         model_alias=None,
@@ -196,11 +210,14 @@ def test_batch_predict_cli_reads_model_manifest(
             "scored.csv",
             "--model_manifest",
             str(tmp_path / "manifest.json"),
+            "--use_case",
+            "churn",
         ]
     )
 
     predict.assert_called_once_with(
         df=input_df,
+        use_case=CHURN_USE_CASE,
         model_name=None,
         model_version=None,
         manifest=manifest,
@@ -244,11 +261,14 @@ def test_batch_predict_cli_reads_unregistered_model_manifest(
             "scored.csv",
             "--model_manifest",
             str(tmp_path / "manifest.json"),
+            "--use_case",
+            "churn",
         ]
     )
 
     predict.assert_called_once_with(
         df=input_df,
+        use_case=CHURN_USE_CASE,
         model_name=None,
         model_version=None,
         manifest=manifest,
@@ -268,7 +288,10 @@ def test_batch_prediction_logs_and_reraises_on_failure(
     monkeypatch.setattr(batch_predict.logger, "exception", log_exception)
 
     with pytest.raises(RuntimeError, match="boom"):
-        batch_predict.run_batch_prediction(df=pd.DataFrame({"age": [45]}))
+        batch_predict.run_batch_prediction(
+            df=pd.DataFrame({"age": [45]}),
+            use_case=CHURN_USE_CASE,
+        )
 
     log_exception.assert_called_once()
 
@@ -306,6 +329,8 @@ def test_batch_predict_cli_reads_and_writes_partitioned_data(
             "2026-02-01",
             "--end_date",
             "2026-02-28",
+            "--use_case",
+            "churn",
         ]
     )
 
@@ -317,6 +342,7 @@ def test_batch_predict_cli_reads_and_writes_partitioned_data(
     )
     predict.assert_called_once_with(
         df=input_df,
+        use_case=CHURN_USE_CASE,
         model_name=None,
         model_version=None,
         manifest=None,
@@ -375,7 +401,7 @@ def test_batch_predict_cli_rejects_invalid_arguments(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit) as exc_info:
-        churn_mlops.main(["batch-predict", *arguments])
+        churn_mlops.main(["batch-predict", "--use_case", "churn", *arguments])
 
     assert exc_info.value.code == 2
     assert error_message in capsys.readouterr().err
@@ -394,6 +420,7 @@ def test_batch_prediction_uses_registered_model(
 
     predictions = batch_predict.run_batch_prediction(
         df=input_df,
+        use_case=CHURN_USE_CASE,
         tracking_uri=str(registered_model["tracking_uri"]),
         model_name=str(registered_model["model_name"]),
         model_alias=str(registered_model["model_alias"]),

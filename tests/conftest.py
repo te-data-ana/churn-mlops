@@ -13,11 +13,8 @@ import yaml
 from churn_mlops.config.schemas import (
     CalibrationConfig,
     ClassifierConfig,
-    DataConfig,
-    FeatureBuilderConfig,
     PreprocessingConfig,
     PromotionConfig,
-    RegistryConfig,
     ThresholdConfig,
     TrainingConfig,
 )
@@ -32,6 +29,7 @@ from churn_mlops.tracking.manifest import (
     ManifestTraining,
     TrainingManifest,
 )
+from churn_mlops.use_cases import CHURN_USE_CASE
 
 
 @pytest.fixture
@@ -52,6 +50,7 @@ def training_manifest_factory() -> Callable[..., TrainingManifest]:
                 run_name="rf__oot_26q1",
             ),
             model=ManifestModel(
+                use_case=CHURN_USE_CASE.name,
                 model_name="churn-risk",
                 model_version=4,
                 model_reference=LoggedModelReference(
@@ -81,6 +80,7 @@ def training_manifest_factory() -> Callable[..., TrainingManifest]:
                 feature_names_in=["feature_in_1", "feature_in_2"],
                 feature_names_out=["feature_out_1", "feature_out_2"],
                 tuning_enabled=False,
+                n_jobs=1,
                 calibration="none",
                 threshold_strategy="max_f1",
                 threshold_data="out_of_time_test",
@@ -102,16 +102,6 @@ def config_factory() -> Callable[..., TrainingConfig]:
     def _create(**overrides) -> TrainingConfig:
 
         config = TrainingConfig(
-            data=DataConfig(
-                target_column="churn",
-            ),
-            feature_builder=FeatureBuilderConfig(
-                feature_params={
-                    "engagement_window": 30,
-                    "inactive_threshold": 15,
-                    "late_payer_threshold": 15,
-                }
-            ),
             preprocessing=PreprocessingConfig(
                 numeric_impute_strategy="mean",
                 categorical_impute_strategy="most_frequent",
@@ -121,11 +111,6 @@ def config_factory() -> Callable[..., TrainingConfig]:
                 classifier_params={
                     "random_state": 42,
                 },
-            ),
-            registry=RegistryConfig(
-                register_model=False,
-                model_name="churn-risk",
-                alias="candidate",
             ),
             calibration=CalibrationConfig(),
             threshold=ThresholdConfig(),
@@ -145,6 +130,7 @@ def sample_training_df() -> pd.DataFrame:
     # Includes the churn target for training and end-to-end pipeline tests.
     df = pd.DataFrame(
         {
+            "age": [35, 42, 28, 55, 61, 39, 47, 33, 50, 44],
             "tenure": [0, 12, 24, 60, None, 50, 42, 14, 6, None],
             "contract_length": [
                 "Monthly",
@@ -163,6 +149,30 @@ def sample_training_df() -> pd.DataFrame:
             "total_spend": [0, 400, 1000, None, 750, 150, 450, 800, None, 250],
             "support_calls": [10, 6, 1, 2, None, 9, 7, 3, 4, 5],
             "payment_delay": [25, 10, 0, None, 30, 22, 12, 2, 0, None],
+            "gender": [
+                "Female",
+                "Male",
+                "Female",
+                "Male",
+                "Female",
+                "Male",
+                "Female",
+                "Male",
+                "Female",
+                "Male",
+            ],
+            "subscription_type": [
+                "Basic",
+                "Standard",
+                "Premium",
+                "Basic",
+                "Standard",
+                "Premium",
+                "Basic",
+                "Standard",
+                "Premium",
+                "Basic",
+            ],
             "churn": [1, 0, 0, 1, 0, 1, 0, 0, 1, 1],
         }
     )
@@ -302,9 +312,6 @@ def mlflow_test_setup(tmp_path: Path) -> dict[str, Any]:
     """Return a dictionary of MLflow test parameters for use in training and inference tests."""
     return {
         "tmp_path": tmp_path,
-        "model_name": "test-model",
-        "model_alias": "test-champion",
-        "experiment_name": "test-experiment",
         "tracking_uri": f"sqlite:///{tmp_path / 'mlflow.db'}",
     }
 
@@ -314,24 +321,10 @@ def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
     """Write a sample training configuration to a temporary YAML file."""
 
     tmp_path = mlflow_test_setup["tmp_path"]
-    model_name = mlflow_test_setup["model_name"]
-    model_alias = mlflow_test_setup["model_alias"]
-
     config_path = tmp_path / "training.yaml"
     config_path.write_text(
         yaml.safe_dump(
             {
-                "data": {
-                    "target_column": "churn",
-                    "time_column": "reference_date",
-                },
-                "feature_builder": {
-                    "feature_params": {
-                        "engagement_window": 30,
-                        "inactive_threshold": 15,
-                        "late_payer_threshold": 15,
-                    }
-                },
                 "preprocessing": {
                     "numeric_impute_strategy": "median",
                     "categorical_impute_strategy": "most_frequent",
@@ -341,7 +334,6 @@ def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
                     "classifier_params": {"random_state": 42},
                 },
                 "calibration": {
-                    "method": "none",
                     "n_splits": 3,
                     "n_bins": 10,
                 },
@@ -349,7 +341,6 @@ def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
                     "strategy": "max_f1",
                 },
                 "promotion": {
-                    "promote_model": True,
                     "min_delta": 0.005,
                     "metric_weights": {
                         "roc_auc": 0.2,
@@ -358,11 +349,6 @@ def sample_config_yaml(mlflow_test_setup: dict[str, Any]) -> Path:
                         "brier_score": 0.2,
                         "calibration_error": 0.2,
                     },
-                },
-                "registry": {
-                    "register_model": True,
-                    "model_name": model_name,
-                    "alias": model_alias,
                 },
             }
         )
@@ -381,10 +367,8 @@ def registered_model(
     from churn_mlops import train
     from churn_mlops.data import splitting, storage
 
+    use_case = CHURN_USE_CASE.name
     tmp_path = mlflow_test_setup["tmp_path"]
-    model_name = mlflow_test_setup["model_name"]
-    model_alias = mlflow_test_setup["model_alias"]
-    experiment_name = mlflow_test_setup["experiment_name"]
     tracking_uri = mlflow_test_setup["tracking_uri"]
     artifact_dir = tmp_path / "artifacts"
 
@@ -393,7 +377,6 @@ def registered_model(
         data_dir=tmp_path,
         artifact_dir=tmp_path / "artifacts",
         mlflow_tracking_uri=tracking_uri,
-        mlflow_experiment_name=experiment_name,
     )
     monkeypatch.setattr(storage, "RuntimeSettings", lambda: settings)
     monkeypatch.setattr(splitting, "RuntimeSettings", lambda: settings)
@@ -420,10 +403,10 @@ def registered_model(
     )
 
     result = train.run_training_job(
+        use_case=use_case,
         config_file=sample_config_yaml.name,
         split_name=split_name,
         config_dir=tmp_path,
-        experiment_name=experiment_name,
         tracking_uri=tracking_uri,
         artifact_dir=artifact_dir,
         register_model=True,
@@ -434,6 +417,6 @@ def registered_model(
         "result": result,
         "tracking_uri": tracking_uri,
         "artifact_dir": artifact_dir,
-        "model_name": model_name,
-        "model_alias": model_alias,
+        "model_name": f"{use_case}-model",
+        "model_alias": "champion",
     }

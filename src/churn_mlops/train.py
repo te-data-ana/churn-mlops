@@ -2,8 +2,7 @@ import json
 import logging
 import os
 import subprocess
-from collections.abc import Sequence
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 
 import mlflow
@@ -12,7 +11,6 @@ from churn_mlops.config import (
     configure_logging,
     load_config,
 )
-from churn_mlops.config.schemas import TuningConfig
 from churn_mlops.config.settings import RuntimeSettings
 from churn_mlops.data.splitting import load_and_validate_training_splits
 from churn_mlops.tracking import (
@@ -38,41 +36,40 @@ from churn_mlops.training import (
     optimize_hyperparameters,
     train_model,
 )
+from churn_mlops.use_cases import get_use_case
 
 
 def run_training_job(
+    use_case: str,
     config_file: str,
     split_name: str,
     config_dir: Path | None = None,
     split_dir: Path | None = None,
-    exclude_columns: Sequence[str] = (),
-    experiment_name: str | None = None,
     tracking_uri: str | None = None,
     artifact_dir: Path | None = None,
-    register_model: bool | None = None,
-    promote_model: bool | None = None,
-    calibration_method: str | None = None,
-    n_jobs: int | None = None,
+    calibration_method: str = "none",
+    n_jobs: int = 1,
+    tune_model: bool = False,
+    register_model: bool = False,
+    promote_model: bool = False,
     write_manifest: bool = True,
 ) -> TrainingResult:
     """Run the configured training, tracking, registration, and promotion flow.
 
     Args:
+        use_case: Required name of the registered use-case contract.
         config_file: Training configuration YAML filename.
         split_name: Prefix of the prepared train/test Parquet split files.
         config_dir: Directory containing the training configuration.
         split_dir: Directory containing the prepared split files.
-        exclude_columns: Optional non-feature columns to exclude from
-            hyperparameter tuning and model fitting.
-        experiment_name: Optional MLflow experiment name override. When omitted,
-            the ``MLFLOW_EXPERIMENT_NAME`` runtime setting is used.
         tracking_uri: Optional MLflow tracking URI.
         artifact_dir: Directory used for training artifacts.
-        register_model: Optional override for model registration.
-        promote_model: Optional override for alias updates and promotion.
-        calibration_method: Optional override for the configured calibration
-            method.
-        n_jobs: Optional override for the configured total CPU job budget.
+        calibration_method: Calibration method for this run (default: "none").
+            Options are "none", "sigmoid", or "isotonic".
+        n_jobs: Total CPU job budget for this run (default: 1).
+        tune_model: Whether to run hyperparameter tuning (default: False).
+        register_model: Whether to register the trained model (default: False).
+        promote_model: Whether to promote a registered model (default: False).
         write_manifest: Boolean flag for writing manifest JSON file, which
             contains experiment details like run and registered model version
             (default: True).
@@ -85,47 +82,55 @@ def run_training_job(
         FileNotFoundError: If the configuration or training data file is not
             found.
         pandera.errors.SchemaError: If the training data violates its schema.
-        ValueError: If the configured classifier or promotion operation is
-            invalid.
+        TypeError: If run-time boolean options are not booleans.
+        ValueError: If a run-time training option, classifier, or promotion
+            operation is invalid.
 
     Side Effects:
         Logs an MLflow run and, when enabled, registers an immutable model
-        version. Alias changes and promotion can be configured separately.
+        version. The ``champion`` alias changes only after successful promotion.
     """
 
     # Load and establish all required configurations
     configure_logging()
     logger = logging.getLogger(__name__)
 
+    if not isinstance(calibration_method, str) or calibration_method not in {
+        "none",
+        "sigmoid",
+        "isotonic",
+    }:
+        raise ValueError(
+            "Calibration method must be one of 'none', 'sigmoid', or 'isotonic'."
+        )
+    if type(n_jobs) is not int or n_jobs == 0 or n_jobs < -1:
+        raise ValueError("n_jobs must be a positive integer or -1.")
+    if (
+        type(register_model) is not bool
+        or type(promote_model) is not bool
+        or type(tune_model) is not bool
+    ):
+        raise TypeError(
+            "register_model, promote_model, and tune_model must be booleans."
+        )
+
     settings = RuntimeSettings()
     resolved_config_dir = config_dir or settings.config_dir
     resolved_split_dir = split_dir or settings.data_dir / "splits"
     resolved_artifact_dir = artifact_dir or settings.artifact_dir
     resolved_tracking_uri = tracking_uri or settings.mlflow_tracking_uri
-    resolved_experiment_name = experiment_name or settings.mlflow_experiment_name
 
     try:
         config, config_file_path = load_config(
             file=config_file, path=resolved_config_dir
         )
-        if calibration_method is not None:
-            config = replace(
-                config,
-                calibration=replace(config.calibration, method=calibration_method),
-            )
-        if n_jobs is not None:
-            config = replace(config, n_jobs=n_jobs)
         classifier_alias = config.model.classifier
         threshold_strategy = config.threshold.strategy
-
-        run_name = f"{classifier_alias}_{split_name}"
+        selected_use_case = get_use_case(use_case)
+        experiment_name = f"{selected_use_case.name}-{split_name}"
+        model_name = f"{selected_use_case.name}-model"
+        run_name = f"{selected_use_case.name}-{classifier_alias}-{split_name}"
         manifest_file = settings.data_dir / f"manifests/{run_name}.json"
-        resolved_register_model = (
-            config.registry.register_model if register_model is None else register_model
-        )
-        resolved_promote_model = (
-            config.promotion.promote_model if promote_model is None else promote_model
-        )
 
         split_metadata: dict[str, str | int] = {}
         split_metadata_path = resolved_split_dir / f"{split_name}.json"
@@ -156,37 +161,34 @@ def run_training_job(
 
         logger.info("Loaded training configuration from '%s'.", config_file_path)
         logger.info(
-            "Configured model alias '%s' with threshold strategy '%s'.",
+            "Configured classifier alias '%s' with threshold strategy '%s'.",
             classifier_alias,
             threshold_strategy,
         )
         logger.info(
             "Model registration is %s; model promotion is %s.",
-            "enabled" if resolved_register_model else "disabled",
-            "enabled"
-            if resolved_register_model and resolved_promote_model
-            else "disabled",
+            "enabled" if register_model else "disabled",
+            "enabled" if register_model and promote_model else "disabled",
         )
 
         experiment_id = setup_local_experiment(
-            experiment_name=resolved_experiment_name,
+            experiment_name=experiment_name,
             tracking_uri=resolved_tracking_uri,
             artifact_dir=resolved_artifact_dir,
         )
         experiment = mlflow.get_experiment(experiment_id)
         logger.info(
             "MLflow experiment '%s' initialized with id '%s'.",
-            resolved_experiment_name,
+            experiment_name,
             experiment_id,
         )
         logger.info("Tracking URI: %s", mlflow.get_tracking_uri())
         logger.info("MLflow artifact location: %s", experiment.artifact_location)
 
-        tuning_config = getattr(config, "tuning", TuningConfig())
         train_df, test_df = load_and_validate_training_splits(
+            use_case=selected_use_case,
             split_name=split_name,
             split_dir=resolved_split_dir,
-            preserve_time_column=config.data.time_column,
         )
         logger.info(
             "Loaded validated split '%s': %d train rows and %d test rows.",
@@ -199,7 +201,7 @@ def run_training_job(
         logger.info(
             "Starting MLflow run '%s' in experiment '%s'.",
             run_name,
-            resolved_experiment_name,
+            experiment_name,
         )
         with mlflow.start_run(
             experiment_id=experiment_id,
@@ -248,21 +250,18 @@ def run_training_job(
                     }
                 )
                 logger.info("Logged split metadata to MLflow: %s.", split_metadata)
-            if tuning_config.enabled:
+            if tune_model:
                 tuning_result = optimize_hyperparameters(
+                    use_case=selected_use_case,
                     config=config,
                     train_df=train_df,
-                    exclude_columns=[
-                        *exclude_columns,
-                        config.data.time_column,
-                    ],
+                    n_jobs=n_jobs,
                 )
                 mlflow.log_params(
                     {
-                        "tuning_enabled": "true",
                         "tuning_n_trials": tuning_result.n_trials,
                         "tuning_n_splits": tuning_result.n_splits,
-                        "tuning_n_jobs": config.n_jobs,
+                        "tuning_n_jobs": n_jobs,
                         "tuning_time_column": tuning_result.time_column,
                         "tuning_metric": tuning_result.metric,
                         "tuning_random_state": tuning_result.random_state,
@@ -283,25 +282,26 @@ def run_training_job(
                     tuning_result.best_params,
                 )
                 result = train_model(
+                    use_case=selected_use_case,
                     config=config,
                     train_df=train_df,
                     test_df=test_df,
                     model_params_override=tuning_result.best_params,
-                    exclude_columns=[
-                        *exclude_columns,
-                        tuning_result.time_column,
-                    ],
+                    calibration_method=calibration_method,
+                    n_jobs=n_jobs,
                 )
             else:
                 logger.info(
-                    "Hyperparameter tuning is disabled; using configured classifier "
-                    "parameters."
+                    "Hyperparameter tuning is disabled for this run; using configured "
+                    "classifier parameters."
                 )
                 result = train_model(
+                    use_case=selected_use_case,
                     config=config,
                     train_df=train_df,
                     test_df=test_df,
-                    exclude_columns=exclude_columns,
+                    calibration_method=calibration_method,
+                    n_jobs=n_jobs,
                 )
             result.metrics["promotion_score"] = (
                 PromotionService.calculate_weighted_score(
@@ -310,9 +310,14 @@ def run_training_job(
                 )
             )
             model_info = log_experiment_result(
+                use_case=selected_use_case,
                 result=result,
                 config=config,
                 config_file_path=config_file_path,
+                calibration_method=calibration_method,
+                tune_model=tune_model,
+                register_model=register_model,
+                promote_model=promote_model,
             )
             logger.info(
                 "Training results logged to MLflow run '%s' (model URI: '%s').",
@@ -320,22 +325,15 @@ def run_training_job(
                 model_info.model_uri,
             )
         registered_model_version = None
-        model_name = config.registry.model_name
         promotion_decision_dict = {}
-        if resolved_register_model:
+        if register_model:
             registry = ModelRegistry()
             registered_version = registry.register_model(
                 model_info=model_info,
                 model_name=model_name,
             )
             registered_model_version = int(registered_version.version)
-            if resolved_promote_model:
-                model_alias = config.registry.alias
-                registry.set_alias(
-                    model_name=model_name,
-                    model_alias=model_alias,
-                    model_version=registered_model_version,
-                )
+            if promote_model:
                 champion = registry.get_champion_version(model_name=model_name)
 
                 if champion:
@@ -389,24 +387,25 @@ def run_training_job(
                     )
             else:
                 logger.info(
-                    "Model promotion is disabled; registered model remains a candidate."
+                    "Model promotion is disabled; registered model has no alias."
                 )
         else:
             logger.info(
                 "Model registration is disabled; skipping registry and promotion steps."
             )
 
-        if resolved_register_model or write_manifest:
+        if register_model or write_manifest:
             manifest = TrainingManifest(
                 run=ManifestRun(run_id=run_id, run_name=run_name),
                 model=ManifestModel(
+                    use_case=selected_use_case.name,
                     model_name=model_name,
                     model_version=registered_model_version,
                     model_reference=LoggedModelReference.from_model_info(model_info),
                 ),
                 data=ManifestData(
-                    target_column=config.data.target_column,
-                    time_column=config.data.time_column,
+                    target_column=selected_use_case.target_column,
+                    time_column=selected_use_case.time_column,
                     split_name=split_name,
                     split_metadata=split_metadata,
                 ),
@@ -416,18 +415,17 @@ def run_training_job(
                     feature_count=len(result.feature_names_out),
                     feature_names_in=result.feature_names_in,
                     feature_names_out=result.feature_names_out,
-                    tuning_enabled=config.tuning.enabled,
-                    calibration=config.calibration.method,
+                    calibration=calibration_method,
+                    n_jobs=n_jobs,
+                    tuning_enabled=tune_model,
                     threshold_strategy=config.threshold.strategy,
                     threshold_data=result.threshold_data,
                     threshold=result.threshold,
                 ),
                 evaluation=ManifestEvaluation(metrics=result.metrics),
                 lifecycle=ManifestLifecycle(
-                    registration_enabled=resolved_register_model,
-                    promotion_enabled=(
-                        resolved_register_model and resolved_promote_model
-                    ),
+                    registration_enabled=register_model,
+                    promotion_enabled=(register_model and promote_model),
                     promotion_decision=promotion_decision_dict,
                 ),
             )
@@ -437,7 +435,7 @@ def run_training_job(
                 context=manifest,
             )
 
-            if resolved_register_model:
+            if register_model:
                 registry.update_model_description(
                     model_name=model_name,
                     model_version=registered_model_version,

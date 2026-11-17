@@ -36,13 +36,17 @@ def test_training_manifest_round_trips_json(
         "classifier",
         "features",
         "tuning",
+        "n_jobs",
         "calibration",
         "threshold",
     ]
     assert list(payload["lifecycle"]) == ["registration", "promotion"]
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 3
+    assert payload["model"]["use_case"] == "churn"
+    assert "use_case" not in payload["data"]
     assert payload["data"]["time_column"] == "reference_date"
     assert payload["training"]["tuning"]["enabled"] is True
+    assert payload["training"]["n_jobs"] == 1
     assert payload["lifecycle"]["registration"]["enabled"] is True
     assert payload["lifecycle"]["promotion"]["enabled"] is True
 
@@ -117,12 +121,14 @@ def test_training_manifest_requires_current_metadata_fields(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("schema_version", [0, 1, 2])
 def test_training_manifest_rejects_unsupported_schema_version(
     tmp_path: Path,
     training_manifest_factory: TrainingManifest,
+    schema_version: int,
 ) -> None:
     payload = training_manifest_factory().to_dict()
-    payload["schema_version"] = 0
+    payload["schema_version"] = schema_version
     path = tmp_path / "unsupported-version.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
 

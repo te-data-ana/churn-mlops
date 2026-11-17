@@ -1,13 +1,14 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from numpy.typing import ArrayLike
+from pydantic import BaseModel
 
 from churn_mlops.serving.model_loader import LoadedModel, ModelMetadata
-from churn_mlops.serving.schemas import InputFeatures
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +17,17 @@ logger = logging.getLogger(__name__)
 class PredictionResult:
     predicted_class: int
     predicted_probability: float
-    reference_date: datetime
+    timestamp: datetime
     metadata: ModelMetadata
+
+    def to_response(self, time_column: str) -> dict[str, Any]:
+        """Serialize the result using the selected use case's timestamp name."""
+        return {
+            time_column: self.timestamp,
+            "predicted_class": self.predicted_class,
+            "predicted_probability": self.predicted_probability,
+            "metadata": asdict(self.metadata),
+        }
 
 
 class Predictor:
@@ -30,6 +40,7 @@ class Predictor:
         """
         self.model = loaded_model.model
         self.metadata = loaded_model.metadata
+        self.use_case = loaded_model.use_case
         logger.info(
             "Initialized predictor for model version '%s' with threshold %.4f.",
             self.metadata.model_version,
@@ -68,21 +79,21 @@ class Predictor:
             raise
 
     def predict(
-        self, features: InputFeatures, reference_date: datetime | None = None
+        self, features: BaseModel, timestamp: datetime | None = None
     ) -> PredictionResult:
-        """Predict churn for a single validated set of features.
+        """Predict the target class for one validated set of use-case features.
 
         Args:
-            features: Validated customer feature values.
-            reference_date: Optional reference date for the provided `features`.
-                If not provided, set to UTC time at execution.
+            features: Validated use-case feature values.
+            timestamp: Optional timestamp for the provided features. If omitted,
+                use the current UTC time.
 
         Returns:
             Prediction result containing the positive-class probability,
             thresholded class, and model metadata.
         """
-        if reference_date is None:
-            reference_date = self._timestamp()
+        if timestamp is None:
+            timestamp = self._timestamp()
 
         try:
             df = pd.DataFrame([features.model_dump()])
@@ -102,7 +113,7 @@ class Predictor:
             return PredictionResult(
                 predicted_class=predicted_class,
                 predicted_probability=predicted_probability,
-                reference_date=reference_date,
+                timestamp=timestamp,
                 metadata=self.metadata,
             )
         except Exception:
@@ -113,7 +124,7 @@ class Predictor:
         """Predict churn for multiple records while preserving their index.
 
         Args:
-            df: DataFrame containing one customer record per row.
+            df: DataFrame containing one data record per row.
 
         Returns:
             DataFrame indexed like ``df`` with predicted probabilities,

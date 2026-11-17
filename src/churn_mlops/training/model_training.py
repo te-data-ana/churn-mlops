@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,6 +23,8 @@ from churn_mlops.models import (
     create_model,
 )
 from churn_mlops.training.calibration import fit_estimator_with_calibration
+from churn_mlops.training.features import select_feature_columns
+from churn_mlops.use_cases import UseCase
 
 
 @dataclass
@@ -40,42 +42,61 @@ class TrainingResult:
 
 
 def train_model(
+    use_case: UseCase,
     config: TrainingConfig,
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
     model_params_override: Mapping[str, Any] | None = None,
-    exclude_columns: Sequence[str] = (),
+    calibration_method: str = "none",
+    n_jobs: int = 1,
 ) -> TrainingResult:
     """Fit and evaluate a configured classifier pipeline.
 
     Args:
-        config: Training, feature, preprocessing, model, calibration, threshold,
-            promotion, and MLflow registration settings.
+        use_case: Explicit data contract to be used for model training.
+        config: Training, feature, preprocessing, model, calibration-fold,
+            threshold, promotion, and registry settings.
         train_df: Validated training DataFrame containing features and target.
         test_df: Validated test DataFrame containing features and target.
         model_params_override: Optional model parameters overriding configured
             values for this fit.
-        exclude_columns: Optional non-feature columns to exclude from fitting
-            and evaluation. The configured data time column is always excluded
-            from model features.
-
+        calibration_method: Probability calibration method for this fit.
+        n_jobs: Total CPU job budget for tuning, fitting, or calibration folds.
     Returns:
         TrainingResult containing the fitted pipeline, evaluation metrics,
         effective classifier configuration, feature names, and threshold
         selection details.
 
     Raises:
-        ValueError: If the configured classifier alias is unknown.
+        ValueError: If required model features are missing or the
+            classifier/labels are invalid.
     """
+    if not isinstance(calibration_method, str) or calibration_method not in {
+        "none",
+        "sigmoid",
+        "isotonic",
+    }:
+        raise ValueError(
+            "Calibration method must be one of 'none', 'sigmoid', or 'isotonic'."
+        )
+    if type(n_jobs) is not int or n_jobs == 0 or n_jobs < -1:
+        raise ValueError("n_jobs must be a positive integer or -1.")
     logger = logging.getLogger(__name__)
-    target_column = config.data.target_column
-    time_column = config.data.time_column
-    exclude_columns = [target_column, time_column, *exclude_columns]
+    target_column = use_case.target_column
+    time_column = use_case.time_column
 
     try:
-        X_train = train_df.drop(columns=exclude_columns, errors="ignore")
+        X_train = select_feature_columns(
+            df=train_df,
+            feature_columns=use_case.feature_columns,
+            data_name="Training",
+        )
         y_train = train_df[target_column]
-        X_test = test_df.drop(columns=exclude_columns, errors="ignore")
+        X_test = select_feature_columns(
+            df=test_df,
+            feature_columns=use_case.feature_columns,
+            data_name="Test",
+        )
         y_test = test_df[target_column]
         if y_train.nunique() != 2:
             raise ValueError("Training data must contain both target classes.")
@@ -94,7 +115,7 @@ def train_model(
             model_params=(
                 config.model.classifier_params | (model_params_override or {})
             ),
-            n_jobs=(config.n_jobs if config.calibration.method == "none" else 1),
+            n_jobs=(n_jobs if calibration_method == "none" else 1),
         )
         logger.info(
             "Using classifier '%s' with params %s.",
@@ -104,21 +125,21 @@ def train_model(
 
         model_pipeline = build_classifier_pipeline(
             classifier=classifier,
-            feature_params=config.feature_builder.feature_params,
+            feature_builder=use_case.build_feature_builder(),
             num_impute_strategy=config.preprocessing.numeric_impute_strategy,
             cat_impute_strategy=config.preprocessing.categorical_impute_strategy,
         )
         logger.info(
             "Starting model fit for classifier '%s' with calibration method '%s'.",
             config.model.classifier,
-            config.calibration.method,
+            calibration_method,
         )
 
         thread_limit = (
             1
-            if config.calibration.method != "none"
+            if calibration_method != "none"
             or MODEL_CATALOG[config.model.classifier].get("supports_n_jobs", False)
-            else effective_n_jobs(config.n_jobs)
+            else effective_n_jobs(n_jobs)
         )
         with threadpool_limits(limits=thread_limit), Timer() as fit_timer:
             trained_model = fit_estimator_with_calibration(
@@ -126,10 +147,10 @@ def train_model(
                 train_df=train_df,
                 target_column=target_column,
                 time_column=time_column,
-                exclude_columns=exclude_columns,
-                method=config.calibration.method,
+                feature_columns=use_case.feature_columns,
+                method=calibration_method,
                 n_splits=config.calibration.n_splits,
-                n_jobs=config.n_jobs,
+                n_jobs=n_jobs,
             )
         logger.info("Model pipeline fit completed in %.3f seconds.", fit_timer.duration)
 

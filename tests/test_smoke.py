@@ -5,6 +5,10 @@ from unittest.mock import Mock
 
 import pytest
 
+from churn_mlops.use_cases import get_use_case
+
+CHURN_USE_CASE = get_use_case("churn")
+
 
 @pytest.mark.smoke
 def test_project_package_imports_successfully() -> None:
@@ -32,21 +36,22 @@ def test_package_main_dispatches_train_command(monkeypatch) -> None:
     churn_mlops.main(
         [
             "train",
+            "--use_case",
+            "alternate",
             "--config",
             "config.yaml",
-            "--exclude-columns",
-            "customerid",
-            "legacy_id",
-            "--experiment_name",
-            "my-exp",
         ]
     )
 
     assert observed["kwargs"] == {
+        "use_case": "alternate",
         "config_file": "config.yaml",
         "split_name": "default",
-        "exclude_columns": ["customerid", "legacy_id"],
-        "experiment_name": "my-exp",
+        "calibration_method": "none",
+        "n_jobs": 1,
+        "tune_model": False,
+        "register_model": False,
+        "promote_model": False,
     }
 
 
@@ -90,6 +95,8 @@ def test_package_main_dispatches_monitor_command(monkeypatch) -> None:
             "reference.csv",
             "--analysis_csv",
             "analysis.csv",
+            "--use_case",
+            "churn",
             "--output_dir",
             "reports",
         ]
@@ -100,6 +107,7 @@ def test_package_main_dispatches_monitor_command(monkeypatch) -> None:
         "analysis_csv": Path("analysis.csv"),
         "prediction_log": None,
         "error_log": None,
+        "use_case": CHURN_USE_CASE,
         "output_dir": Path("reports"),
     }
 
@@ -112,6 +120,7 @@ def test_package_main_builds_report_from_partitioned_datasets(
     from churn_mlops import data
     from churn_mlops.monitoring import core
 
+    use_case = SimpleNamespace(time_column="event_date")
     datasets = {
         "partitioned": object(),
         "api_predictions": object(),
@@ -131,6 +140,10 @@ def test_package_main_builds_report_from_partitioned_datasets(
 
     monkeypatch.setattr(data, "read_partitioned_dataset", fake_read_partitioned_dataset)
     monkeypatch.setattr(core, "build_monitoring_report", fake_build_monitoring_report)
+    monkeypatch.setattr(
+        "churn_mlops.use_cases.get_use_case",
+        lambda name: use_case,
+    )
 
     churn_mlops.main(
         [
@@ -139,6 +152,8 @@ def test_package_main_builds_report_from_partitioned_datasets(
             "partitioned",
             "--analysis_dataset",
             "api_predictions",
+            "--use_case",
+            "alternate",
             "--error_dataset",
             "api_errors",
             "--output_dir",
@@ -147,13 +162,14 @@ def test_package_main_builds_report_from_partitioned_datasets(
     )
 
     assert loaded == [
-        ("partitioned", "reference_date"),
-        ("api_predictions", "reference_date"),
-        ("api_errors", "reference_date"),
+        ("partitioned", "event_date"),
+        ("api_predictions", "event_date"),
+        ("api_errors", "event_date"),
     ]
     assert observed == {
         "reference": datasets["partitioned"],
         "analysis": datasets["api_predictions"],
+        "use_case": use_case,
         "source_reference": "batch",
         "source_analysis": "api",
         "errors": datasets["api_errors"],
@@ -213,17 +229,22 @@ def test_package_main_uses_monitoring_model_manifest(
             "reference",
             "--analysis_dataset",
             "analysis",
+            "--use_case",
+            "churn",
             "--model_manifest",
-            "manifests/hgb_OOT_26Q2.json",
+            "manifests/churn-hgb-OOT_26Q2.json",
             "--mlflow_experiment_name",
             "churn-monitoring",
         ]
     )
 
-    manifest_read.assert_called_once_with(tmp_path / "manifests/hgb_OOT_26Q2.json")
+    manifest_read.assert_called_once_with(
+        tmp_path / "manifests/churn-hgb-OOT_26Q2.json"
+    )
     assert observed_report == {
         "reference": datasets["reference"],
         "analysis": datasets["analysis"],
+        "use_case": CHURN_USE_CASE,
         "source_reference": "batch",
         "source_analysis": "api",
         "errors": None,
@@ -259,6 +280,8 @@ def test_package_main_rejects_monitor_manifest_with_explicit_model(
                 "reference",
                 "--analysis_dataset",
                 "analysis",
+                "--use_case",
+                "churn",
                 "--model_manifest",
                 "manifests/model.json",
                 "--model_version",
@@ -295,15 +318,18 @@ def test_package_main_passes_manifest_to_api_for_serving(
             "serve",
             "--model_manifest",
             "manifests/unregistered.json",
+            "--use_case",
+            "churn",
         ]
     )
 
     assert os.environ["MODEL_MANIFEST"] == str(tmp_path / "manifests/unregistered.json")
     run.assert_called_once_with(
-        "churn_mlops.serving.api:app",
+        "churn_mlops.serving.api:create_app_from_environment",
         host="127.0.0.1",
         port=8000,
         reload=False,
+        factory=True,
     )
 
 
@@ -337,6 +363,8 @@ def test_package_main_dispatches_api_file_monitoring_with_configured_error_log(
             "reference.csv",
             "--prediction_log",
             "custom_predictions.jsonl",
+            "--use_case",
+            "churn",
         ]
     )
 
@@ -345,6 +373,7 @@ def test_package_main_dispatches_api_file_monitoring_with_configured_error_log(
         "analysis_csv": None,
         "prediction_log": Path("custom_predictions.jsonl"),
         "error_log": settings.error_log_path,
+        "use_case": CHURN_USE_CASE,
         "output_dir": settings.output_dir,
     }
 
@@ -357,22 +386,36 @@ def test_package_main_dispatches_serve_command(monkeypatch) -> None:
 
     class FakeUvicorn:
         @staticmethod
-        def run(app: str, host: str, port: int, reload: bool) -> None:
+        def run(app: str, host: str, port: int, reload: bool, factory: bool) -> None:
             called["app"] = app
             called["host"] = host
             called["port"] = port
             called["reload"] = reload
+            called["factory"] = factory
 
     fake_uvicorn_module = type("module", (), {"run": staticmethod(FakeUvicorn.run)})
     monkeypatch.setitem(importlib.sys.modules, "uvicorn", fake_uvicorn_module)
+    monkeypatch.setenv("MODEL_NAME", "churn-rf-OOT_26Q2")
 
-    churn_mlops.main(["serve", "--host", "0.0.0.0", "--port", "9000", "--reload"])
+    churn_mlops.main(
+        [
+            "serve",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "9000",
+            "--reload",
+            "--use_case",
+            "churn",
+        ]
+    )
 
     assert called == {
-        "app": "churn_mlops.serving.api:app",
+        "app": "churn_mlops.serving.api:create_app_from_environment",
         "host": "0.0.0.0",
         "port": 9000,
         "reload": True,
+        "factory": True,
     }
 
 
@@ -402,8 +445,9 @@ def test_package_main_dispatches_prepare_data(
         observed["load"] = kwargs
         return raw_data
 
-    def fake_validate_data(df: object) -> object:
+    def fake_validate_data(df: object, use_case: object) -> object:
         observed["validated_input"] = df
+        observed["use_case"] = use_case
         return validated_data
 
     def fake_write_partitioned_dataset(**kwargs: object) -> None:
@@ -417,11 +461,14 @@ def test_package_main_dispatches_prepare_data(
         fake_write_partitioned_dataset,
     )
 
-    churn_mlops.main(["prepare-data", "--input_csv", "training.csv"])
+    churn_mlops.main(
+        ["prepare-data", "--input_csv", "training.csv", "--use_case", "churn"]
+    )
 
     assert observed == {
         "load": {"file_name": "training.csv", "data_dir": tmp_path / "raw"},
         "validated_input": raw_data,
+        "use_case": CHURN_USE_CASE,
         "write": {
             "df": validated_data,
             "dataset_name": "partitioned",
@@ -439,6 +486,7 @@ def test_package_main_dispatches_create_split(
     import churn_mlops
     from churn_mlops.data import splitting
 
+    use_case = SimpleNamespace(time_column="event_date")
     observed: dict[str, object] = {}
 
     def fake_create_time_based_split(**kwargs: object) -> dict[str, int]:
@@ -452,12 +500,18 @@ def test_package_main_dispatches_create_split(
         "create_time_based_split",
         fake_create_time_based_split,
     )
+    monkeypatch.setattr(
+        "churn_mlops.use_cases.get_use_case",
+        lambda name: use_case,
+    )
 
     churn_mlops.main(
         [
             "create-split",
             "--dataset_name",
             "partitioned",
+            "--use_case",
+            "alternate",
             "--start_date",
             "2026-01-01",
             "--split_date",
@@ -471,12 +525,57 @@ def test_package_main_dispatches_create_split(
 
     assert observed == {
         "dataset_name": "partitioned",
-        "timestamp_column": "reference_date",
+        "timestamp_column": "event_date",
         "start_date": "2026-01-01",
         "split_date": "2026-04-01",
         "end_date": "2026-06-30",
         "split_name": "pytest",
     }
+
+
+@pytest.mark.smoke
+def test_package_main_uses_selected_use_case_time_columns_for_monitoring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import churn_mlops
+    from churn_mlops import data
+    from churn_mlops.monitoring import core
+
+    use_case = SimpleNamespace(name="alternate", time_column="event_date")
+    datasets = {"reference": object(), "analysis": object()}
+    loaded: list[tuple[str, str]] = []
+
+    def fake_read_partitioned_dataset(
+        dataset_name: str, timestamp_column: str
+    ) -> object:
+        loaded.append((dataset_name, timestamp_column))
+        return datasets[dataset_name]
+
+    monkeypatch.setattr(
+        "churn_mlops.use_cases.get_use_case",
+        lambda name: use_case,
+    )
+    monkeypatch.setattr(data, "read_partitioned_dataset", fake_read_partitioned_dataset)
+    monkeypatch.setattr(core, "build_monitoring_report", lambda **kwargs: None)
+
+    churn_mlops.main(
+        [
+            "monitor",
+            "--reference_dataset",
+            "reference",
+            "--analysis_dataset",
+            "analysis",
+            "--source_analysis",
+            "batch",
+            "--use_case",
+            "alternate",
+        ]
+    )
+
+    assert loaded == [
+        ("reference", "event_date"),
+        ("analysis", "event_date"),
+    ]
 
 
 @pytest.mark.smoke
@@ -497,16 +596,21 @@ def test_package_main_dispatches_log_ingestion(
 
     ingestion = importlib.import_module("churn_mlops.data.ingestion")
     observed: dict[str, str] = {}
+    use_case = SimpleNamespace(time_column="event_date")
 
     def fake_ingest(dataset_name: str, timestamp_column: str) -> None:
         observed["dataset_name"] = dataset_name
         observed["timestamp_column"] = timestamp_column
 
     monkeypatch.setattr(ingestion, function_name, fake_ingest)
+    monkeypatch.setattr(
+        "churn_mlops.use_cases.get_use_case",
+        lambda name: use_case,
+    )
 
-    churn_mlops.main([command])
+    churn_mlops.main([command, "--use_case", "alternate"])
 
     assert observed == {
         "dataset_name": dataset_name,
-        "timestamp_column": "reference_date",
+        "timestamp_column": "event_date",
     }

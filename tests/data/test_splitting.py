@@ -7,6 +7,9 @@ import pytest
 from churn_mlops.data import splitting, storage
 from churn_mlops.data.splitting import create_time_based_split
 from churn_mlops.data.storage import write_partitioned_dataset
+from churn_mlops.use_cases import get_use_case
+
+CHURN_USE_CASE = get_use_case("churn")
 
 
 @pytest.fixture
@@ -74,12 +77,13 @@ def test_load_and_validate_training_splits_reads_and_prepares_parquet_files(
     train_df, test_df = splitting.load_and_validate_training_splits(
         split_name="baseline",
         split_dir=split_dir,
+        use_case=CHURN_USE_CASE,
     )
 
     assert len(train_df) == 6
     assert len(test_df) == len(df) - 6
-    assert "reference_date" not in train_df.columns
-    assert "reference_date" not in test_df.columns
+    assert "reference_date" in train_df.columns
+    assert "reference_date" in test_df.columns
     assert "usage_frequency" in train_df.columns
     assert "usage_frequency" in test_df.columns
 
@@ -99,7 +103,7 @@ def test_load_and_validate_training_splits_can_preserve_temporal_column(
     train_df, test_df = splitting.load_and_validate_training_splits(
         split_name="temporal",
         split_dir=split_dir,
-        preserve_time_column="reference_date",
+        use_case=CHURN_USE_CASE,
     )
 
     assert "reference_date" in train_df.columns

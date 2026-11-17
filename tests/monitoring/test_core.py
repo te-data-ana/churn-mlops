@@ -1,4 +1,5 @@
 import warnings
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -6,11 +7,14 @@ import pandas as pd
 import pytest
 
 from churn_mlops.monitoring import core
+from churn_mlops.use_cases import get_use_case
+
+CHURN_USE_CASE = get_use_case("churn")
 
 
 class _FakeResult:
     def __init__(self, columns: list[tuple[str, str]]) -> None:
-        self.frame = pd.DataFrame(
+        self.df = pd.DataFrame(
             [
                 [
                     "analysis",
@@ -22,7 +26,7 @@ class _FakeResult:
         )
 
     def to_df(self) -> pd.DataFrame:
-        return self.frame
+        return self.df
 
 
 class _FakeCBPE:
@@ -70,99 +74,127 @@ def test_read_scored_csv_normalizes_columns_and_raises_for_missing_file(
         path, index=False
     )
 
-    frame = core._read_scored_csv(path)
+    df = core._read_scored_csv(path)
 
-    assert list(frame.columns) == ["age", "predicted_probability"]
+    assert list(df.columns) == ["age", "predicted_probability"]
 
     with pytest.raises(FileNotFoundError):
         core._read_scored_csv(tmp_path / "missing.csv")
 
 
 @pytest.mark.unit
-def test_event_log_to_frame_handles_empty_invalid_and_valid_logs(
+def test_event_log_to_df_handles_empty_invalid_and_valid_logs(
     tmp_path: Path,
     valid_prediction_log_path: Path,
 ) -> None:
     empty = tmp_path / "empty.jsonl"
     empty.write_text("", encoding="utf-8")
 
-    assert core._event_log_to_frame(empty, event="prediction").empty
-    assert core._event_log_to_frame(None, event="prediction_error").empty
+    assert core._event_log_to_df(
+        path=empty, event="prediction", use_case=CHURN_USE_CASE
+    ).empty
+    assert core._event_log_to_df(
+        path=None, event="prediction_error", use_case=CHURN_USE_CASE
+    ).empty
 
     bad = tmp_path / "bad.jsonl"
     bad.write_text('{"event":"prediction_error"}\n', encoding="utf-8")
     with pytest.raises(ValueError, match="other than prediction"):
-        core._event_log_to_frame(bad, event="prediction")
+        core._event_log_to_df(path=bad, event="prediction", use_case=CHURN_USE_CASE)
 
-    frame = core._event_log_to_frame(valid_prediction_log_path, event="prediction")
+    df = core._event_log_to_df(
+        path=valid_prediction_log_path, event="prediction", use_case=CHURN_USE_CASE
+    )
     expected = {
         "event",
-        core.TIMESTAMP_COLUMN,
+        CHURN_USE_CASE.time_column,
         "latency_ms",
         core.MODEL_VERSION_COLUMN,
     }
 
-    assert expected.issubset(frame.columns)
-    assert frame[core.TIMESTAMP_COLUMN].dtype.kind == "M"
-    assert frame["latency_ms"].tolist() == pytest.approx([12.5, 18.0])
+    assert expected.issubset(df.columns)
+    assert df[CHURN_USE_CASE.time_column].dtype.kind == "M"
+    assert df["latency_ms"].tolist() == pytest.approx([12.5, 18.0])
 
 
 @pytest.mark.unit
-def test_prepare_validated_frame_requires_predictions_target_and_features(
-    valid_reference_frame: pd.DataFrame,
+def test_event_log_to_df_uses_alternate_use_case_time_column(
+    tmp_path: Path,
 ) -> None:
-    frame = valid_reference_frame.copy()
+    use_case = replace(CHURN_USE_CASE, time_column="event_date")
+    path = tmp_path / "events.jsonl"
+    path.write_text(
+        '{"event":"prediction","event_date":"2026-02-01T00:00:00Z",'
+        '"model_version":1,"latency_ms":12.5}\n',
+        encoding="utf-8",
+    )
+
+    df = core._event_log_to_df(path=path, event="prediction", use_case=use_case)
+
+    assert df["event_date"].dtype.kind == "M"
+    assert "reference_date" not in df.columns
+
+
+@pytest.mark.unit
+def test_prepare_validated_df_requires_predictions_target_and_features(
+    valid_reference_df: pd.DataFrame,
+) -> None:
+    df = valid_reference_df.copy()
 
     with pytest.raises(ValueError, match="probabilities outside"):
-        bad_probability = frame.copy()
+        bad_probability = df.copy()
         bad_probability[core.PRED_PROBA_COLUMN] = [1.5, 0.2, 0.8]
-        core._prepare_validated_frame(
-            frame=bad_probability,
+        core._prepare_validated_df(
+            df=bad_probability,
             name="reference",
             source="batch",
+            use_case=CHURN_USE_CASE,
             require_predictions=True,
             require_target=True,
         )
 
-    missing_prediction_cols = frame.drop(
+    missing_prediction_cols = df.drop(
         columns=[core.PRED_PROBA_COLUMN, core.PRED_CLASS_COLUMN]
     )
     with pytest.raises(ValueError, match="missing required columns"):
-        core._prepare_validated_frame(
-            frame=missing_prediction_cols,
+        core._prepare_validated_df(
+            df=missing_prediction_cols,
             name="reference",
             source="batch",
+            use_case=CHURN_USE_CASE,
             require_predictions=True,
             require_target=True,
         )
 
     with pytest.raises(ValueError, match="both target classes"):
-        single_target = frame.copy()
-        single_target[core.TARGET_COLUMN] = [0, 0, 0]
-        core._prepare_validated_frame(
-            frame=single_target,
+        single_target = df.copy()
+        single_target[CHURN_USE_CASE.target_column] = [0, 0, 0]
+        core._prepare_validated_df(
+            df=single_target,
             name="reference",
             source="batch",
+            use_case=CHURN_USE_CASE,
             require_predictions=True,
             require_target=True,
         )
 
-    prepared = core._prepare_validated_frame(
-        frame=frame.copy(),
+    prepared = core._prepare_validated_df(
+        df=df.copy(),
         name="reference",
         source="batch",
+        use_case=CHURN_USE_CASE,
         require_predictions=True,
         require_target=True,
         require_features=False,
     )
     assert prepared["source"].unique().tolist() == ["batch"]
-    assert prepared[core.TARGET_COLUMN].nunique() == 2
+    assert prepared[CHURN_USE_CASE.target_column].nunique() == 2
     assert prepared[core.MODEL_VERSION_COLUMN].dtype.kind in {"i", "u"}
 
 
 @pytest.mark.unit
 def test_flatten_and_extract_columns_handle_multiindex() -> None:
-    frame = pd.DataFrame(
+    df = pd.DataFrame(
         [
             [1, 2.5, True],
         ],
@@ -171,7 +203,7 @@ def test_flatten_and_extract_columns_handle_multiindex() -> None:
         ),
     )
 
-    flat = core._flatten_columns(frame)
+    flat = core._flatten_columns(df)
     assert list(flat.columns) == ["chunk__period", "chunk__start_date", "drift__alert"]
     assert core._extract_columns(flat, {"period", "alert"}) == [
         "chunk__period",
@@ -189,12 +221,15 @@ def test_drift_alert_summary_and_cbpe_summary_build_monitoring_tables() -> None:
         ]
     )
     summary = core._drift_alert_summary(
-        result, model_version=2, calculator_name="univariate"
+        result=result,
+        model_version=2,
+        calculator_name="univariate",
+        time_column=CHURN_USE_CASE.time_column,
     )
     assert list(summary.columns) == [
         core.PERIOD_COLUMN,
         core.MODEL_VERSION_COLUMN,
-        core.TIMESTAMP_COLUMN,
+        CHURN_USE_CASE.time_column,
         "univariate_alert_count",
     ]
     assert summary.iloc[0][core.MODEL_VERSION_COLUMN] == 2
@@ -208,12 +243,15 @@ def test_drift_alert_summary_and_cbpe_summary_build_monitoring_tables() -> None:
         ]
     )
     cbpe_summary = core._cbpe_summary(
-        cbpe_result, model_version=3, calculator_name="cbpe"
+        result=cbpe_result,
+        model_version=3,
+        calculator_name="cbpe",
+        time_column=CHURN_USE_CASE.time_column,
     )
     assert cbpe_summary.columns.tolist() == [
         core.PERIOD_COLUMN,
         core.MODEL_VERSION_COLUMN,
-        core.TIMESTAMP_COLUMN,
+        CHURN_USE_CASE.time_column,
         "cbpe_roc_auc",
     ]
     assert cbpe_summary.iloc[0][core.MODEL_VERSION_COLUMN] == 3
@@ -221,37 +259,48 @@ def test_drift_alert_summary_and_cbpe_summary_build_monitoring_tables() -> None:
 
 @pytest.mark.unit
 def test_base_summary_and_actual_metrics_compute_expected_values(
-    valid_reference_frame: pd.DataFrame,
-    valid_analysis_frame: pd.DataFrame,
+    valid_reference_df: pd.DataFrame,
+    valid_analysis_df: pd.DataFrame,
 ) -> None:
-    reference_prepared = core._prepare_validated_frame(
-        frame=valid_reference_frame.copy(),
+    reference_prepared = core._prepare_validated_df(
+        df=valid_reference_df.copy(),
         name="reference",
         source="batch",
+        use_case=CHURN_USE_CASE,
         require_predictions=True,
         require_target=True,
         require_features=False,
     )
-    analysis_prepared = core._prepare_validated_frame(
-        frame=valid_analysis_frame.copy(),
+    analysis_prepared = core._prepare_validated_df(
+        df=valid_analysis_df.copy(),
         name="analysis",
         source="batch",
+        use_case=CHURN_USE_CASE,
         require_predictions=True,
         require_target=False,
         require_features=False,
     )
 
-    base = core._base_summary(reference_prepared, analysis_prepared)
+    base = core._base_summary(
+        reference=reference_prepared,
+        analysis=analysis_prepared,
+        time_column=CHURN_USE_CASE.time_column,
+    )
     assert base["prediction_count"].sum() == 5
     assert base["avg_predicted_probability"].notna().all()
     assert base["source"].unique().tolist() == ["batch"]
 
-    actual = core._actual_metrics(reference_prepared, analysis_prepared)
+    actual = core._actual_metrics(
+        reference=reference_prepared,
+        analysis=analysis_prepared,
+        target_column=CHURN_USE_CASE.target_column,
+        time_column=CHURN_USE_CASE.time_column,
+    )
     assert actual.empty is False
     assert set(actual.columns) >= {
         core.PERIOD_COLUMN,
         core.MODEL_VERSION_COLUMN,
-        core.TIMESTAMP_COLUMN,
+        CHURN_USE_CASE.time_column,
         "observed_positive_rate",
         "realized_precision",
         "realized_recall",
@@ -261,8 +310,8 @@ def test_base_summary_and_actual_metrics_compute_expected_values(
 
 @pytest.mark.unit
 def test_calculate_version_drift_uses_nannyml_and_merges_alerts(
-    valid_reference_frame: pd.DataFrame,
-    valid_analysis_frame: pd.DataFrame,
+    valid_reference_df: pd.DataFrame,
+    valid_analysis_df: pd.DataFrame,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(core.nml, "CBPE", _FakeCBPE)
@@ -271,18 +320,20 @@ def test_calculate_version_drift_uses_nannyml_and_merges_alerts(
     )
     monkeypatch.setattr(core.nml, "UnivariateDriftCalculator", _FakeDriftCalculator)
 
-    reference_prepared = core._prepare_validated_frame(
-        frame=valid_reference_frame.copy(),
+    reference_prepared = core._prepare_validated_df(
+        df=valid_reference_df.copy(),
         name="reference",
         source="batch",
+        use_case=CHURN_USE_CASE,
         require_predictions=True,
         require_target=True,
         require_features=True,
     )
-    analysis_prepared = core._prepare_validated_frame(
-        frame=valid_analysis_frame.copy(),
+    analysis_prepared = core._prepare_validated_df(
+        df=valid_analysis_df.copy(),
         name="analysis",
         source="batch",
+        use_case=CHURN_USE_CASE,
         require_predictions=True,
         require_target=False,
         require_features=True,
@@ -291,9 +342,9 @@ def test_calculate_version_drift_uses_nannyml_and_merges_alerts(
         {
             core.PERIOD_COLUMN: ["analysis"],
             core.MODEL_VERSION_COLUMN: [1],
-            core.TIMESTAMP_COLUMN: pd.to_datetime(["2026-02-03"]),
+            CHURN_USE_CASE.time_column: pd.to_datetime(["2026-02-03"]),
             "latency_ms": [12.0],
-            **{column: [0] for column in core.FEATURE_COLUMNS},
+            **{column: [0] for column in CHURN_USE_CASE.feature_columns},
         }
     )
 
@@ -302,12 +353,13 @@ def test_calculate_version_drift_uses_nannyml_and_merges_alerts(
         analysis=analysis_prepared,
         errors=errors,
         model_version=1,
+        use_case=CHURN_USE_CASE,
     )
 
     assert list(result.columns) == [
         core.PERIOD_COLUMN,
         core.MODEL_VERSION_COLUMN,
-        core.TIMESTAMP_COLUMN,
+        CHURN_USE_CASE.time_column,
         "cbpe_roc_auc",
         "reconstruction_drift_alert_count",
         "univariate_drift_alert_count",
@@ -320,7 +372,7 @@ def test_operational_summary_combines_success_and_error_events() -> None:
         {
             core.PERIOD_COLUMN: ["api", "api"],
             core.MODEL_VERSION_COLUMN: [1, 1],
-            core.TIMESTAMP_COLUMN: pd.to_datetime(["2026-02-01", "2026-02-02"]),
+            CHURN_USE_CASE.time_column: pd.to_datetime(["2026-02-01", "2026-02-02"]),
             "latency_ms": [10.0, 30.0],
         }
     )
@@ -328,12 +380,16 @@ def test_operational_summary_combines_success_and_error_events() -> None:
         {
             core.PERIOD_COLUMN: ["api"],
             core.MODEL_VERSION_COLUMN: [1],
-            core.TIMESTAMP_COLUMN: pd.to_datetime(["2026-02-01"]),
+            CHURN_USE_CASE.time_column: pd.to_datetime(["2026-02-01"]),
             "latency_ms": [95.0],
         }
     )
 
-    summary = core._operational_summary(analysis=analysis, errors=errors)
+    summary = core._operational_summary(
+        analysis=analysis,
+        errors=errors,
+        time_column=CHURN_USE_CASE.time_column,
+    )
 
     assert summary["api_request_count"].tolist() == [2, 1]
     assert summary["api_error_rate"].iloc[0] == pytest.approx(0.5)
@@ -342,8 +398,8 @@ def test_operational_summary_combines_success_and_error_events() -> None:
 
 @pytest.mark.unit
 def test_build_monitoring_report_generates_summary_and_csv(
-    valid_reference_frame: pd.DataFrame,
-    valid_analysis_frame: pd.DataFrame,
+    valid_reference_df: pd.DataFrame,
+    valid_analysis_df: pd.DataFrame,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -360,8 +416,9 @@ def test_build_monitoring_report_generates_summary_and_csv(
             category=UserWarning,
         )
         report = core.build_monitoring_report(
-            reference=valid_reference_frame,
-            analysis=valid_analysis_frame,
+            reference=valid_reference_df,
+            analysis=valid_analysis_df,
+            use_case=CHURN_USE_CASE,
             source_reference="batch",
             source_analysis="batch",
             drift=True,
@@ -370,30 +427,31 @@ def test_build_monitoring_report_generates_summary_and_csv(
 
     assert isinstance(report, core.MonitoringReport)
     assert not report.summary.empty
-    assert report.summary[core.TIMESTAMP_COLUMN].dtype.kind == "M"
+    assert report.summary[CHURN_USE_CASE.time_column].dtype.kind == "M"
     assert report.summary_path is not None
     assert report.summary_path.exists()
     assert list(report.summary.columns)[:4] == [
         "source",
         core.PERIOD_COLUMN,
         core.MODEL_VERSION_COLUMN,
-        core.TIMESTAMP_COLUMN,
+        CHURN_USE_CASE.time_column,
     ]
 
 
 @pytest.mark.unit
 def test_build_monitoring_report_can_select_an_exact_model_version(
-    valid_reference_frame: pd.DataFrame,
-    valid_analysis_frame: pd.DataFrame,
+    valid_reference_df: pd.DataFrame,
+    valid_analysis_df: pd.DataFrame,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(core.nml, "CBPE", _FakeCBPE)
-    reference_v2 = valid_reference_frame.assign(model_version=2)
-    analysis_v2 = valid_analysis_frame.assign(model_version=2)
+    reference_v2 = valid_reference_df.assign(model_version=2)
+    analysis_v2 = valid_analysis_df.assign(model_version=2)
 
     report = core.build_monitoring_report(
-        reference=pd.concat([valid_reference_frame, reference_v2], ignore_index=True),
-        analysis=pd.concat([valid_analysis_frame, analysis_v2], ignore_index=True),
+        reference=pd.concat([valid_reference_df, reference_v2], ignore_index=True),
+        analysis=pd.concat([valid_analysis_df, analysis_v2], ignore_index=True),
+        use_case=CHURN_USE_CASE,
         source_reference="batch",
         source_analysis="batch",
         drift=False,
@@ -409,19 +467,20 @@ def test_build_monitoring_report_can_select_an_exact_model_version(
     "ignore:The resulting number of chunks is too low.",
 )
 def test_run_monitoring_handles_batch_and_api_sources(
-    valid_reference_frame: pd.DataFrame,
+    valid_reference_df: pd.DataFrame,
     valid_prediction_log_path: Path,
     valid_error_log_path: Path,
     tmp_path: Path,
 ) -> None:
     reference_csv = tmp_path / "reference.csv"
     analysis_csv = tmp_path / "analysis.csv"
-    valid_reference_frame.to_csv(reference_csv, index=False)
-    valid_reference_frame.to_csv(analysis_csv, index=False)
+    valid_reference_df.to_csv(reference_csv, index=False)
+    valid_reference_df.to_csv(analysis_csv, index=False)
 
     batch_report = core.run_monitoring(
         reference_csv=reference_csv,
         analysis_csv=analysis_csv,
+        use_case=CHURN_USE_CASE,
         output_dir=tmp_path,
     )
     assert isinstance(batch_report, core.MonitoringReport)
@@ -429,6 +488,7 @@ def test_run_monitoring_handles_batch_and_api_sources(
 
     api_report = core.run_monitoring(
         reference_csv=reference_csv,
+        use_case=CHURN_USE_CASE,
         prediction_log=valid_prediction_log_path,
         error_log=valid_error_log_path,
         output_dir=tmp_path,
@@ -437,7 +497,7 @@ def test_run_monitoring_handles_batch_and_api_sources(
     assert api_report.summary.empty is False
 
     with pytest.raises(ValueError, match="exactly one"):
-        core.run_monitoring(reference_csv=reference_csv)
+        core.run_monitoring(reference_csv=reference_csv, use_case=CHURN_USE_CASE)
 
 
 @pytest.mark.unit
@@ -450,7 +510,9 @@ def test_log_monitoring_run_logs_tags_and_artifact(
         summary=pd.DataFrame(
             {
                 "model_version": [7, 7],
-                "reference_date": pd.to_datetime(["2026-01-01", "2026-02-01"]),
+                CHURN_USE_CASE.time_column: pd.to_datetime(
+                    ["2026-01-01", "2026-02-01"]
+                ),
             }
         ),
         summary_path=report_path,

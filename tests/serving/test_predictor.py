@@ -8,12 +8,12 @@ import pytest
 
 from churn_mlops.serving.model_loader import LoadedModel
 from churn_mlops.serving.predictor import PredictionResult, Predictor
-from churn_mlops.serving.schemas import InputFeatures
+from churn_mlops.use_cases.churn.serving import ChurnInputFeatures
 
 
 @pytest.mark.unit
 def test_predict_returns_probability_class_and_metadata(
-    mock_model_factory: Callable[..., LoadedModel], sample_input: InputFeatures
+    mock_model_factory: Callable[..., LoadedModel], sample_input: ChurnInputFeatures
 ) -> None:
     loaded_model = mock_model_factory(proba=0.8, threshold=0.5)
 
@@ -42,7 +42,7 @@ def test_predict_classifies_depending_on_threshold(
     threshold: float,
     expected_class: int,
     mock_model_factory: Callable[..., LoadedModel],
-    sample_input: InputFeatures,
+    sample_input: ChurnInputFeatures,
 ) -> None:
     loaded_model = mock_model_factory(proba=probability, threshold=threshold)
 

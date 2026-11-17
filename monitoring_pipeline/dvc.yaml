@@ -2,6 +2,7 @@ stages:
   monitor:
     cmd: >-
       uv run churn-mlops monitor
+      --use_case ${monitoring.use_case}
       --reference_dataset ${monitoring.reference_dataset}
       --analysis_dataset ${monitoring.analysis_dataset}
       --source_reference ${monitoring.source_reference}

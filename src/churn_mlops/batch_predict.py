@@ -5,12 +5,14 @@ import pandas as pd
 from churn_mlops.data import validate_data
 from churn_mlops.serving import Predictor, load_model
 from churn_mlops.tracking import TrainingManifest
+from churn_mlops.use_cases.base import UseCase
 
 logger = logging.getLogger(__name__)
 
 
 def run_batch_prediction(
     df: pd.DataFrame,
+    use_case: UseCase,
     tracking_uri: str | None = None,
     model_name: str | None = None,
     model_alias: str | None = None,
@@ -21,6 +23,7 @@ def run_batch_prediction(
 
     Args:
         df: Customer feature DataFrame to score.
+        use_case: Use case to validate input data and load the correct model.
         tracking_uri: Optional MLflow tracking URI.
         model_name: Optional registered model name.
         model_alias: Optional registered model alias.
@@ -33,9 +36,10 @@ def run_batch_prediction(
     """
     try:
         logger.info("Starting batch prediction for %d rows.", len(df))
-        df = validate_data(df)
+        df = validate_data(df=df, use_case=use_case)
 
         loaded_model = load_model(
+            use_case=use_case,
             tracking_uri=tracking_uri,
             model_name=model_name,
             model_alias=model_alias,
@@ -48,7 +52,7 @@ def run_batch_prediction(
 
         logger.info("Generated %d predictions.", len(df_pred))
         logger.info(
-            "Average churn probability: %.4f",
+            "Average positive-class probability: %.4f",
             df_pred["predicted_probability"].mean(),
         )
         return df_pred

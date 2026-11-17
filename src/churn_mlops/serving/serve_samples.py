@@ -17,12 +17,15 @@ import requests
 from churn_mlops.config import ServingSettings, configure_logging
 from churn_mlops.data.ingestion import load_raw_data
 from churn_mlops.data.validation import validate_data
+from churn_mlops.use_cases import UseCase, get_use_case
 
 API_STARTUP_TIMEOUT_SECONDS = 30
 API_HEALTH_CHECK_INTERVAL_SECONDS = 1
 
 
 def load_sample_data(
+    use_case: UseCase,
+    input_csv: str,
     sample_size: int,
     random_state: int,
     settings: ServingSettings,
@@ -34,6 +37,8 @@ def load_sample_data(
     inference schema, and returns a random sample of records.
 
     Args:
+        use_case: Explicit data contract for the sample features.
+        input_csv: Name of the CSV file in the raw data directory.
         sample_size: Number of records to sample.
         random_state: Seed used for reproducible sampling.
         settings: Runtime configuration containing data locations.
@@ -44,13 +49,13 @@ def load_sample_data(
     """
 
     df = load_raw_data(
-        file_name="inference.csv",
-        index_col="customerid",
+        file_name=input_csv,
+        index_col=use_case.index_column,
         data_dir=settings.data_dir / "raw",
         drop_columns=drop_columns,
     )
 
-    df = validate_data(df)
+    df = validate_data(df=df, use_case=use_case)
 
     return df.sample(
         n=sample_size,
@@ -59,9 +64,10 @@ def load_sample_data(
 
 
 def predict_samples(
+    use_case: UseCase,
     df: pd.DataFrame,
     settings: ServingSettings,
-    reference_date: datetime | None = None,
+    timestamp: datetime | None = None,
 ) -> pd.DataFrame:
     """Generate predictions for a collection of samples.
 
@@ -70,12 +76,12 @@ def predict_samples(
     features.
 
     Args:
+        use_case: Explicit data contract for the sample features.
         df: DataFrame containing inference records.
         settings: Runtime configuration containing API connection
             details.
-        reference_date: Optional reference date to use for all
-            prediction requests. If not provided, a 'reference_date'
-            column in `df` is used when available.
+        timestamp: Optional timestamp to use for all prediction requests. If
+            not provided, the use-case time column in `df` is used when present.
 
     Returns:
         A DataFrame containing the original input features together with
@@ -94,15 +100,13 @@ def predict_samples(
         if index % 100 == 0:
             logger.info("Processed %s/%s samples", index, len(df))
         features = row.to_dict()
-        row_reference_date = features.pop("reference_date", None)
+        row_timestamp = features.pop(use_case.time_column, None)
 
-        effective_reference_date = (
-            reference_date if reference_date is not None else row_reference_date
-        )
+        effective_timestamp = timestamp if timestamp is not None else row_timestamp
 
         params = (
-            {"reference_date": pd.Timestamp(effective_reference_date).isoformat()}
-            if pd.notna(effective_reference_date)
+            {"timestamp": pd.Timestamp(effective_timestamp).isoformat()}
+            if pd.notna(effective_timestamp)
             else {}
         )
 
@@ -112,7 +116,7 @@ def predict_samples(
 
     return pd.concat(
         [
-            df.drop(columns=["reference_date"], errors="ignore"),
+            df.drop(columns=[use_case.time_column], errors="ignore"),
             pd.DataFrame(predictions, index=df.index),
         ],
         axis=1,
@@ -152,10 +156,13 @@ def save_predictions(
 
 
 def serve_samples(
+    use_case: UseCase,
+    input_csv: str,
     sample_size: int,
     random_state: int,
     settings: ServingSettings | None = None,
-    reference_date: datetime | None = None,
+    *,
+    timestamp: datetime | None = None,
     drop_columns: list[str] | None = None,
 ) -> Path:
     """Generate and store predictions for sampled inference data.
@@ -165,12 +172,14 @@ def serve_samples(
     predictions in a CSV file.
 
     Args:
+        use_case: Explicit data contract used for loading and inference.
+        input_csv: Name of the CSV file in the raw data directory.
         sample_size: Number of records to sample and score.
         random_state: Seed used for reproducible sampling and run
             identification.
         settings: Runtime configuration. If not provided, a default
             configuration is created.
-        reference_date: Optional reference date for the sampled data.
+        timestamp: Optional timestamp for the sampled data.
         drop_columns: Optional list of column names to drop from loaded
             data.
 
@@ -185,6 +194,8 @@ def serve_samples(
     settings = settings or ServingSettings()
 
     df_sample = load_sample_data(
+        use_case=use_case,
+        input_csv=input_csv,
         sample_size=sample_size,
         random_state=random_state,
         settings=settings,
@@ -192,9 +203,10 @@ def serve_samples(
     )
 
     df_predictions = predict_samples(
+        use_case=use_case,
         df=df_sample,
         settings=settings,
-        reference_date=reference_date,
+        timestamp=timestamp,
     )
 
     run_id = f"{random_state:04d}"
@@ -213,12 +225,13 @@ def start_api_server(host: str, port: int) -> subprocess.Popen:
             "uv",
             "run",
             "uvicorn",
-            "churn_mlops.serving.api:app",
+            "churn_mlops.serving.api:create_app_from_environment",
             "--host",
             host,
             "--port",
             str(port),
             "--no-access-log",
+            "--factory",
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.STDOUT,
@@ -273,6 +286,35 @@ def custom_parser(settings: ServingSettings) -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--use_case",
+        default=os.environ.get("USE_CASE"),
+        help="Registered use-case name (or set USE_CASE).",
+    )
+    parser.add_argument(
+        "--model_name",
+        type=str,
+        default=None,
+        help="Registered model name (defaults to the configured serving model).",
+    )
+    parser.add_argument(
+        "--model_version",
+        type=int,
+        default=None,
+        help="Exact registered model version; mutually exclusive with a manifest.",
+    )
+    parser.add_argument(
+        "--model_manifest",
+        type=Path,
+        default=None,
+        help="Path of model manifest in configured data directory.",
+    )
+    parser.add_argument(
+        "--input_csv",
+        required=True,
+        type=str,
+        help="Name of the CSV file in the raw data directory to sample from.",
+    )
+    parser.add_argument(
         "--sample_size",
         default=1000,
         type=int,
@@ -285,9 +327,9 @@ def custom_parser(settings: ServingSettings) -> argparse.ArgumentParser:
         help="Random seed to allow reproducible sample draws.",
     )
     parser.add_argument(
-        "--reference_date",
+        "--timestamp",
         type=datetime.fromisoformat,
-        help="ISO-8601 reference date, e.g. '2026-09-30T12:00:00'",
+        help="ISO-8601 timestamp, e.g. '2026-09-30T12:00:00'",
     )
     parser.add_argument(
         "--drop_columns",
@@ -310,24 +352,6 @@ def custom_parser(settings: ServingSettings) -> argparse.ArgumentParser:
         "--reload",
         action="store_true",
         help="Enable auto-reload for local development.",
-    )
-    parser.add_argument(
-        "--model-name",
-        type=str,
-        default=None,
-        help="Registered model name (defaults to the configured serving model).",
-    )
-    parser.add_argument(
-        "--model-version",
-        type=int,
-        default=None,
-        help="Exact registered model version; mutually exclusive with a manifest.",
-    )
-    parser.add_argument(
-        "--model_manifest",
-        type=Path,
-        default=None,
-        help="Path of model manifest in configured data directory.",
     )
 
     return parser
@@ -355,7 +379,7 @@ def main() -> None:
 
     Reads inference data, validates it, samples a user-specified number
     of records, optionally removes selected columns, and sends each
-    record to the prediction API. An optional reference date can be
+    record to the prediction API. An optional timestamp can be
     provided for all prediction requests. The resulting predictions are
     combined with the sampled input data and written to a CSV file named
     with a four-digit run identifier. If no random state is provided, a
@@ -373,6 +397,8 @@ def main() -> None:
     parser = custom_parser(settings=settings)
     args = parser.parse_args()
 
+    if not args.use_case:
+        parser.error("--use_case or USE_CASE is required.")
     if args.model_manifest is not None and (
         args.model_name is not None or args.model_version is not None
     ):
@@ -383,6 +409,7 @@ def main() -> None:
         parser.error("--model_name and --model_version must be provided together.")
 
     configure_model_environment(args=args, settings=settings)
+    os.environ["USE_CASE"] = args.use_case
 
     random_state = int(args.random_state or random.randint(1, 1000))
 
@@ -398,10 +425,12 @@ def main() -> None:
         )
 
         serve_samples(
+            use_case=get_use_case(args.use_case),
+            input_csv=args.input_csv,
             sample_size=args.sample_size,
             random_state=random_state,
             settings=settings,
-            reference_date=args.reference_date,
+            timestamp=args.timestamp,
             drop_columns=args.drop_columns,
         )
 

@@ -78,10 +78,14 @@ def test_registry_loads_registered_alias_with_its_threshold(
     model = object()
     registry.get_model_version_by_alias = Mock(return_value=model_version)
     registry.load_model_by_version = Mock(return_value=model)
-    registry.client.get_run.return_value.data.params = {"threshold": "0.35"}
+    registry.client.get_run.return_value.data.params = {
+        "threshold": "0.35",
+        "use_case": "churn",
+    }
 
     loaded = registry.load_registered_model(
         model_name="my_model",
+        expected_use_case="churn",
         model_alias="champion",
     )
 
@@ -107,9 +111,16 @@ def test_registry_loads_registered_version_with_its_threshold(
     model = object()
     registry.get_model_version = Mock(return_value=model_version_object)
     registry.load_model_by_version = Mock(return_value=model)
-    registry.client.get_run.return_value.data.params = {"threshold": "0.35"}
+    registry.client.get_run.return_value.data.params = {
+        "threshold": "0.35",
+        "use_case": "churn",
+    }
 
-    loaded = registry.load_registered_model(model_name="my_model", model_version=7)
+    loaded = registry.load_registered_model(
+        model_name="my_model",
+        expected_use_case="churn",
+        model_version=7,
+    )
 
     assert loaded.model is model
     assert loaded.model_version is model_version_object
@@ -125,7 +136,53 @@ def test_registry_requires_exactly_one_version_selector(
     registry: ModelRegistry,
 ) -> None:
     with pytest.raises(ValueError, match="exactly one"):
-        registry.load_registered_model(model_name="my_model")
+        registry.load_registered_model(
+            model_name="my_model",
+            expected_use_case="churn",
+        )
+
+
+@pytest.mark.unit
+def test_registry_rejects_mismatched_use_case_before_loading_model(
+    registry: ModelRegistry,
+) -> None:
+    model_version = Mock(version="7", run_id="run-7")
+    registry.get_model_version_by_alias = Mock(return_value=model_version)
+    load_model = Mock()
+    registry.load_model_by_version = load_model
+    registry.client.get_run.return_value.data.params = {
+        "threshold": "0.35",
+        "use_case": "churn",
+    }
+
+    with pytest.raises(ValueError, match="not selected use case 'alternate'"):
+        registry.load_registered_model(
+            model_name="my_model",
+            expected_use_case="alternate",
+            model_alias="champion",
+        )
+
+    load_model.assert_not_called()
+
+
+@pytest.mark.unit
+def test_registry_rejects_runs_without_use_case_identity(
+    registry: ModelRegistry,
+) -> None:
+    model_version = Mock(version="7", run_id="run-7")
+    registry.get_model_version_by_alias = Mock(return_value=model_version)
+    load_model = Mock()
+    registry.load_model_by_version = load_model
+    registry.client.get_run.return_value.data.params = {"threshold": "0.35"}
+
+    with pytest.raises(ValueError, match="does not record a use-case name"):
+        registry.load_registered_model(
+            model_name="my_model",
+            expected_use_case="churn",
+            model_alias="champion",
+        )
+
+    load_model.assert_not_called()
 
 
 @pytest.mark.unit

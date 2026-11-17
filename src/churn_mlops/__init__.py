@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["main"]
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 
 def _parse_boolean(value: str) -> bool:
@@ -38,14 +38,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="churn-mlops",
         description=(
-            "Train, score, and serve churn prediction models with the local "
-            "MLflow workflow."
+            "Train, score, and serve binary-classification models with the "
+            "local MLflow workflow."
         ),
         epilog=(
             "Examples:\n"
             "  churn-mlops train --config sample_training_config.yaml\n"
-            "  churn-mlops batch-predict --input_csv customer.csv --output_csv predictions.csv\n"
-            "  churn-mlops serve --host 127.0.0.1 --port 8000 --reload"
+            "  churn-mlops batch-predict --use_case churn --input_csv customer.csv --output_csv predictions.csv\n"
+            "  churn-mlops serve --use_case churn --host 127.0.0.1 --port 8000 --reload"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -55,6 +55,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "prepare-data",
         help="Convert raw CSV datasets into partitioned Parquet datasets.",
     )
+    prepare_parser.add_argument("--use_case", required=True)
     prepare_parser.add_argument(
         "--input_csv",
         type=str,
@@ -64,14 +65,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     prepare_parser.add_argument(
         "--timestamp_column",
         type=str,
-        default="reference_date",
-        help="Timestamp column used for partitioning.",
+        default=None,
+        help="Timestamp column used for partitioning (defaults to the use_case time column).",
     )
 
     split_parser = subparsers.add_parser(
         "create-split",
         help="Create train and test datasets using an out-of-time split.",
     )
+    split_parser.add_argument("--use_case", required=True)
     split_parser.add_argument(
         "--dataset_name",
         required=True,
@@ -79,8 +81,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     split_parser.add_argument(
         "--timestamp_column",
-        default="reference_date",
-        help="Timestamp column used for splitting.",
+        default=None,
+        help="Timestamp column used for splitting (defaults to the use_case time column).",
     )
     split_parser.add_argument(
         "--start_date",
@@ -105,7 +107,12 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     train_parser = subparsers.add_parser(
         "train",
-        help="Train and evaluate a churn model from a YAML config.",
+        help="Train and evaluate a model from a YAML config.",
+    )
+    train_parser.add_argument(
+        "--use_case",
+        required=True,
+        help="Registered use_case contract for this training run.",
     )
     train_parser.add_argument(
         "--config", required=True, help="Training config file path."
@@ -116,26 +123,48 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Name prefix of prepared train/test Parquet files in data/splits.",
     )
     train_parser.add_argument(
-        "--exclude-columns",
-        nargs="+",
-        default=(),
-        help="Column names to exclude from model features/training/hyperparameter tuning.",
+        "--calibration_method",
+        choices=("none", "sigmoid", "isotonic"),
+        default="none",
+        help="Calibration method for this training run.",
     )
     train_parser.add_argument(
-        "--experiment_name",
-        required=False,
-        help="Experiment name used for MLflow tracking.",
+        "--n_jobs",
+        type=int,
+        default=1,
+        help=(
+            "Total CPU job budget for this training run "
+            "(positive integer or -1 for all available CPUs)."
+        ),
     )
+    tuning_group = train_parser.add_mutually_exclusive_group()
+    tuning_group.add_argument(
+        "--tune-model",
+        nargs="?",
+        const=True,
+        type=_parse_boolean,
+        default=False,
+        help=(
+            "Run hyperparameter tuning (optionally provide true/false; default: false)."
+        ),
+    )
+    tuning_group.add_argument(
+        "--no-tune-model",
+        dest="tune_model",
+        action="store_false",
+        help="Disable hyperparameter tuning for this run.",
+    )
+    train_parser.set_defaults(tune_model=False)
     register_model_group = train_parser.add_mutually_exclusive_group()
     register_model_group.add_argument(
         "--register-model",
         nargs="?",
         const=True,
         type=_parse_boolean,
-        default=None,
+        default=False,
         help=(
-            "Override model registration (optionally provide true/false); "
-            "without a value, this enables registration."
+            "Register the trained model (optionally provide true/false; "
+            "without a value, this enables registration)."
         ),
     )
     register_model_group.add_argument(
@@ -144,26 +173,26 @@ def main(argv: Sequence[str] | None = None) -> None:
         action="store_false",
         help="Disable model registration for this run.",
     )
-    train_parser.set_defaults(register_model=None)
-    train_parser.add_argument(
-        "--calibration-method",
-        choices=("none", "sigmoid", "isotonic"),
-        help="Override the calibration method in the training config.",
-    )
-    train_parser.add_argument(
-        "--n-jobs",
-        type=int,
+    train_parser.set_defaults(register_model=False)
+    promote_model_group = train_parser.add_mutually_exclusive_group()
+    promote_model_group.add_argument(
+        "--promote-model",
+        nargs="?",
+        const=True,
+        type=_parse_boolean,
+        default=False,
         help=(
-            "Override the total CPU job budget in the training config "
-            "(positive integer or -1 for all available CPUs)."
+            "En-/disable model promotion (optionally provide true/false; "
+            "without a value, promotion is enabled)."
         ),
     )
-    train_parser.add_argument(
-        "--promote-model",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Enable or disable candidate/champion alias updates for this run.",
+    promote_model_group.add_argument(
+        "--no-promote-model",
+        dest="promote_model",
+        action="store_false",
+        help="Disable model promotion for this run.",
     )
+    train_parser.set_defaults(promote_model=False)
 
     batch_parser = subparsers.add_parser(
         "batch-predict",
@@ -207,9 +236,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     batch_parser.add_argument(
         "--timestamp_column",
         type=str,
-        default="reference_date",
-        help="Timestamp column for partitioned in-/output.",
+        default=None,
+        help="Timestamp column for partitioned input/output (defaults to the use_case time column).",
     )
+    batch_parser.add_argument("--use_case", required=True)
     batch_parser.add_argument(
         "--model_name",
         help="Registered model name (defaults to the configured serving model).",
@@ -244,10 +274,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Enable auto-reload for local development.",
     )
     serve_parser.add_argument(
+        "--use_case",
+        default=os.environ.get("USE_CASE"),
+        help="Registered use_case name (or set USE_CASE).",
+    )
+    serve_parser.add_argument(
         "--model-name",
         type=str,
         default=None,
-        help="Registered model name (defaults to the configured serving model).",
+        help="Registered model name to use with --model-version.",
     )
     serve_parser.add_argument(
         "--model-version",
@@ -271,11 +306,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         default="api_predictions",
         help="Target dataset name.",
     )
+    ingest_prediction_log_parser.add_argument("--use_case", required=True)
     ingest_prediction_log_parser.add_argument(
         "--timestamp_column",
         type=str,
-        default="reference_date",
-        help="Timestamp column used for partitioning.",
+        default=None,
+        help="Timestamp column used for partitioning (defaults to the use_case time column).",
     )
 
     ingest_error_log_parser = subparsers.add_parser(
@@ -288,17 +324,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         default="api_errors",
         help="Target dataset name.",
     )
+    ingest_error_log_parser.add_argument("--use_case", required=True)
     ingest_error_log_parser.add_argument(
         "--timestamp_column",
         type=str,
-        default="reference_date",
-        help="Timestamp column used for partitioning.",
+        default=None,
+        help="Timestamp column used for partitioning (defaults to the use_case time column).",
     )
 
     monitor_parser = subparsers.add_parser(
         "monitor",
         help="Monitor prediction quality based on files or partitioned datasets.",
     )
+    monitor_parser.add_argument("--use_case", required=True)
     monitor_reference = monitor_parser.add_mutually_exclusive_group(required=True)
     monitor_reference.add_argument(
         "--reference_csv",
@@ -345,8 +383,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     monitor_parser.add_argument(
         "--timestamp_column",
         type=str,
-        default="reference_date",
-        help="Timestamp/partition column for partitioned datasets (default: reference_date).",
+        default=None,
+        help=(
+            "Timestamp/partition column for datasets. Defaults to the selected "
+            "use_case time column."
+        ),
     )
     monitor_parser.add_argument(
         "--model_name",
@@ -409,14 +450,16 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command == "prepare-data":
         from .data import load_raw_data, validate_data
         from .data.storage import write_partitioned_dataset
+        from .use_cases import get_use_case
 
+        use_case = get_use_case(args.use_case)
         df = load_raw_data(file_name=args.input_csv, data_dir=settings.data_dir / "raw")
-        df = validate_data(df)
+        df = validate_data(df=df, use_case=use_case)
 
         write_partitioned_dataset(
             df=df,
             dataset_name="partitioned",
-            timestamp_column=args.timestamp_column,
+            timestamp_column=args.timestamp_column or use_case.time_column,
             overwrite_partitions=True,
         )
 
@@ -424,10 +467,12 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     if args.command == "create-split":
         from .data.splitting import create_time_based_split
+        from .use_cases import get_use_case
 
         split_metadata = create_time_based_split(
             dataset_name=args.dataset_name,
-            timestamp_column=args.timestamp_column,
+            timestamp_column=args.timestamp_column
+            or get_use_case(args.use_case).time_column,
             start_date=args.start_date,
             split_date=args.split_date,
             end_date=args.end_date,
@@ -441,22 +486,16 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command == "train":
         from .train import run_training_job
 
-        training_kwargs: dict[str, object] = {
-            "config_file": args.config,
-            "split_name": args.split_name,
-            "exclude_columns": args.exclude_columns,
-        }
-        optional_kwargs = {
-            "experiment_name": args.experiment_name,
-            "register_model": args.register_model,
-            "promote_model": args.promote_model,
-            "calibration_method": args.calibration_method,
-            "n_jobs": args.n_jobs,
-        }
-        training_kwargs.update(
-            {key: value for key, value in optional_kwargs.items() if value is not None}
+        result = run_training_job(
+            use_case=args.use_case,
+            config_file=args.config,
+            split_name=args.split_name,
+            calibration_method=args.calibration_method,
+            n_jobs=args.n_jobs,
+            tune_model=args.tune_model,
+            register_model=args.register_model,
+            promote_model=args.promote_model,
         )
-        result = run_training_job(**training_kwargs)
         logger.info(
             "Successfully trained %s model: AUC=%.4f",
             result.classifier_config["model_name"],
@@ -493,6 +532,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             manifest = TrainingManifest.read(model_manifest_file)
 
         from .batch_predict import run_batch_prediction
+        from .use_cases import get_use_case
+
+        use_case = get_use_case(args.use_case)
+        timestamp_column = args.timestamp_column or use_case.time_column
 
         if is_csv_input:
             from .data import load_raw_data
@@ -505,6 +548,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             df_pred = run_batch_prediction(
                 df=df,
+                use_case=use_case,
                 model_name=None if manifest is not None else args.model_name,
                 model_version=None if manifest is not None else args.model_version,
                 manifest=manifest,
@@ -522,12 +566,13 @@ def main(argv: Sequence[str] | None = None) -> None:
 
             df = read_partitioned_dataset(
                 dataset_name=args.input_dataset,
-                timestamp_column=args.timestamp_column,
+                timestamp_column=timestamp_column,
                 start=args.start_date,
                 end=args.end_date,
             )
             df_pred = run_batch_prediction(
                 df=df,
+                use_case=use_case,
                 model_name=None if manifest is not None else args.model_name,
                 model_version=None if manifest is not None else args.model_version,
                 manifest=manifest,
@@ -535,7 +580,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             write_partitioned_dataset(
                 df=df_pred,
                 dataset_name=args.output_dataset,
-                timestamp_column=args.timestamp_column,
+                timestamp_column=timestamp_column,
                 overwrite_partitions=True,
             )
             logger.info(
@@ -545,6 +590,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
 
     if args.command == "serve":
+        if not args.use_case:
+            parser.error("--use_case or USE_CASE is required.")
+        if (
+            args.model_manifest is None
+            and args.model_name is None
+            and not os.environ.get("MODEL_NAME")
+        ):
+            parser.error(
+                "Provide --model_manifest or set MODEL_NAME for registry-backed serving."
+            )
         if args.model_manifest is not None and (
             args.model_name is not None or args.model_version is not None
         ):
@@ -553,6 +608,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         if (args.model_name is None) != (args.model_version is None):
             parser.error("--model_name and --model_version must be provided together.")
+        os.environ["USE_CASE"] = args.use_case
 
         if args.model_manifest is not None:
             os.environ["MODEL_MANIFEST"] = str(settings.data_dir / args.model_manifest)
@@ -565,28 +621,33 @@ def main(argv: Sequence[str] | None = None) -> None:
         import uvicorn
 
         uvicorn.run(
-            "churn_mlops.serving.api:app",
+            "churn_mlops.serving.api:create_app_from_environment",
             host=args.host,
             port=args.port,
             reload=args.reload,
+            factory=True,
         )
         return
 
     if args.command == "ingest-prediction-logs":
         from .data.ingestion import ingest_prediction_logs
+        from .use_cases import get_use_case
 
         ingest_prediction_logs(
             dataset_name=args.dataset_name,
-            timestamp_column=args.timestamp_column,
+            timestamp_column=args.timestamp_column
+            or get_use_case(args.use_case).time_column,
         )
         return
 
     if args.command == "ingest-error-logs":
         from .data.ingestion import ingest_error_logs
+        from .use_cases import get_use_case
 
         ingest_error_logs(
             dataset_name=args.dataset_name,
-            timestamp_column=args.timestamp_column,
+            timestamp_column=args.timestamp_column
+            or get_use_case(args.use_case).time_column,
         )
         return
 
@@ -630,33 +691,47 @@ def main(argv: Sequence[str] | None = None) -> None:
                 )
             model_name = manifest.model.model_name
             model_version = manifest.model.model_version
+        from .use_cases import get_use_case
+
+        use_case = get_use_case(args.use_case)
 
         output_dir = args.output_dir or settings.output_dir
         if dataset_mode:
             from .data import read_partitioned_dataset
             from .monitoring.core import build_monitoring_report
 
+            source_reference = args.source_reference or "batch"
+            source_analysis = args.source_analysis or "api"
+            dataset_timestamp_column = args.timestamp_column or use_case.time_column
             reference = read_partitioned_dataset(
                 dataset_name=args.reference_dataset,
-                timestamp_column=args.timestamp_column,
+                timestamp_column=dataset_timestamp_column,
             )
             analysis = read_partitioned_dataset(
                 dataset_name=args.analysis_dataset,
-                timestamp_column=args.timestamp_column,
+                timestamp_column=dataset_timestamp_column,
             )
             errors = (
                 read_partitioned_dataset(
                     dataset_name=args.error_dataset,
-                    timestamp_column=args.timestamp_column,
+                    timestamp_column=dataset_timestamp_column,
                 )
                 if args.error_dataset is not None
                 else None
             )
+            if dataset_timestamp_column != use_case.time_column:
+                for df in (reference, analysis, errors):
+                    if df is not None and use_case.time_column not in df.columns:
+                        df.rename(
+                            columns={dataset_timestamp_column: use_case.time_column},
+                            inplace=True,
+                        )
             report_kwargs: dict[str, object] = {
                 "reference": reference,
                 "analysis": analysis,
-                "source_reference": args.source_reference or "batch",
-                "source_analysis": args.source_analysis or "api",
+                "use_case": use_case,
+                "source_reference": source_reference,
+                "source_analysis": source_analysis,
                 "errors": errors,
                 "output_dir": output_dir,
             }
@@ -677,6 +752,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "analysis_csv": args.analysis_csv,
                 "prediction_log": prediction_log,
                 "error_log": error_log,
+                "use_case": use_case,
                 "output_dir": output_dir,
             }
             if model_version is not None:
