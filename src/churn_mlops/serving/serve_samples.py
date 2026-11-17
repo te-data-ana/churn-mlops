@@ -281,6 +281,29 @@ def custom_parser(settings: ServingSettings) -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--use_case",
+        default=os.environ.get("USE_CASE"),
+        help="Registered use-case name (or set USE_CASE).",
+    )
+    parser.add_argument(
+        "--model_name",
+        type=str,
+        default=None,
+        help="Registered model name (defaults to the configured serving model).",
+    )
+    parser.add_argument(
+        "--model_version",
+        type=int,
+        default=None,
+        help="Exact registered model version; mutually exclusive with a manifest.",
+    )
+    parser.add_argument(
+        "--model_manifest",
+        type=Path,
+        default=None,
+        help="Path of model manifest in configured data directory.",
+    )
+    parser.add_argument(
         "--sample_size",
         default=1000,
         type=int,
@@ -318,29 +341,6 @@ def custom_parser(settings: ServingSettings) -> argparse.ArgumentParser:
         "--reload",
         action="store_true",
         help="Enable auto-reload for local development.",
-    )
-    parser.add_argument(
-        "--use-case",
-        default=os.environ.get("USE_CASE"),
-        help="Registered use-case name (or set USE_CASE).",
-    )
-    parser.add_argument(
-        "--model-name",
-        type=str,
-        default=None,
-        help="Registered model name (defaults to the configured serving model).",
-    )
-    parser.add_argument(
-        "--model-version",
-        type=int,
-        default=None,
-        help="Exact registered model version; mutually exclusive with a manifest.",
-    )
-    parser.add_argument(
-        "--model_manifest",
-        type=Path,
-        default=None,
-        help="Path of model manifest in configured data directory.",
     )
 
     return parser
@@ -387,7 +387,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if not args.use_case:
-        parser.error("--use-case or USE_CASE is required.")
+        parser.error("--use_case or USE_CASE is required.")
     if args.model_manifest is not None and (
         args.model_name is not None or args.model_version is not None
     ):

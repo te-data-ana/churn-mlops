@@ -1,25 +1,26 @@
 schema: '2.0'
 stages:
   monitor:
-    cmd: uv run churn-mlops monitor --use-case churn --reference_dataset
-      predictions/lr_OOT_26Q2 --analysis_dataset api_predictions
+    cmd: uv run churn-mlops monitor --use_case churn --reference_dataset
+      predictions/churn_lr_oot-26Q2 --analysis_dataset api_predictions
       --source_reference batch --source_analysis api --model_manifest
-      manifests/lr_OOT_26Q2.json --output_dir ../data/monitoring/lr_OOT_26Q2
-      --mlflow_experiment_name churn_risk-monitoring --run_name lr_OOT_26Q2
+      manifests/churn-lr-oot-26Q2.json --output_dir
+      ../data/monitoring/churn_lr_oot-26Q2 --mlflow_experiment_name
+      churn-monitoring --run_name churn_lr_oot-26Q2
     deps:
     - path: ../data/api_predictions
       hash: md5
-      md5: 7bd943135e96d0c09f7a523080b7561e.dir
-      size: 382523
+      md5: 5d1dac54b4182a2dd72eaaa6717bde06.dir
+      size: 340224
       nfiles: 3
-    - path: ../data/manifests/lr_OOT_26Q2.json
+    - path: ../data/manifests/churn-lr-oot-26Q2.json
       hash: md5
-      md5: 2bd7d8fe3edafed0a0d9d56b89729d57
-      size: 2818
-    - path: ../data/predictions/lr_OOT_26Q2
+      md5: 9ad88fbcb95e7234d621ef6db64454c6
+      size: 3059
+    - path: ../data/predictions/churn_lr_oot-26Q2
       hash: md5
-      md5: 75c8500315a1dfe3faf09b94bdc0c01a.dir
-      size: 741342
+      md5: c67ffb90cfb9bfde8c4aff7bdfc330a6.dir
+      size: 484050
       nfiles: 3
     - path: ../pyproject.toml
       hash: md5
@@ -27,8 +28,8 @@ stages:
       size: 1798
     - path: ../src/churn_mlops
       hash: md5
-      md5: 7c14c3cee42f9e668d5689b04d17e4d9.dir
-      size: 745528
+      md5: 973838efd01522ea5db8da72e717abc0.dir
+      size: 743594
       nfiles: 150
     - path: ../uv.lock
       hash: md5
@@ -38,16 +39,16 @@ stages:
       params.yaml:
         monitoring:
           use_case: churn
-          name: lr_OOT_26Q2
-          reference_dataset: predictions/lr_OOT_26Q2
+          name: churn_lr_oot-26Q2
+          reference_dataset: predictions/churn_lr_oot-26Q2
           analysis_dataset: api_predictions
           source_reference: batch
           source_analysis: api
-          model_manifest: manifests/lr_OOT_26Q2.json
-          mlflow_experiment_name: churn_risk-monitoring
+          model_manifest: manifests/churn-lr-oot-26Q2.json
+          mlflow_experiment_name: churn-monitoring
     outs:
-    - path: ../data/monitoring/lr_OOT_26Q2
+    - path: ../data/monitoring/churn_lr_oot-26Q2
       hash: md5
-      md5: 9b33049229dbe10f6e3a96b6a21a88f6.dir
+      md5: 83c758c2545bb7f9d1de299ee3dbe1bb.dir
       size: 1073
       nfiles: 1

@@ -48,16 +48,16 @@ out-of-time window:
 
 ```bash
 uv run python -m churn_mlops.data.manipulation \
+  --use_case churn \
   --input_csv customer_churn_dataset-training.csv \
   --output_csv training.csv \
-  --use-case churn \
   --start_date 2025-01-01 \
   --end_date 2025-12-01
 
 uv run python -m churn_mlops.data.manipulation \
+  --use_case churn \
   --input_csv customer_churn_dataset-inference.csv \
   --output_csv inference.csv \
-  --use-case churn \
   --start_date 2026-01-01 \
   --end_date 2026-06-01
 ```
@@ -67,8 +67,8 @@ dataset under `data/partitioned`. The input argument is a filename under
 `data/raw`. Prepare both enriched files:
 
 ```bash
-uv run churn-mlops prepare-data --input_csv training.csv --use-case churn
-uv run churn-mlops prepare-data --input_csv inference.csv --use-case churn
+uv run churn-mlops prepare-data --input_csv training.csv --use_case churn
+uv run churn-mlops prepare-data --input_csv inference.csv --use_case churn
 ```
 
 Create train and test files from an inclusive date range. Rows before
@@ -78,14 +78,14 @@ case supplies the timestamp column.
 ```bash
 uv run churn-mlops create-split \
   --dataset_name partitioned \
-  --use-case churn \
+  --use_case churn \
   --start_date 2025-04-01 \
   --split_date 2026-04-01 \
   --end_date 2026-06-30 \
-  --split_name OOT_26Q2
+  --split_name oot-26Q2
 ```
 
-This creates `OOT_26Q2_train.parquet`, `OOT_26Q2_test.parquet`, and split
+This creates `oot-26Q2_train.parquet`, `oot-26Q2_test.parquet`, and split
 metadata in `data/splits`.
 
 ### Reproduce an out-of-time experiment
@@ -108,7 +108,7 @@ pipeline combination reuses its output paths; it does not create a separate
 archive for each run.
 
 The checked-in [params.yaml](params.yaml) selects the `churn` use case and
-configures `OOT_26Q2`: training from 2025-04-01 through 2026-03-31 and testing
+configures `oot-26Q2`: training from 2025-04-01 through 2026-03-31 and testing
 from 2026-04-01 through 2026-06-30, using the `hgb` classifier. Date bounds
 are inclusive. Provide the configured training and inference CSVs under
 `data/raw` before running the pipeline:
@@ -134,7 +134,7 @@ To run another quarter/classifier combination as a named DVC experiment:
 uv run dvc exp run --name churn-12m-oot \
   --set-param use_case=churn \
   --set-param model.classifier=lr \
-  --set-param split.name=OOT_26Q2 \
+  --set-param split.name=oot-26Q2 \
   --set-param 'split.start_date="2025-04-01"' \
   --set-param 'split.split_date="2026-04-01"' \
   --set-param 'split.end_date="2026-06-30"' \
@@ -145,7 +145,7 @@ uv run dvc exp run --name churn-12m-oot \
 ```
 
 The `use_case` parameter (set in `params.yaml`) selects the registered contract
-and is passed as the required `--use-case` argument to training. Training
+and is passed as the required `--use_case` argument to training. Training
 derives the MLflow experiment name as `{use_case}-{split_name}` and registry
 model name as `{use_case}-model`. A registered model receives no alias until it
 is promoted; successful promotion assigns `champion`.
@@ -156,9 +156,9 @@ and date ranges in `dvc.yaml`.
 alias used by this pipeline must have a matching config file.
 
 The `calibration.method` DVC parameter is passed directly to the training
-command as `--calibration-method`; its default is `none`.
+command as `--calibration_method`; its default is `none`.
 
-`training.n_jobs` is passed as `--n-jobs` and controls the total CPU job budget:
+`training.n_jobs` is passed as `--n_jobs` and controls the total CPU job budget:
 use a positive integer or `-1` for all available CPUs, the default is `1`. Only
 the outermost operation in each training phase uses this budget, nested
 estimators use only one job to avoid oversubscription.
@@ -187,9 +187,9 @@ MLflow.
 
 ```bash
 uv run churn-mlops train \
-  --use-case churn \
+  --use_case churn \
   --config rf.yaml \
-  --split_name OOT_26Q2
+  --split_name oot-26Q2
 ```
 
 Configuration filenames resolve under `src/config` by default. The default
@@ -199,7 +199,7 @@ search parameters.
 
 Run-time arguments control calibration method, CPU job budget and whether
 tuning, model registration and promotion is executed. The latter options
-are disabled by default. The required `--use-case` selects the data contract.
+are disabled by default. The required `--use_case` selects the data contract.
 Training derives its experiment name from the use case and split, and its
 registry model name from the use case. The selected use case's
 `feature_columns` define model inputs and must be present in both splits;
@@ -220,7 +220,7 @@ from churn_mlops.train import run_training_job
 run_training_job(
     use_case="churn",
     config_file="rf.yaml",
-    split_name="OOT_26Q2",
+    split_name="oot-26Q2",
     register_model=True,
     promote_model=False,
     calibration_method="sigmoid",
@@ -262,7 +262,7 @@ is written under `output`:
 
 ```bash
 uv run churn-mlops batch-predict \
-  --use-case churn \
+  --use_case churn \
   --input_csv inference.csv \
   --output_csv predictions_inference.csv \
   --index_col customerid
@@ -275,7 +275,7 @@ the months in the result are replaced.
 
 ```bash
 uv run churn-mlops batch-predict \
-  --use-case churn \
+  --use_case churn \
   --input_dataset partitioned \
   --start_date 2026-06-01 \
   --end_date 2026-06-30 \
@@ -292,10 +292,10 @@ Alternatively, pass a manifest path relative to `DATA_DIR`:
 
 ```bash
 uv run churn-mlops batch-predict \
-  --use-case churn \
-  --input_dataset splits/OOT_26Q2_test.parquet \
-  --output_dataset predictions/rf_OOT_26Q2 \
-  --model_manifest manifests/churn-rf-OOT_26Q2.json
+  --use_case churn \
+  --input_dataset splits/oot-26Q2_test.parquet \
+  --output_dataset predictions/rf_oot-26Q2 \
+  --model_manifest manifests/churn-rf-oot-26Q2.json
 ```
 
 The manifest option cannot be combined with `--model_name` or
@@ -311,8 +311,8 @@ prevent readiness:
 
 ```bash
 MODEL_NAME=churn-model \
-  uv run churn-mlops serve --use-case churn --host 127.0.0.1 --port 8000 --reload
-uv run churn-mlops serve --use-case churn --model_manifest manifests/churn-rf-OOT_26Q2.json
+  uv run churn-mlops serve --use_case churn --host 127.0.0.1 --port 8000 --reload
+uv run churn-mlops serve --use_case churn --model_manifest manifests/churn-lr-oot-26Q2.json
 ```
 
 The service loads the selected model once per process. Its
@@ -359,9 +359,12 @@ to the configured output directory:
 
 ```bash
 uv run python -m churn_mlops.serving.serve_samples \
-  --use-case churn \
-  --sample_size 1000 \
+  --use_case churn \
+  --model_name churn-model \
+  --model_version 1 \
+  --sample_size 2000 \
   --random_state 42 \
+  --timestamp 2026-09-01 \
   --drop_columns churn reference_date
 ```
 
@@ -376,7 +379,7 @@ Monitor scored CSV files:
 
 ```bash
 uv run churn-mlops monitor \
-  --use-case churn \
+  --use_case churn \
   --reference_csv output/predictions_training.csv \
   --analysis_csv output/predictions_inference.csv
 ```
@@ -385,7 +388,7 @@ Monitor the configured API prediction and error logs:
 
 ```bash
 uv run churn-mlops monitor \
-  --use-case churn \
+  --use_case churn \
   --reference_csv output/predictions_training.csv \
   --api
 ```
@@ -398,7 +401,7 @@ Monitoring can also use already-scored partitioned datasets under `DATA_DIR`:
 
 ```bash
 uv run churn-mlops monitor \
-  --use-case churn \
+  --use_case churn \
   --reference_dataset train_predictions \
   --analysis_dataset api_predictions \
   --error_dataset api_errors \
@@ -447,8 +450,8 @@ default, these commands read the configured JSONL logs and write to
 `data/api_predictions` and `data/api_errors`:
 
 ```bash
-uv run churn-mlops ingest-prediction-logs --use-case churn
-uv run churn-mlops ingest-error-logs --use-case churn
+uv run churn-mlops ingest-prediction-logs --use_case churn
+uv run churn-mlops ingest-error-logs --use_case churn
 ```
 
 Re-ingestion replaces existing partitions for the months represented in the
@@ -465,7 +468,7 @@ training, batch prediction, API, and monitoring code consumes this contract.
 
 To add another classification problem:
 
-1. Add a use-case package with its data validator and (when needed) feature
+1. Add a use_case package with its data validator and (when needed) feature
    transformer and Pydantic request schema. Use the shared
    [identity feature transformer](src/churn_mlops/models/features.py) when no
    domain-specific feature engineering is required.
@@ -474,13 +477,13 @@ To add another classification problem:
    factory, and optional request schema.
 3. Add a training YAML with model settings; pass the registered use case
    explicitly when invoking training.
-4. Select the use case explicitly with `--use-case` for data preparation,
+4. Select the use case explicitly with `--use_case` for data preparation,
    batch prediction, monitoring, serving, and API log ingestion. Dataset and
    API log timestamps use the selected use case's time column.
 
 Training configurations are not substitutes for input validation or HTTP
 schemas: each use case owns those contracts. Retrain models after changing
-use-case feature logic.
+use_case feature logic.
 
 ### Data contract for churn use case
 
@@ -584,11 +587,11 @@ promotion:
     calibration_error: 0.2
 ```
 
-Pass the required use case with `--use-case` in the CLI or `use_case=` in a
+Pass the required use case with `--use_case` in the CLI or `use_case=` in a
 Python training call. The selected contract supplies the target, time, and
 feature columns used by training.
 
-`--n-jobs` sets the total CPU job budget for a run. It defaults to `1`, accepts
+`--n_jobs` sets the total CPU job budget for a run. It defaults to `1`, accepts
 positive integers, and uses `-1` to request all available CPUs. During tuning,
 trials run in parallel while individual estimators use one job; during
 calibration, folds run in parallel while inner estimators use one job. For
@@ -596,15 +599,15 @@ uncalibrated fitting, the classifier uses the budget if it supports `n_jobs`.
 
 ### Calibration
 
-Calibration is selected per run with `--calibration-method` as `none`,
+Calibration is selected per run with `--calibration_method` as `none`,
 `sigmoid` (Platt scaling), or `isotonic`; it defaults to `none`. The training
 config YAML sets the number of folds and bins used for calibration. For
 calibrated runs, `CalibratedClassifierCV` uses expanding historical folds: each
 calibration fold is later than the fold's model-fitting data. To compare
 calibration approaches, run separate experiments with the same data and
-classifier while changing `--calibration-method`.
+classifier while changing `--calibration_method`.
 
-`LinearSVC` and `SVC` require `--calibration-method` to be `sigmoid` or
+`LinearSVC` and `SVC` require `--calibration_method` to be `sigmoid` or
 `isotonic`.
 They do not provide probabilities when used without calibration. During Optuna
 ranking-metric evaluation, these estimators are scored using their decision
@@ -724,7 +727,7 @@ Environment variables can override the runtime defaults:
 
 | Variable | Local default | Purpose |
 | --- | --- | --- |
-| `USE_CASE` | Required for serving | Registered use-case contract selected by the API |
+| `USE_CASE` | Required for serving | Registered use_case contract selected by the API |
 | `MLFLOW_TRACKING_URI` | SQLite at `tracking_local/mlflow.db` | MLflow tracking and registry |
 | `MLFLOW_EXPERIMENT_NAME` | `test` | Default monitoring experiment |
 | `MODEL_NAME` | Unset | Registered model name for serving (required unless using a manifest) |
@@ -775,7 +778,7 @@ splits under the mounted `data/` directory, train a model in the same Compose
 environment with:
 
 ```bash
-docker compose run --rm api train --config rf.yaml --split_name OOT_26Q2
+docker compose run --rm api train --config rf.yaml --split_name oot-26Q2
 ```
 
 Other CLI commands are available by overriding the default `serve` command,
@@ -783,7 +786,7 @@ for example:
 
 ```bash
 docker compose run --rm api batch-predict \
-  --use-case churn \
+  --use_case churn \
   --input_dataset partitioned \
   --start_date 2026-01-01 \
   --end_date 2026-06-30

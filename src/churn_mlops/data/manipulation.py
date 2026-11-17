@@ -121,11 +121,11 @@ def main() -> None:
     The original data is enhanced by the selected use case's time column.
     """
     parser = argparse.ArgumentParser()
+    parser.add_argument("--use_case", required=True)
     parser.add_argument("--input_csv", required=True)
     parser.add_argument("--output_csv", required=True)
     parser.add_argument("--start_date", required=True)
     parser.add_argument("--end_date", required=True)
-    parser.add_argument("--use-case", required=True)
 
     args = parser.parse_args()
 

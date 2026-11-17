@@ -36,7 +36,7 @@ def test_package_main_dispatches_train_command(monkeypatch) -> None:
     churn_mlops.main(
         [
             "train",
-            "--use-case",
+            "--use_case",
             "alternate",
             "--config",
             "config.yaml",
@@ -95,7 +95,7 @@ def test_package_main_dispatches_monitor_command(monkeypatch) -> None:
             "reference.csv",
             "--analysis_csv",
             "analysis.csv",
-            "--use-case",
+            "--use_case",
             "churn",
             "--output_dir",
             "reports",
@@ -152,7 +152,7 @@ def test_package_main_builds_report_from_partitioned_datasets(
             "partitioned",
             "--analysis_dataset",
             "api_predictions",
-            "--use-case",
+            "--use_case",
             "alternate",
             "--error_dataset",
             "api_errors",
@@ -229,7 +229,7 @@ def test_package_main_uses_monitoring_model_manifest(
             "reference",
             "--analysis_dataset",
             "analysis",
-            "--use-case",
+            "--use_case",
             "churn",
             "--model_manifest",
             "manifests/churn-hgb-OOT_26Q2.json",
@@ -280,7 +280,7 @@ def test_package_main_rejects_monitor_manifest_with_explicit_model(
                 "reference",
                 "--analysis_dataset",
                 "analysis",
-                "--use-case",
+                "--use_case",
                 "churn",
                 "--model_manifest",
                 "manifests/model.json",
@@ -318,7 +318,7 @@ def test_package_main_passes_manifest_to_api_for_serving(
             "serve",
             "--model_manifest",
             "manifests/unregistered.json",
-            "--use-case",
+            "--use_case",
             "churn",
         ]
     )
@@ -363,7 +363,7 @@ def test_package_main_dispatches_api_file_monitoring_with_configured_error_log(
             "reference.csv",
             "--prediction_log",
             "custom_predictions.jsonl",
-            "--use-case",
+            "--use_case",
             "churn",
         ]
     )
@@ -405,7 +405,7 @@ def test_package_main_dispatches_serve_command(monkeypatch) -> None:
             "--port",
             "9000",
             "--reload",
-            "--use-case",
+            "--use_case",
             "churn",
         ]
     )
@@ -462,7 +462,7 @@ def test_package_main_dispatches_prepare_data(
     )
 
     churn_mlops.main(
-        ["prepare-data", "--input_csv", "training.csv", "--use-case", "churn"]
+        ["prepare-data", "--input_csv", "training.csv", "--use_case", "churn"]
     )
 
     assert observed == {
@@ -510,7 +510,7 @@ def test_package_main_dispatches_create_split(
             "create-split",
             "--dataset_name",
             "partitioned",
-            "--use-case",
+            "--use_case",
             "alternate",
             "--start_date",
             "2026-01-01",
@@ -567,7 +567,7 @@ def test_package_main_uses_selected_use_case_time_columns_for_monitoring(
             "analysis",
             "--source_analysis",
             "batch",
-            "--use-case",
+            "--use_case",
             "alternate",
         ]
     )
@@ -608,7 +608,7 @@ def test_package_main_dispatches_log_ingestion(
         lambda name: use_case,
     )
 
-    churn_mlops.main([command, "--use-case", "alternate"])
+    churn_mlops.main([command, "--use_case", "alternate"])
 
     assert observed == {
         "dataset_name": dataset_name,

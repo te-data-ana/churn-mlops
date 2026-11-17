@@ -50,7 +50,7 @@ def test_batch_predict_cli_reads_csv_and_writes_predictions(
             "predictions.csv",
             "--index_col",
             "customerid",
-            "--use-case",
+            "--use_case",
             "churn",
         ]
     )
@@ -210,7 +210,7 @@ def test_batch_predict_cli_reads_model_manifest(
             "scored.csv",
             "--model_manifest",
             str(tmp_path / "manifest.json"),
-            "--use-case",
+            "--use_case",
             "churn",
         ]
     )
@@ -261,7 +261,7 @@ def test_batch_predict_cli_reads_unregistered_model_manifest(
             "scored.csv",
             "--model_manifest",
             str(tmp_path / "manifest.json"),
-            "--use-case",
+            "--use_case",
             "churn",
         ]
     )
@@ -329,7 +329,7 @@ def test_batch_predict_cli_reads_and_writes_partitioned_data(
             "2026-02-01",
             "--end_date",
             "2026-02-28",
-            "--use-case",
+            "--use_case",
             "churn",
         ]
     )
@@ -401,7 +401,7 @@ def test_batch_predict_cli_rejects_invalid_arguments(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit) as exc_info:
-        churn_mlops.main(["batch-predict", "--use-case", "churn", *arguments])
+        churn_mlops.main(["batch-predict", "--use_case", "churn", *arguments])
 
     assert exc_info.value.code == 2
     assert error_message in capsys.readouterr().err

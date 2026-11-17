@@ -41,13 +41,13 @@ def test_training_cli_passes_run_time_options(
     churn_mlops.main(
         [
             "train",
-            "--use-case",
+            "--use_case",
             "churn",
             "--config",
             "lr.yaml",
-            "--calibration-method",
+            "--calibration_method",
             "isotonic",
-            "--n-jobs",
+            "--n_jobs",
             "2",
             "--tune-model",
             *registration_args,
@@ -65,7 +65,7 @@ def test_training_cli_requires_use_case(capsys: pytest.CaptureFixture[str]) -> N
     with pytest.raises(SystemExit, match="2"):
         churn_mlops.main(["train", "--config", "lr.yaml"])
 
-    assert "--use-case" in capsys.readouterr().err
+    assert "--use_case" in capsys.readouterr().err
 
 
 @pytest.mark.unit
@@ -109,7 +109,7 @@ def test_run_training_job_resolves_required_use_case_before_training(
         mlflow_tracking_uri="sqlite:///tracking.db",
         mlflow_experiment_name="test",
     )
-    registry_lookup = MagicMock(side_effect=ValueError("stop after use-case lookup"))
+    registry_lookup = MagicMock(side_effect=ValueError("stop after use_case lookup"))
     monkeypatch.setattr(train, "configure_logging", MagicMock())
     monkeypatch.setattr(train, "RuntimeSettings", lambda: settings)
     monkeypatch.setattr(
@@ -119,7 +119,7 @@ def test_run_training_job_resolves_required_use_case_before_training(
     )
     monkeypatch.setattr(train, "get_use_case", registry_lookup)
 
-    with pytest.raises(ValueError, match="stop after use-case lookup"):
+    with pytest.raises(ValueError, match="stop after use_case lookup"):
         train.run_training_job(
             use_case="alternate",
             config_file="lr.yaml",

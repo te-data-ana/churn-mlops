@@ -2,9 +2,9 @@ stages:
   add_reference_dates:
     cmd: >-
       uv run python -m churn_mlops.data.manipulation
+      --use_case ${use_case}
       --input_csv customer_churn_dataset-training.csv
       --output_csv training.csv
-      --use-case ${use_case}
       --start_date 2023-01-01
       --end_date 2025-12-01
     deps:
@@ -21,9 +21,9 @@ stages:
   add_inference_reference_dates:
     cmd: >-
       uv run python -m churn_mlops.data.manipulation
+      --use_case ${use_case}
       --input_csv customer_churn_dataset-inference.csv
       --output_csv inference.csv
-      --use-case ${use_case}
       --start_date 2026-01-01
       --end_date 2026-06-01
     deps:
@@ -40,11 +40,11 @@ stages:
   prepare_partitioned_data:
     cmd: >-
       uv run churn-mlops prepare-data
-      --input_csv training.csv
-      --use-case ${use_case} &&
+      --use_case ${use_case}
+      --input_csv training.csv &&
       uv run churn-mlops prepare-data
+      --use_case ${use_case}
       --input_csv inference.csv
-      --use-case ${use_case}
     deps:
       - data/raw/training.csv
       - data/raw/inference.csv
@@ -60,8 +60,8 @@ stages:
   create_oot_split:
     cmd: >-
       uv run churn-mlops create-split
+      --use_case ${use_case}
       --dataset_name partitioned
-      --use-case ${use_case}
       --start_date ${split.start_date}
       --split_date ${split.split_date}
       --end_date ${split.end_date}
@@ -83,14 +83,14 @@ stages:
   train_model:
     cmd: >-
       uv run churn-mlops train
-      --use-case ${use_case}
+      --use_case ${use_case}
       --config ${model.classifier}.yaml
       --split_name ${split.name}
-      --calibration-method ${calibration.method}
-      --n-jobs ${training.n_jobs}
+      --calibration_method ${calibration.method}
+      --n_jobs ${training.n_jobs}
       --tune-model ${training.tune_model}
       --register-model ${model.register_model}
-      --no-promote-model
+      --promote-model ${model.promote_model}
     deps:
       - data/splits/${split.name}_test.parquet
       - data/splits/${split.name}_train.parquet
@@ -107,13 +107,14 @@ stages:
       - training.n_jobs
       - training.tune_model
       - model.register_model
+      - model.promote_model
     outs:
       - data/manifests:
           persist: true
   batch_predict_oot:
     cmd: >-
       uv run churn-mlops batch-predict
-      --use-case ${use_case}
+      --use_case ${use_case}
       --input_dataset splits/${split.name}_test.parquet
       --output_dataset predictions/${use_case}_${model.classifier}_${split.name}
       --model_manifest manifests/${use_case}-${model.classifier}-${split.name}.json

@@ -1,18 +1,19 @@
 use_case: churn
 
 split:
-  name: OOT_26Q2
+  name: oot-26Q2
   start_date: '2025-04-01'
   split_date: '2026-04-01'
   end_date: '2026-06-30'
 
 model:
-  classifier: lr
+  classifier: nb
   register_model: true
+  promote_model: true
 
 training:
   n_jobs: 16
-  tune_model: false
+  tune_model: true
 
 calibration:
-  method: sigmoid
+  method: isotonic

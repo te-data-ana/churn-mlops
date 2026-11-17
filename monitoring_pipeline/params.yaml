@@ -1,9 +1,9 @@
 monitoring:
   use_case: churn
-  name: lr_OOT_26Q2
-  reference_dataset: predictions/lr_OOT_26Q2
+  name: churn_lr_oot-26Q2
+  reference_dataset: predictions/churn_lr_oot-26Q2
   analysis_dataset: api_predictions
   source_reference: batch
   source_analysis: api
-  model_manifest: manifests/lr_OOT_26Q2.json
-  mlflow_experiment_name: churn_risk-monitoring
+  model_manifest: manifests/churn-lr-oot-26Q2.json
+  mlflow_experiment_name: churn-monitoring

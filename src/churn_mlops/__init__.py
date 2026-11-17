@@ -44,8 +44,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         epilog=(
             "Examples:\n"
             "  churn-mlops train --config sample_training_config.yaml\n"
-            "  churn-mlops batch-predict --use-case churn --input_csv customer.csv --output_csv predictions.csv\n"
-            "  churn-mlops serve --use-case churn --host 127.0.0.1 --port 8000 --reload"
+            "  churn-mlops batch-predict --use_case churn --input_csv customer.csv --output_csv predictions.csv\n"
+            "  churn-mlops serve --use_case churn --host 127.0.0.1 --port 8000 --reload"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -55,6 +55,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "prepare-data",
         help="Convert raw CSV datasets into partitioned Parquet datasets.",
     )
+    prepare_parser.add_argument("--use_case", required=True)
     prepare_parser.add_argument(
         "--input_csv",
         type=str,
@@ -65,14 +66,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--timestamp_column",
         type=str,
         default=None,
-        help="Timestamp column used for partitioning (defaults to the use-case time column).",
+        help="Timestamp column used for partitioning (defaults to the use_case time column).",
     )
-    prepare_parser.add_argument("--use-case", required=True)
 
     split_parser = subparsers.add_parser(
         "create-split",
         help="Create train and test datasets using an out-of-time split.",
     )
+    split_parser.add_argument("--use_case", required=True)
     split_parser.add_argument(
         "--dataset_name",
         required=True,
@@ -81,9 +82,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     split_parser.add_argument(
         "--timestamp_column",
         default=None,
-        help="Timestamp column used for splitting (defaults to the use-case time column).",
+        help="Timestamp column used for splitting (defaults to the use_case time column).",
     )
-    split_parser.add_argument("--use-case", required=True)
     split_parser.add_argument(
         "--start_date",
         required=True,
@@ -110,9 +110,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Train and evaluate a model from a YAML config.",
     )
     train_parser.add_argument(
-        "--use-case",
+        "--use_case",
         required=True,
-        help="Registered use-case contract for this training run.",
+        help="Registered use_case contract for this training run.",
     )
     train_parser.add_argument(
         "--config", required=True, help="Training config file path."
@@ -123,13 +123,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Name prefix of prepared train/test Parquet files in data/splits.",
     )
     train_parser.add_argument(
-        "--calibration-method",
+        "--calibration_method",
         choices=("none", "sigmoid", "isotonic"),
         default="none",
         help="Calibration method for this training run.",
     )
     train_parser.add_argument(
-        "--n-jobs",
+        "--n_jobs",
         type=int,
         default=1,
         help=(
@@ -174,12 +174,25 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Disable model registration for this run.",
     )
     train_parser.set_defaults(register_model=False)
-    train_parser.add_argument(
+    promote_model_group = train_parser.add_mutually_exclusive_group()
+    promote_model_group.add_argument(
         "--promote-model",
-        action=argparse.BooleanOptionalAction,
+        nargs="?",
+        const=True,
+        type=_parse_boolean,
         default=False,
-        help="Enable or disable candidate/champion promotion for this run.",
+        help=(
+            "En-/disable model promotion (optionally provide true/false; "
+            "without a value, promotion is enabled)."
+        ),
     )
+    promote_model_group.add_argument(
+        "--no-promote-model",
+        dest="promote_model",
+        action="store_false",
+        help="Disable model promotion for this run.",
+    )
+    train_parser.set_defaults(promote_model=False)
 
     batch_parser = subparsers.add_parser(
         "batch-predict",
@@ -224,9 +237,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--timestamp_column",
         type=str,
         default=None,
-        help="Timestamp column for partitioned input/output (defaults to the use-case time column).",
+        help="Timestamp column for partitioned input/output (defaults to the use_case time column).",
     )
-    batch_parser.add_argument("--use-case", required=True)
+    batch_parser.add_argument("--use_case", required=True)
     batch_parser.add_argument(
         "--model_name",
         help="Registered model name (defaults to the configured serving model).",
@@ -261,9 +274,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Enable auto-reload for local development.",
     )
     serve_parser.add_argument(
-        "--use-case",
+        "--use_case",
         default=os.environ.get("USE_CASE"),
-        help="Registered use-case name (or set USE_CASE).",
+        help="Registered use_case name (or set USE_CASE).",
     )
     serve_parser.add_argument(
         "--model-name",
@@ -293,12 +306,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         default="api_predictions",
         help="Target dataset name.",
     )
-    ingest_prediction_log_parser.add_argument("--use-case", required=True)
+    ingest_prediction_log_parser.add_argument("--use_case", required=True)
     ingest_prediction_log_parser.add_argument(
         "--timestamp_column",
         type=str,
         default=None,
-        help="Timestamp column used for partitioning (defaults to the use-case time column).",
+        help="Timestamp column used for partitioning (defaults to the use_case time column).",
     )
 
     ingest_error_log_parser = subparsers.add_parser(
@@ -311,19 +324,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         default="api_errors",
         help="Target dataset name.",
     )
-    ingest_error_log_parser.add_argument("--use-case", required=True)
+    ingest_error_log_parser.add_argument("--use_case", required=True)
     ingest_error_log_parser.add_argument(
         "--timestamp_column",
         type=str,
         default=None,
-        help="Timestamp column used for partitioning (defaults to the use-case time column).",
+        help="Timestamp column used for partitioning (defaults to the use_case time column).",
     )
 
     monitor_parser = subparsers.add_parser(
         "monitor",
         help="Monitor prediction quality based on files or partitioned datasets.",
     )
-    monitor_parser.add_argument("--use-case", required=True)
+    monitor_parser.add_argument("--use_case", required=True)
     monitor_reference = monitor_parser.add_mutually_exclusive_group(required=True)
     monitor_reference.add_argument(
         "--reference_csv",
@@ -373,7 +386,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         default=None,
         help=(
             "Timestamp/partition column for datasets. Defaults to the selected "
-            "use-case time column."
+            "use_case time column."
         ),
     )
     monitor_parser.add_argument(
@@ -578,7 +591,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     if args.command == "serve":
         if not args.use_case:
-            parser.error("--use-case or USE_CASE is required.")
+            parser.error("--use_case or USE_CASE is required.")
         if (
             args.model_manifest is None
             and args.model_name is None
