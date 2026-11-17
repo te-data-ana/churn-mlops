@@ -18,6 +18,7 @@ class UseCase:
     data_validator: Callable[[pd.DataFrame], pd.DataFrame]
     feature_builder_factory: Callable[[Mapping[str, Any] | None], BaseEstimator]
     request_schema: type[BaseModel] | None = None
+    index_column: str | None = None
 
     def __post_init__(self) -> None:
         if not self.name:

@@ -24,10 +24,11 @@ API_HEALTH_CHECK_INTERVAL_SECONDS = 1
 
 
 def load_sample_data(
+    use_case: UseCase,
+    input_csv: str,
     sample_size: int,
     random_state: int,
     settings: ServingSettings,
-    use_case: UseCase,
     drop_columns: list[str] | None = None,
 ) -> pd.DataFrame:
     """Load, validate, and sample inference data.
@@ -36,10 +37,11 @@ def load_sample_data(
     inference schema, and returns a random sample of records.
 
     Args:
+        use_case: Explicit data contract for the sample features.
+        input_csv: Name of the CSV file in the raw data directory.
         sample_size: Number of records to sample.
         random_state: Seed used for reproducible sampling.
         settings: Runtime configuration containing data locations.
-        use_case: Explicit data contract for the sample features.
         drop_columns: Optional list of column names to drop from loaded data.
 
     Returns:
@@ -47,8 +49,8 @@ def load_sample_data(
     """
 
     df = load_raw_data(
-        file_name="inference.csv",
-        index_col="customerid",
+        file_name=input_csv,
+        index_col=use_case.index_column,
         data_dir=settings.data_dir / "raw",
         drop_columns=drop_columns,
     )
@@ -62,9 +64,9 @@ def load_sample_data(
 
 
 def predict_samples(
+    use_case: UseCase,
     df: pd.DataFrame,
     settings: ServingSettings,
-    use_case: UseCase,
     timestamp: datetime | None = None,
 ) -> pd.DataFrame:
     """Generate predictions for a collection of samples.
@@ -74,10 +76,10 @@ def predict_samples(
     features.
 
     Args:
+        use_case: Explicit data contract for the sample features.
         df: DataFrame containing inference records.
         settings: Runtime configuration containing API connection
             details.
-        use_case: Explicit data contract for the sample features.
         timestamp: Optional timestamp to use for all prediction requests. If
             not provided, the use-case time column in `df` is used when present.
 
@@ -154,11 +156,12 @@ def save_predictions(
 
 
 def serve_samples(
+    use_case: UseCase,
+    input_csv: str,
     sample_size: int,
     random_state: int,
     settings: ServingSettings | None = None,
     *,
-    use_case: UseCase,
     timestamp: datetime | None = None,
     drop_columns: list[str] | None = None,
 ) -> Path:
@@ -169,12 +172,13 @@ def serve_samples(
     predictions in a CSV file.
 
     Args:
+        use_case: Explicit data contract used for loading and inference.
+        input_csv: Name of the CSV file in the raw data directory.
         sample_size: Number of records to sample and score.
         random_state: Seed used for reproducible sampling and run
             identification.
         settings: Runtime configuration. If not provided, a default
             configuration is created.
-        use_case: Explicit data contract used for loading and inference.
         timestamp: Optional timestamp for the sampled data.
         drop_columns: Optional list of column names to drop from loaded
             data.
@@ -190,17 +194,18 @@ def serve_samples(
     settings = settings or ServingSettings()
 
     df_sample = load_sample_data(
+        use_case=use_case,
+        input_csv=input_csv,
         sample_size=sample_size,
         random_state=random_state,
         settings=settings,
-        use_case=use_case,
         drop_columns=drop_columns,
     )
 
     df_predictions = predict_samples(
+        use_case=use_case,
         df=df_sample,
         settings=settings,
-        use_case=use_case,
         timestamp=timestamp,
     )
 
@@ -302,6 +307,12 @@ def custom_parser(settings: ServingSettings) -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Path of model manifest in configured data directory.",
+    )
+    parser.add_argument(
+        "--input_csv",
+        required=True,
+        type=str,
+        help="Name of the CSV file in the raw data directory to sample from.",
     )
     parser.add_argument(
         "--sample_size",
@@ -414,10 +425,11 @@ def main() -> None:
         )
 
         serve_samples(
+            use_case=get_use_case(args.use_case),
+            input_csv=args.input_csv,
             sample_size=args.sample_size,
             random_state=random_state,
             settings=settings,
-            use_case=get_use_case(args.use_case),
             timestamp=args.timestamp,
             drop_columns=args.drop_columns,
         )

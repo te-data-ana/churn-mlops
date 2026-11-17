@@ -124,7 +124,7 @@ class Predictor:
         """Predict churn for multiple records while preserving their index.
 
         Args:
-            df: DataFrame containing one customer record per row.
+            df: DataFrame containing one data record per row.
 
         Returns:
             DataFrame indexed like ``df`` with predicted probabilities,

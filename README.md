@@ -326,7 +326,7 @@ curl http://127.0.0.1:8000/health
 curl -i http://127.0.0.1:8000/ready
 ```
 
-Send a customer record to `/predict`:
+Send a record to `/predict`:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/predict \
@@ -353,13 +353,14 @@ The API uses the `MODEL_NAME` and `MODEL_ALIAS` settings (or an explicit model
 version) to load a registered model. The interactive API reference is available
 at <http://127.0.0.1:8000/docs>.
 
-For sample-based API checks, the helper reads and samples the inference CSV,
-sends each row to the service, and writes predictions with the input features
-to the configured output directory:
+For sample-based API checks, the helper reads and samples the CSV given by
+`--input_csv` (resolved in `data/raw`), sends each row to the service, and
+writes predictions with the input features to the configured output directory:
 
 ```bash
 uv run python -m churn_mlops.serving.serve_samples \
   --use_case churn \
+  --input_csv inference.csv \
   --model_name churn-model \
   --model_version 1 \
   --sample_size 2000 \
@@ -548,9 +549,7 @@ The model catalog currently supports:
 
 Classifier implementations and tuning search spaces are defined in the
 [model catalog](src/churn_mlops/models/catalog.py). The feature pipeline adds
-contract commitment, relative tenure, engagement, yearly spend and support
-call rates, late-payer status, and inactive-customer status before
-preprocessing and classification.
+custom feature engineering before preprocessing and classification.
 
 Example training configuration:
 

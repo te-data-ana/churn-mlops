@@ -91,11 +91,11 @@ class ModelCardBuilder:
 
 ## Intended Use
 
-Predict customer {context.data.target_column} probability.
+Predict {context.model.use_case} probability / class label.
 
 ## Training Dataset
 
-Trained on historical {context.data.target_column} data.
+Trained on historical {context.model.use_case} data.
 
 | Property | Value |
 |----------|-------|

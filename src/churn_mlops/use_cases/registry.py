@@ -13,6 +13,7 @@ CHURN_USE_CASE = UseCase(
     data_validator=ChurnDataSchema.validate,
     feature_builder_factory=ChurnFeatureBuilder,
     request_schema=ChurnInputFeatures,
+    index_column="customerid",
 )
 
 USE_CASES = {CHURN_USE_CASE.name: CHURN_USE_CASE}

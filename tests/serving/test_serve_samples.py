@@ -38,11 +38,10 @@ def test_load_sample_data_is_reproducible(
     monkeypatch: pytest.MonkeyPatch,
     generated_training_df: pd.DataFrame,
 ) -> None:
-    monkeypatch.setattr(
-        serve_samples,
-        "load_raw_data",
-        lambda **kwargs: generated_training_df.drop(columns=["Churn"]),
+    load_raw_data_mock = Mock(
+        return_value=generated_training_df.drop(columns=["Churn"])
     )
+    monkeypatch.setattr(serve_samples, "load_raw_data", load_raw_data_mock)
 
     monkeypatch.setattr(
         serve_samples,
@@ -53,21 +52,29 @@ def test_load_sample_data_is_reproducible(
     settings = RuntimeSettings()
 
     result_1 = serve_samples.load_sample_data(
+        use_case=CHURN_USE_CASE,
+        input_csv="custom.csv",
         sample_size=5,
         random_state=42,
         settings=settings,
-        use_case=CHURN_USE_CASE,
     )
 
     result_2 = serve_samples.load_sample_data(
+        use_case=CHURN_USE_CASE,
+        input_csv="custom.csv",
         sample_size=5,
         random_state=42,
         settings=settings,
-        use_case=CHURN_USE_CASE,
     )
 
     assert len(result_1) == 5
     pd.testing.assert_frame_equal(result_1, result_2)
+    load_raw_data_mock.assert_called_with(
+        file_name="custom.csv",
+        index_col=CHURN_USE_CASE.index_column,
+        data_dir=settings.data_dir / "raw",
+        drop_columns=None,
+    )
 
 
 @pytest.mark.unit
@@ -249,19 +256,21 @@ def test_serve_samples_calls_dependencies(
     monkeypatch.setattr(serve_samples, "save_predictions", save_predictions_mock)
 
     result = serve_samples.serve_samples(
+        use_case=CHURN_USE_CASE,
+        input_csv="inference.csv",
         sample_size=1,
         random_state=42,
         settings=settings,
-        use_case=CHURN_USE_CASE,
         drop_columns=None,
     )
 
     assert result == expected
     load_sample_data_mock.assert_called_once_with(
+        use_case=CHURN_USE_CASE,
+        input_csv="inference.csv",
         sample_size=1,
         random_state=42,
         settings=settings,
-        use_case=CHURN_USE_CASE,
         drop_columns=None,
     )
     predict_samples_mock.assert_called_once_with(
@@ -370,8 +379,9 @@ def test_custom_parser_uses_settings_defaults() -> None:
 
     parser = custom_parser(settings)
 
-    args = parser.parse_args([])
+    args = parser.parse_args(["--input_csv", "inference.csv"])
 
+    assert args.input_csv == "inference.csv"
     assert args.sample_size == 1000
     assert args.host == "localhost"
     assert args.port == 8000
@@ -380,6 +390,14 @@ def test_custom_parser_uses_settings_defaults() -> None:
     assert args.model_name is None
     assert args.model_version is None
     assert args.model_manifest is None
+
+
+@pytest.mark.unit
+def test_custom_parser_requires_input_csv() -> None:
+    parser = custom_parser(Mock(api_host="localhost", api_port=8000))
+
+    with pytest.raises(SystemExit):
+        parser.parse_args([])
 
 
 @pytest.mark.unit
@@ -427,6 +445,8 @@ def test_main_starts_api_serves_samples_and_stops_server(
     mock_process = Mock()
 
     args = Namespace(
+        use_case="churn",
+        input_csv="inference.csv",
         sample_size=100,
         random_state=42,
         timestamp=datetime(2026, 9, 30, tzinfo=UTC),
@@ -434,7 +454,6 @@ def test_main_starts_api_serves_samples_and_stops_server(
         host="localhost",
         port=8000,
         reload=False,
-        use_case="churn",
         model_name=None,
         model_version=None,
         model_manifest=None,
@@ -496,10 +515,11 @@ def test_main_starts_api_serves_samples_and_stops_server(
     )
 
     serve_samples_mock.assert_called_once_with(
+        use_case=CHURN_USE_CASE,
+        input_csv="inference.csv",
         sample_size=100,
         random_state=42,
         settings=mock_settings,
-        use_case=CHURN_USE_CASE,
         timestamp=args.timestamp,
         drop_columns=["reference_date"],
     )
@@ -516,6 +536,8 @@ def test_main_stops_server_when_serving_fails(
     mock_process = Mock()
 
     args = Namespace(
+        use_case="churn",
+        input_csv="inference.csv",
         sample_size=100,
         random_state=42,
         timestamp=None,
@@ -523,7 +545,6 @@ def test_main_stops_server_when_serving_fails(
         host="localhost",
         port=8000,
         reload=False,
-        use_case="churn",
         model_name=None,
         model_version=None,
         model_manifest=None,
@@ -578,6 +599,8 @@ def test_main_rejects_manifest_and_model_version(
     parser = Mock()
 
     parser.parse_args.return_value = Namespace(
+        use_case="churn",
+        input_csv="inference.csv",
         sample_size=100,
         random_state=42,
         timestamp=None,
@@ -585,7 +608,6 @@ def test_main_rejects_manifest_and_model_version(
         host="localhost",
         port=8000,
         reload=False,
-        use_case="churn",
         model_name="model",
         model_version=1,
         model_manifest=Path("manifest.json"),
