@@ -37,7 +37,7 @@ def test_main_passes_cli_config_to_preprocess_raw_data(
             "2026-01-01",
             "--end_date",
             "2026-06-01",
-            "--use-case",
+            "--use_case",
             "churn",
         ],
     )
